@@ -75,6 +75,31 @@ engineering plan.
 | 44 | First-run tutorial | ⬜ | M | Judges arrive cold. |
 | 45 | Victory/defeat cinematics | ⬜ | M | Currently a panel; should be a moment. |
 | 46 | Haptics on mobile | ✅ | — | Deploy, chest, purchase only — a signal, not noise. |
+| 46b | Full-app design audit and remediation | ✅ | — | 21 findings closed. See note below. |
+
+The audit pass behind #46b is worth recording, because most of it was one
+category of mistake. Four P0s were real breakage: the `2× ELIXIR` banner painted
+on top of the crown score for the whole double-elixir phase and all of overtime;
+the Mint button — the primary conversion action of the Cards screen — was bare
+text on wood with a 1.6:1 border; chest slot actions were 26px targets whose
+label wrapped at every width and burst the rail; and the ineligibility reason ran
+at 2.31:1 on wood.
+
+The rest traced to the same root: **values re-guessed at each call site instead of
+being tokens**. Recesses had drifted across eight alpha values of two navies, the
+wood surface was hand-rolled at two grain scales (so `.panel .label` never fired
+in the battle HUD and it rendered blue text on brown wood), and four sheets each
+declared a global `sheetUp` keyframe with different numbers. `.display` hardcoded
+a 3px stroke at every size, so nine call sites under 19px turned to blobs — worst
+at 13px, where the stroke was 23% of the em on each side. Three components still
+carried the retired dark palette, including `MoneyRow`, the pot readout, which
+was the last flat 1px rectangle in the game and bordered in the *superseded* gold.
+`Pill` drove `ghost` and `disabled` from one flag, so on the forfeit confirm the
+destructive option was the only one that looked pressable.
+
+Fixed by adding `--recess`, `--r-sheet`, `--red-on-wood`, `.wood`, `.sheet`,
+`.display--sm`, `.icon-btn`, `.menu-item` and a `Spinner`, then deleting the
+literals. DESIGN.md records each rule with the failure that produced it.
 
 ## E. Production readiness
 

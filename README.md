@@ -97,6 +97,8 @@ settlement feed in the mock build are simulated and labeled as such in-app.
 royal-blue field, carved wood panels, fat buttons that depress into their own
 base edge, chunky outlined display type (Lilita One). Royal gold means exactly
 one thing: SOL is moving. One centered 430px column, arcade-cabinet on desktop.
+Verified at 320/375/430px: no readable string under 12px, no touch target under
+44px, no horizontal overflow.
 Full authority in `DESIGN.md`; product truth in `PRODUCT.md`; the monetization
 argument in `FEATURES.md`; the 50-item build plan in `ROADMAP.md`.
 
@@ -117,6 +119,7 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Chests, Gems, card inspector with live pump.fun market data
 - [x] MongoDB persistence, model compression (46MB → 1.7MB), loading screen
 - [x] Rigged animated units, Clash-grade arena, daily Shop, practice mode
+- [x] Full design audit: 21 findings closed, 12px legibility floor enforced
 - [ ] Wire app stores to the deployed program
 - [ ] Tournaments, coin sponsorship, season pass (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
