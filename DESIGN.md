@@ -18,11 +18,31 @@ SOL is moving.
 | Role | Token | Rule |
 |---|---|---|
 | Field | `--blue` on `.quilt` | Diamond harlequin pattern in CSS, not a texture — crisper and seam-free. |
-| Panels | `.panel` | Wood texture + `--bevel-out` + a hard base edge. All chrome is carved. |
-| Recessed content | `.well` | `--bevel-in`. Content sits *inside* panels, never floats on them. |
+| Wood surface | `.wood` | The grain alone, one scale. `.panel` is `.wood` plus a carved border; full-bleed wood (tab bar, battle HUD) takes `.wood`. |
+| Panels | `.panel` | Wood + `--bevel-out` + a hard base edge. All chrome is carved. |
+| Recessed content | `.well` / `--recess` | `--bevel-in` over one navy. Content sits *inside* panels, never floats on them. |
+| Bottom sheets | `.sheet` | One class, one `sheetUp` keyframe, `--r-sheet` corners. |
 | Controls | `Pill` with `tone` | gold = primary, blue = secondary, green = collect, red = destructive. |
 | Money | `.money` | Display face, gold, dark stroke, always `nowrap`. |
 | Elixir | `--elixir` | Magenta. Never gold — gold is money only. |
+
+**One value per job.** A token exists so the same decision is not re-guessed at
+each call site. Recesses had drifted across eight alpha values of two different
+navies, the wood surface was hand-rolled at two grain scales, and four sheets
+each declared a global `sheetUp` with different numbers — so whichever mounted
+last silently won for all of them. When two of these sit side by side the drift
+is visible, and it reads as carelessness rather than variety. Reach for the
+token; if none fits, add one.
+
+**Gold is money, and nothing else.** Deck power, progress bars and gem counts are
+not SOL, so they are blue or the Solana beam. The moment gold decorates
+something, it stops meaning anything where it matters.
+
+**Live is not the same as dead.** A secondary control (`ghost`) and a disabled
+one must not share a treatment. They did, which made "Keep fighting" read as
+switched off beside a fully lit "Forfeit" — on the one confirm that costs real
+SOL. Pending is a third state, and it gets a `Spinner`, not just dimming: the row
+the player tapped must stay distinguishable from the rows they did not.
 
 **Legibility law.** **12px is the floor for every readable string**, enforced in
 `tokens.css` rather than left to each call site. On a patterned field, smaller is
@@ -33,8 +53,26 @@ nested strings under the floor). Card frames derive type size from card width, s
 those minimums are floored too. Only purely decorative glyphs may go smaller, and
 only when an `aria-label` carries the meaning instead.
 
+Colour is part of legibility, not separate from it. Text on wood takes
+`--dim-on-wood`; error text on wood takes `--red-on-wood`, because bare `--red`
+on `--wood` is 2.3:1 — technically present, practically invisible. A `.well` chip
+behind it buys another two stops when the string must be red and small.
+
+**Display type scales its own stroke.** The outline is a fraction of the em, so
+`.display` under 19px takes `.display--sm`. A fixed 3px stroke on a 13px numeral
+swallows the glyph into a lump — which is exactly what the crown score was.
+
 **Bevel law.** Nothing interactive is a flat rectangle. Raised things get a top
-highlight plus a hard base edge; pressed things translate into that edge.
+highlight plus a hard base edge; pressed things translate into that edge, and
+every one of them has a hover and a press state — a plate that picks how much SOL
+is at risk cannot be the one control with no feedback. Bare glyph buttons are the
+single exception to the bevel, and they earn feedback from `.icon-btn` instead.
+
+**Nothing important is absolutely positioned over a live region.** The `2× ELIXIR`
+banner was `position: absolute; top: 46` and painted directly on top of the crown
+score for the whole double-elixir phase and all of overtime — the climax of every
+match. It is a flex row in the top bar now. If it must float, it must be measured
+against what is already there.
 
 ---
 
