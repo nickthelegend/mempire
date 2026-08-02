@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { click, play } from '../lib/audio';
+import { buzz, click, play } from '../lib/audio';
 import { coinByMint, tickerOf } from '../lib/coins';
 import { fmtSol, fmtUsd } from '../lib/format';
 import { useCollection } from '../state/collection';
@@ -49,6 +49,7 @@ export function Shop() {
     mintCard(mint);
     markBought(mint);
     play('reward');
+    buzz(18);
     setError(null);
   };
 

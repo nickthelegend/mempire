@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { click, play } from '../lib/audio';
+import { buzz, click, play } from '../lib/audio';
 import {
   CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy,
   type ChestDef, type ChestSlot,
@@ -58,6 +58,7 @@ function OpenCeremony({
 
   useEffect(() => {
     play('chestOpen');
+    buzz(24);
     const t1 = setTimeout(() => { setPhase('burst'); play('reward'); }, 700);
     return () => clearTimeout(t1);
   }, []);

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { ArchetypeIcon, CoinBadge, MoneyRow, Pill } from '../components/ui';
-import { isMuted, setMuted } from '../lib/audio';
+import { buzz, isMuted, setMuted } from '../lib/audio';
 import { fmtClock, fmtSol } from '../lib/format';
 import { ARCHETYPES } from '../sim/archetypes';
 import { FP, fp } from '../sim/fixed';
@@ -43,7 +43,7 @@ function ResultOverlay() {
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 30,
-      background: 'rgba(6,4,12,.88)', backdropFilter: 'blur(6px)',
+      background: 'var(--scrim)', backdropFilter: 'blur(7px)',
       display: 'flex', flexDirection: 'column', justifyContent: 'center',
       padding: '0 22px', gap: 14, textAlign: 'center',
       animation: 'fadeIn 300ms var(--ease-snap)',
@@ -82,8 +82,8 @@ function ResultOverlay() {
           </span>
         </div>
       )}
-      <p style={{ fontSize: 12, color: 'var(--dim)' }}>
-        {result.hashes} state hashes committed · settlement verified by final-state signature (devnet sim)
+      <p className="fine" style={{ fontSize: 11.5 }}>
+        {result.hashes} state hashes committed · settled by final-state signature (devnet sim)
       </p>
       <Pill onClick={() => { dismiss(); nav('/'); }}>Return to Arena</Pill>
     </div>
@@ -114,8 +114,8 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
           aria-hidden
           style={{
             fontSize: 15, lineHeight: 1,
-            color: i < n ? 'var(--gold)' : 'rgba(142,133,168,.32)',
-            textShadow: i < n ? '0 0 8px rgba(240,185,11,.7)' : 'none',
+            color: i < n ? 'var(--gold)' : 'rgba(219,232,255,.26)',
+            textShadow: i < n ? '0 0 9px rgba(255,196,34,.8)' : 'none',
             transform: i < n ? 'scale(1.05)' : 'none',
             transition: 'color 240ms var(--ease-snap), transform 240ms var(--ease-snap)',
           }}
@@ -123,7 +123,10 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
           ♛
         </span>
       ))}
-      <span className="mono" style={{ fontSize: 11, color: mine ? 'var(--teal)' : 'var(--red)', marginLeft: 2 }}>
+      <span
+        className="display"
+        style={{ fontSize: 13, color: mine ? '#4fd14f' : '#ff6b5a', marginLeft: 2 }}
+      >
         {n}
       </span>
     </span>
@@ -215,7 +218,7 @@ export function Battle() {
       } else {
         const g = project(e.clientX, e.clientY);
         const snapped = g ? clampDrop(g.x, g.z) : null;
-        if (snapped) playCard(drag.deckIndex, fp(snapped.x), fp(snapped.z));
+        if (snapped) { playCard(drag.deckIndex, fp(snapped.x), fp(snapped.z)); buzz(14); }
         setSelected(null);
       }
       setDrag(null);
