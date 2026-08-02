@@ -1420,6 +1420,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mempire-amm"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "anchor-spl",
+ "ephemeral-rollups-sdk",
+]
+
+[[package]]
 name = "mempire-rollup"
 version = "0.1.0"
 dependencies = [

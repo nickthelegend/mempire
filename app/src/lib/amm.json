@@ -1,0 +1,13 @@
+{
+  "cluster": "devnet",
+  "ammProgramId": "7tM95L7TooveTGAtmo6nRyJRQpSVADN3DPaagJmSp8CP",
+  "mempireMint": "AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFpR8",
+  "mempireDecimals": 6,
+  "usdcMint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+  "usdcDecimals": 6,
+  "pool": "EHrgXgNjYCtLdWYzGwbgCup5ryy2KJhLhBoFbrdHS29w",
+  "lpMint": "ERsjrSkUt2ifP2VLahgZLzi76uRfmNuVDnhihsebHfuK",
+  "baseVault": "7fHSUybLkxWS2VUnXV6b47JQg18qwmjmneoobGNWkm4D",
+  "quoteVault": "45iMyz8tt9UDjhqJds144zUzDpFwpNAyQo9PPZgA6fdE",
+  "feeBps": 30
+}

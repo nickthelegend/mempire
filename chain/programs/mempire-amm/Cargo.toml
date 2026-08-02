@@ -1,0 +1,30 @@
+[package]
+name = "mempire-amm"
+version = "0.1.0"
+description = "Constant-product AMM for $MEMPIRE / USDC, tradeable on an ephemeral rollup"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mempire_amm"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = "0.32.1"
+anchor-spl = "0.32.1"
+# `anchor-compat` targets Anchor >=0.28,<1.0; the plain `anchor` feature is for
+# Anchor 1.x and will not compile here.
+ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
