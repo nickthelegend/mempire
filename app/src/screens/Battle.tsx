@@ -81,7 +81,7 @@ function ResultOverlay() {
         <div className="well" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span aria-hidden style={{ fontSize: 22 }}>🎁</span>
           <span style={{ textAlign: 'left', minWidth: 0 }}>
-            <span className="display" style={{ fontSize: 15, display: 'block' }}>
+            <span className="display display--sm" style={{ fontSize: 15, display: 'block' }}>
               {result.chest ? `${CHESTS[result.chest].name} earned` : 'Chest slots full'}
             </span>
             <span className="fine" style={{ fontSize: 12 }}>
@@ -132,7 +132,7 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
         </span>
       ))}
       <span
-        className="display"
+        className="display display--sm"
         style={{ fontSize: 13, color: mine ? '#4fd14f' : '#ff6b5a', marginLeft: 2 }}
       >
         {n}
@@ -267,6 +267,7 @@ export function Battle() {
           <button
             onClick={() => setConfirmQuit(true)}
             aria-label="Forfeit match"
+            className="icon-btn"
             style={{
               color: 'var(--dim)', fontSize: 19, lineHeight: 1,
               width: 44, height: 44, flexShrink: 0,
@@ -289,6 +290,7 @@ export function Battle() {
             onClick={() => { setMuted(!isMuted()); setMuteTick((n) => n + 1); }}
             aria-label={isMuted() ? 'Unmute sound' : 'Mute sound'}
             aria-pressed={isMuted()}
+            className="icon-btn"
             style={{ fontSize: 15, width: 44, height: 44, flexShrink: 0, opacity: isMuted() ? 0.5 : 1 }}
           >
             {isMuted() ? '🔇' : '🔊'}
@@ -303,17 +305,18 @@ export function Battle() {
             {match.practice ? 'practice · no stake' : fmtSol(match.stakeSol * 2)}
           </span>
         </div>
+        {/* A third row, not an absolute overlay — it was landing on top of the
+            crown score for the entire double-elixir phase and all of overtime. */}
+        {doubleElixir && sim.phase !== 'ended' && (
+          <div style={{
+            textAlign: 'center', fontSize: 12, fontWeight: 800,
+            letterSpacing: '.14em', color: 'var(--teal)',
+          }}
+          >
+            2× ELIXIR
+          </div>
+        )}
       </div>
-
-      {doubleElixir && sim.phase !== 'ended' && (
-        <div style={{
-          position: 'absolute', top: 46, left: 0, right: 0, zIndex: 10, textAlign: 'center',
-          fontSize: 12, fontWeight: 800, letterSpacing: '.14em', color: 'var(--teal)',
-        }}
-        >
-          2× ELIXIR
-        </div>
-      )}
 
       <div ref={shakeEl} style={{ position: 'absolute', inset: 0 }}>
         <BattleScene
@@ -342,12 +345,14 @@ export function Battle() {
             transition: 'filter 120ms linear',
           }}
         >
+          {/* The ghost is the card itself lifted off the HUD, so it wears the
+              CardFrame face. The legality ring is the only thing added. */}
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
             padding: '8px 10px', borderRadius: 14,
-            background: 'rgba(25,19,39,.92)',
-            border: `1.5px solid ${drag.ground?.legal ? 'var(--teal)' : 'var(--red)'}`,
-            boxShadow: '0 10px 26px rgba(0,0,0,.6)',
+            background: 'linear-gradient(180deg, #8fa8d8, #5d76ad 52%, #3b4f7d)',
+            border: `2.5px solid ${drag.ground?.legal ? 'var(--teal)' : 'var(--red)'}`,
+            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.4), 0 10px 26px rgba(0,0,0,.6)',
           }}
           >
             <CoinBadge mint={dragCard.coinId} size={46} />
@@ -357,12 +362,9 @@ export function Battle() {
       )}
 
       {/* bottom HUD */}
-      <div style={{
+      <div className="wood" style={{
         position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 10,
         padding: '9px 10px calc(10px + env(safe-area-inset-bottom))',
-        background:
-          "linear-gradient(180deg, rgba(255,255,255,.09), transparent 26%),"
-          + "url('/art/wood_seamless.png') center / 340px repeat, var(--wood)",
         borderTop: '3px solid var(--wood-edge)',
         boxShadow: '0 -6px 18px rgba(0,0,0,.55), inset 0 2px 0 rgba(255,255,255,.16)',
         display: 'flex', flexDirection: 'column', gap: 7,
@@ -377,7 +379,7 @@ export function Battle() {
             aria-valuenow={Math.floor(elixir)}
             style={{
               flex: 1, height: 20, borderRadius: 7,
-              background: 'rgba(6,16,38,.75)',
+              background: 'var(--recess)',
               border: '2.5px solid var(--ink)',
               boxShadow: 'var(--bevel-in)',
               overflow: 'hidden', position: 'relative',
@@ -450,7 +452,7 @@ export function Battle() {
               >
                 <div style={{
                   width: '100%', borderRadius: 7, padding: '6px 2px 3px',
-                  background: 'rgba(6,16,38,.42)',
+                  background: 'var(--recess)',
                   boxShadow: 'inset 0 2px 5px rgba(0,0,0,.45)',
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                 }}
@@ -497,8 +499,8 @@ export function Battle() {
           </div>
         </div>
         <p style={{
-          fontSize: 12, color: drag || selected !== null ? 'var(--teal)' : 'var(--dim)',
-          textAlign: 'center', margin: 0, height: 14,
+          fontSize: 12, color: drag || selected !== null ? 'var(--teal)' : 'var(--dim-on-wood)',
+          textAlign: 'center', margin: 0, minHeight: 18, lineHeight: '18px',
         }}
         >
           {drag?.moved
