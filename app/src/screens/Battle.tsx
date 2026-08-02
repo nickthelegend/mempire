@@ -3,10 +3,13 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { ArchetypeIcon, CoinBadge, MoneyRow, Pill } from '../components/ui';
 import { buzz, isMuted, setMuted } from '../lib/audio';
 import { fmtClock, fmtSol } from '../lib/format';
+import { EASE_SNAP, prefersReducedMotion } from '../lib/motion';
 import { ARCHETYPES } from '../sim/archetypes';
 import { FP, fp } from '../sim/fixed';
 import { BattleScene, clampDrop, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
-import { DOUBLE_ELIXIR_AT, OVERTIME_TICKS, REGULATION_TICKS } from '../sim/types';
+import {
+  DOUBLE_ELIXIR_AT, OVERTIME_TICKS, REGULATION_TICKS, type MatchCard,
+} from '../sim/types';
 import { CHESTS } from '../state/economy';
 import { useMatch } from '../state/match';
 
@@ -51,9 +54,14 @@ function ResultOverlay() {
     >
       <style>{'@keyframes fadeIn{from{opacity:0}to{opacity:1}}'}</style>
       {result.won && <GoldBurst />}
+      {/* The title lands rather than fades: it starts oversized and settles onto
+          the baseline, which is the one authored beat the whole product builds to. */}
       <h2
         className={result.won ? 'display display--gold' : 'display'}
-        style={{ fontSize: 48, color: result.won ? undefined : color, lineHeight: 1.05 }}
+        style={{
+          fontSize: 48, color: result.won ? undefined : color, lineHeight: 1.05,
+          animation: 'resultStamp 620ms cubic-bezier(0.16,1,0.3,1) both',
+        }}
       >
         {title}
       </h2>
@@ -69,12 +77,22 @@ function ResultOverlay() {
           </p>
         ) : (
         <>
-        <MoneyRow label="Pot" value={fmtSol(result.potSol)} />
-        <MoneyRow label={`House rake (${result.draw ? 5 : 10}%)`} value={`−${fmtSol(result.rakeSol)}`} />
+        {/* Staggered so the arithmetic reads in the order it happens: the pot
+            fills, the rake is taken out of it, then what you actually take
+            lands last and largest. */}
+        <MoneyRow label="Pot" value={fmtSol(result.potSol)} count={{ to: result.potSol, delayMs: 340 }} />
+        <MoneyRow
+          label={`House rake (${result.draw ? 5 : 10}%)`}
+          value={`−${fmtSol(result.rakeSol)}`}
+          count={{ to: result.rakeSol, prefix: '−', delayMs: 520 }}
+        />
         <MoneyRow
           big
           label={result.won ? 'You take' : result.draw ? 'Returned' : 'You lost'}
           value={result.payoutSol > 0 ? `+${fmtSol(result.payoutSol)}` : `−${fmtSol(stakeSol)}`}
+          count={result.payoutSol > 0
+            ? { to: result.payoutSol, prefix: '+', delayMs: 700 }
+            : { to: stakeSol, prefix: '−', delayMs: 700 }}
         />
         </>
         )}
@@ -117,13 +135,20 @@ interface DragState {
 
 const TAP_SLOP_PX = 8;
 
-/** Crowns earned — the Clash Royale scoreline, one per tower felled. */
+/**
+ * Crowns earned — the Clash Royale scoreline, one per tower felled.
+ *
+ * The newest crown slams in. Felling a tower is the loudest thing that happens
+ * in a match and it used to register as a colour fade, which read as a value
+ * update rather than a hit. Only the crown that just landed animates; the ones
+ * already earned stay still, so the eye goes to the change.
+ */
 function CrownScore({ crowns }: { crowns: [number, number] }) {
   const Side = ({ n, mine }: { n: number; mine: boolean }) => (
     <span style={{ display: 'flex', gap: 2, alignItems: 'center' }}>
       {[0, 1, 2].map((i) => (
         <span
-          key={i}
+          key={`${i}_${i === n - 1 ? 'new' : 'old'}`}
           aria-hidden
           style={{
             fontSize: 15, lineHeight: 1,
@@ -131,6 +156,8 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
             textShadow: i < n ? '0 0 9px rgba(255,196,34,.8)' : 'none',
             transform: i < n ? 'scale(1.05)' : 'none',
             transition: 'color 240ms var(--ease-snap), transform 240ms var(--ease-snap)',
+            // `key` includes n, so the freshly-earned crown remounts and replays
+            animation: i === n - 1 ? 'crownSlam 420ms cubic-bezier(0.16,1,0.3,1) both' : undefined,
           }}
         >
           ♛
@@ -154,6 +181,101 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
       <span style={{ color: 'var(--dim)', fontSize: 12 }}>vs</span>
       <Side n={crowns[1]} mine={false} />
     </div>
+  );
+}
+
+/**
+ * One card in the hand.
+ *
+ * Extracted from the map so it can hold its own "just became playable" state.
+ * Crossing a card's elixir cost is gameplay information — it is the moment the
+ * card becomes an option — and it used to register only as an opacity ramp
+ * shared with three other cards. Now the card that crossed lifts once.
+ */
+function HandCard({
+  card, elixir, armed, dragging, onGrab,
+}: {
+  card: MatchCard; elixir: number; armed: boolean; dragging: boolean;
+  onGrab: (e: React.PointerEvent) => void;
+}) {
+  const cost = ARCHETYPES[card.archetype].elixir;
+  const afford = elixir >= cost;
+  const ref = useRef<HTMLButtonElement>(null);
+  const wasAfford = useRef(afford);
+
+  useEffect(() => {
+    if (afford && !wasAfford.current && ref.current && !prefersReducedMotion()) {
+      ref.current.animate([
+        { transform: 'translateY(0) scale(1)' },
+        { transform: 'translateY(-4px) scale(1.05)', offset: 0.45 },
+        { transform: 'translateY(0) scale(1)' },
+      ], { duration: 380, easing: EASE_SNAP });
+    }
+    wasAfford.current = afford;
+  }, [afford]);
+
+  return (
+    <button
+      ref={ref}
+      disabled={!afford}
+      aria-pressed={armed}
+      aria-label={`Deploy ${card.name}, ${cost} elixir`}
+      onPointerDown={(e) => { if (afford) onGrab(e); }}
+      style={{
+        flex: 1, minWidth: 0, position: 'relative',
+        borderRadius: 11, padding: 3,
+        background: armed
+          ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 55%, var(--btn-gold-dark))'
+          : 'linear-gradient(180deg, #8fa8d8, #5d76ad 52%, #3b4f7d)',
+        border: '2.5px solid var(--ink)',
+        boxShadow: armed
+          ? 'inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 #7a4f04'
+          : 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 #26324f',
+        opacity: afford ? (dragging ? 0.4 : 1) : 0.45,
+        filter: afford ? 'none' : 'saturate(.3)',
+        transform: armed ? 'translateY(-7px)' : dragging ? 'translateY(-4px)' : 'none',
+        transition: 'transform 150ms var(--ease-snap), opacity 150ms linear',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+        touchAction: 'none',
+      }}
+    >
+      <div style={{
+        width: '100%', borderRadius: 7, padding: '6px 2px 3px',
+        background: 'var(--recess)',
+        boxShadow: 'inset 0 2px 5px rgba(0,0,0,.45)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+      }}
+      >
+        <CoinBadge mint={card.coinId} size={42} />
+        <span style={{
+          fontFamily: 'var(--font-display)', fontSize: 12,
+          WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
+          display: 'flex', alignItems: 'center', gap: 3,
+          maxWidth: '100%', minWidth: 0,
+        }}
+        >
+          <ArchetypeIcon archetype={card.archetype} size={11} />
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            ${card.name.replace(/^\$+/, '')}
+          </span>
+        </span>
+      </div>
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute', top: -9, left: -5,
+          width: 25, height: 25, borderRadius: '50%',
+          background: 'radial-gradient(circle at 34% 28%, #ff9cf5, var(--elixir) 58%, #7a1d7a)',
+          border: '2.5px solid var(--ink)',
+          boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 2px 4px rgba(0,0,0,.55)',
+          fontFamily: 'var(--font-display)', fontSize: 14, color: '#fff',
+          WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}
+      >
+        {cost}
+      </span>
+    </button>
   );
 }
 
@@ -418,85 +540,25 @@ export function Battle() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'stretch' }}>
-          {hand.map(({ card, deckIndex }, i) => {
-            const cost = ARCHETYPES[card.archetype].elixir;
-            const afford = elixir >= cost;
-            const isDragging = drag?.handIndex === i && drag.moved;
-            const isArmed = selected === i;
-            return (
-              <button
-                key={`${card.coinId}_${i}`}
-                disabled={!afford}
-                aria-pressed={isArmed}
-                aria-label={`Deploy ${card.name}, ${cost} elixir`}
-                onPointerDown={(e) => {
-                  if (!afford) return;
-                  e.preventDefault();
-                  setDrag({
-                    handIndex: i, deckIndex, pointerId: e.pointerId,
-                    startX: e.clientX, startY: e.clientY,
-                    screenX: e.clientX, screenY: e.clientY,
-                    moved: false,
-                    ground: project(e.clientX, e.clientY),
-                  });
-                }}
-                style={{
-                  flex: 1, minWidth: 0, position: 'relative',
-                  borderRadius: 11, padding: 3,
-                  background: isArmed
-                    ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 55%, var(--btn-gold-dark))'
-                    : 'linear-gradient(180deg, #8fa8d8, #5d76ad 52%, #3b4f7d)',
-                  border: '2.5px solid var(--ink)',
-                  boxShadow: isArmed
-                    ? 'inset 0 2px 0 rgba(255,255,255,.55), 0 3px 0 #7a4f04'
-                    : 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 #26324f',
-                  opacity: afford ? (isDragging ? 0.4 : 1) : 0.45,
-                  filter: afford ? 'none' : 'saturate(.3)',
-                  transform: isArmed ? 'translateY(-7px)' : isDragging ? 'translateY(-4px)' : 'none',
-                  transition: 'transform 150ms var(--ease-snap), opacity 150ms linear',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                  touchAction: 'none',
-                }}
-              >
-                <div style={{
-                  width: '100%', borderRadius: 7, padding: '6px 2px 3px',
-                  background: 'var(--recess)',
-                  boxShadow: 'inset 0 2px 5px rgba(0,0,0,.45)',
-                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                }}
-                >
-                  <CoinBadge mint={card.coinId} size={42} />
-                  <span style={{
-                    fontFamily: 'var(--font-display)', fontSize: 12,
-                    WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
-                    display: 'flex', alignItems: 'center', gap: 3,
-                    maxWidth: '100%', minWidth: 0,
-                  }}
-                  >
-                    <ArchetypeIcon archetype={card.archetype} size={11} />
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      ${card.name.replace(/^\$+/, '')}
-                    </span>
-                  </span>
-                </div>
-                <span
-                  aria-hidden
-                  style={{
-                    position: 'absolute', top: -9, left: -5,
-                    width: 25, height: 25, borderRadius: '50%',
-                    background: 'radial-gradient(circle at 34% 28%, #ff9cf5, var(--elixir) 58%, #7a1d7a)',
-                    border: '2.5px solid var(--ink)',
-                    boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 2px 4px rgba(0,0,0,.55)',
-                    fontFamily: 'var(--font-display)', fontSize: 14, color: '#fff',
-                    WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}
-                >
-                  {cost}
-                </span>
-              </button>
-            );
-          })}
+          {hand.map(({ card, deckIndex }, i) => (
+            <HandCard
+              key={`${card.coinId}_${i}`}
+              card={card}
+              elixir={elixir}
+              armed={selected === i}
+              dragging={drag?.handIndex === i && drag.moved}
+              onGrab={(e) => {
+                e.preventDefault();
+                setDrag({
+                  handIndex: i, deckIndex, pointerId: e.pointerId,
+                  startX: e.clientX, startY: e.clientY,
+                  screenX: e.clientX, screenY: e.clientY,
+                  moved: false,
+                  ground: project(e.clientX, e.clientY),
+                });
+              }}
+            />
+          ))}
           <div style={{
             width: 44, display: 'flex', flexDirection: 'column', alignItems: 'center',
             justifyContent: 'center', gap: 3, opacity: 0.6,

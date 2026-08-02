@@ -243,6 +243,64 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   animation: sheetUp 240ms var(--ease-snap);
 }
 
+/* ── Motion ──────────────────────────────────────────────────────────────── */
+/* Shared keyframes live here rather than in inline <style> tags, because a
+   global name declared per-component means the last one mounted wins for all of
+   them — a bug this project already shipped once with `sheetUp`. */
+
+/* The settle title lands. Oversized → baseline, with the overshoot bled off by
+   an exponential ease-out so it reads as weight, not as a bounce. */
+@keyframes resultStamp {
+  0% { transform: scale(1.55); opacity: 0; }
+  55% { opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* A crown arriving on the scoreline. Punches past its resting size, then sets. */
+@keyframes crownSlam {
+  0% { transform: scale(2.4) rotate(-14deg); opacity: 0; }
+  40% { opacity: 1; }
+  100% { transform: scale(1.05) rotate(0deg); opacity: 1; }
+}
+
+/* A resource number that just changed. Scale only — never colour, so it cannot
+   fight the gold-means-money rule. */
+@keyframes valueBump {
+  0% { transform: scale(1); }
+  38% { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+
+/* A card becoming playable. The affordance turning on is gameplay information,
+   so it gets a beat rather than only an opacity ramp. */
+@keyframes affordPop {
+  0% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(-4px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* A card landing in a deck slot. */
+@keyframes slotDrop {
+  0% { transform: translateY(-14px) scale(0.86); opacity: 0; }
+  100% { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+/* Route change inside the column. Short, and from an already-visible default so
+   a failed script never leaves a blank screen. */
+@keyframes screenIn {
+  0% { transform: translateY(10px); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.screen-in { animation: screenIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* The primary CTA breathes so the eye finds it on a busy field. Transform only,
+   paused when the tab is hidden by the reduced-motion rule below. */
+@keyframes ctaBreathe {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
 /* ── Reserved gutters ────────────────────────────────────────────────────── */
 /* The layout law keeps the space either side of the column for ads. There is no
    such space on a phone, so below 900px the gutters do not exist at all — the
@@ -286,5 +344,14 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 .icon-btn:active { background: rgba(0, 0, 0, 0.25); transform: scale(0.92); }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    /* Collapsing the duration of an *infinite* animation does not stop it — it
+       runs it thousands of times a second, which is worse than the motion it was
+       meant to remove. Pinning the count to 1 ends it after a single instant
+       pass, so looping decoration (the CTA breathe, the chest bob, the pulsing
+       search crowns) genuinely stops. */
+    animation-iteration-count: 1 !important;
+  }
 }

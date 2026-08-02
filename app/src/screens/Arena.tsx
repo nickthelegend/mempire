@@ -4,6 +4,7 @@ import { CardFrame } from '../components/CardFrame';
 import { Tutorial, resetTutorial, tutorialDone } from '../components/Tutorial';
 import { Crowns, Pill } from '../components/ui';
 import { fmtSol, shortAddr } from '../lib/format';
+import { EASE_SNAP, usePulse } from '../lib/motion';
 import { FEES, useCollection } from '../state/collection';
 import { TIERS, useDeck } from '../state/deck';
 import { useMatch } from '../state/match';
@@ -26,8 +27,20 @@ export function Logo({ width = 260 }: { width?: number }) {
   );
 }
 
-/** Resource chip — the gold/gem pills along the top of a Supercell HUD. */
+/**
+ * Resource chip — the gold/gem pills along the top of a Supercell HUD.
+ *
+ * The number bumps when it changes. Winning a pot and returning to the Arena
+ * used to leave the balance silently different; a resource that moved should say
+ * so, and scale says it without touching the colour rules.
+ */
 function Chip({ icon, value, tone }: { icon: string; value: string; tone: 'gold' | 'blue' }) {
+  const ref = usePulse(value, [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.22)', offset: 0.38 },
+    { transform: 'scale(1)' },
+  ], { duration: 420, easing: EASE_SNAP });
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 5,
@@ -40,8 +53,12 @@ function Chip({ icon, value, tone }: { icon: string; value: string; tone: 'gold'
     >
       <span aria-hidden style={{ fontSize: 15, lineHeight: 1 }}>{icon}</span>
       <span
+        ref={ref as React.RefObject<HTMLSpanElement>}
         className="money"
-        style={{ fontSize: 14, color: tone === 'gold' ? 'var(--gold-hi)' : 'var(--blue-pale)', whiteSpace: 'nowrap' }}
+        style={{
+          fontSize: 14, color: tone === 'gold' ? 'var(--gold-hi)' : 'var(--blue-pale)',
+          whiteSpace: 'nowrap', display: 'inline-block',
+        }}
       >
         {value}
       </span>
@@ -291,8 +308,19 @@ export function Arena() {
           </>
         ) : (
           <>
+            {/* The one CTA on the screen. A slow transform-only breathe so the
+                eye finds it against the patterned field, without competing with
+                the money readouts for attention. */}
             <div data-tut="battle">
-              <Pill onClick={() => setError(match.startQueue())} tone="gold" style={{ fontSize: 25, padding: '19px 24px' }}>
+              <Pill
+                onClick={() => setError(match.startQueue())}
+                tone="gold"
+                style={{
+                  fontSize: 25,
+                  padding: '19px 24px',
+                  animation: 'ctaBreathe 2.6s ease-in-out infinite',
+                }}
+              >
                 Battle
               </Pill>
             </div>

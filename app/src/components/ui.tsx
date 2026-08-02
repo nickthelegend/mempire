@@ -2,6 +2,8 @@ import type { CSSProperties, ReactNode } from 'react';
 import { ARCHETYPE_NAMES, type Archetype } from '../sim/types';
 import { click } from '../lib/audio';
 import { coinByMint } from '../lib/coins';
+import { fmtSol } from '../lib/format';
+import { useCountUp } from '../lib/motion';
 
 type Tone = 'gold' | 'blue' | 'green' | 'red';
 
@@ -190,16 +192,39 @@ export function Crowns({ n, size = 13 }: { n: number; size?: number }) {
 }
 
 /**
+ * Counts a SOL amount up into place. Split out so `MoneyRow` can stay a plain
+ * component when the number is static — a hook cannot be called conditionally.
+ */
+function CountedSol({
+  to, prefix, delayMs, style,
+}: { to: number; prefix?: string; delayMs?: number; style: CSSProperties }) {
+  const shown = useCountUp(to, 950, delayMs);
+  return (
+    <span className="money" style={style}>
+      {prefix}
+      {fmtSol(shown)}
+    </span>
+  );
+}
+
+/**
  * The sacred money readout: gold, exact, never abbreviated. A carved well with
  * a gold rim — it was the last flat 1px rectangle in the game, which made the
  * pot look less real than the buttons around it.
  *
  * `stack` puts the label above the value — required in narrow two-column grids
  * where side-by-side collides at 375px.
+ *
+ * `count` makes the number arrive instead of appear. DESIGN.md always specified
+ * a count-up on settle; this is where it lives. The static `value` is still the
+ * accessible truth, so a failed tween can never leave a wrong number on screen.
  */
 export function MoneyRow({
-  label, value, big, stack,
-}: { label: string; value: string; big?: boolean; stack?: boolean }) {
+  label, value, big, stack, count,
+}: {
+  label: string; value: string; big?: boolean; stack?: boolean;
+  count?: { to: number; prefix?: string; delayMs?: number };
+}) {
   return (
     <div style={{
       display: 'flex',
@@ -215,12 +240,21 @@ export function MoneyRow({
     }}
     >
       <span className="label" style={{ minWidth: 0, whiteSpace: 'nowrap' }}>{label}</span>
-      <span
-        className="money"
-        style={{ fontSize: big ? 21 : 14, whiteSpace: 'nowrap', flexShrink: 0 }}
-      >
-        {value}
-      </span>
+      {count ? (
+        <CountedSol
+          to={count.to}
+          prefix={count.prefix}
+          delayMs={count.delayMs}
+          style={{ fontSize: big ? 21 : 14, whiteSpace: 'nowrap', flexShrink: 0 }}
+        />
+      ) : (
+        <span
+          className="money"
+          style={{ fontSize: big ? 21 : 14, whiteSpace: 'nowrap', flexShrink: 0 }}
+        >
+          {value}
+        </span>
+      )}
     </div>
   );
 }

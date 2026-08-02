@@ -54,7 +54,13 @@ export function Shell({ children }: { children: ReactNode }) {
           background: inBattle ? 'var(--ink)' : undefined,
         }}
       >
+        {/* The `key` re-triggers the entrance on each route so tab changes read as
+            movement inside the column rather than an instant swap. Battle is
+            excluded on purpose: keying a WebGL canvas ancestor would remount it
+            and drop the GL context mid-match. */}
         <main
+          key={inBattle ? 'battle' : pathname}
+          className={inBattle ? undefined : 'screen-in'}
           style={{
             flex: 1, display: 'flex', flexDirection: 'column',
             paddingBottom: inBattle ? 0 : 'calc(80px + env(safe-area-inset-bottom))',

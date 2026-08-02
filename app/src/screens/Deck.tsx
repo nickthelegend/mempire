@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { CardFrame } from '../components/CardFrame';
 import { click } from '../lib/audio';
 import { COINS } from '../lib/coins';
+import { EASE_SNAP, usePulse } from '../lib/motion';
 import { revealSection } from '../lib/scroll';
 import { ARCHETYPES } from '../sim/archetypes';
 import { useCollection } from '../state/collection';
@@ -11,6 +12,11 @@ export function Deck() {
   const cards = useCollection((s) => s.cards);
   const deck = useDeck();
   const benchRef = useRef<HTMLElement>(null);
+  const powerRef = usePulse(deck.power(), [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.22)', offset: 0.38 },
+    { transform: 'scale(1)' },
+  ], { duration: 420, easing: EASE_SNAP });
 
   const inDeck = useMemo(
     () => deck.active.map((id) => cards.find((c) => c.id === id)).filter(Boolean),
@@ -30,7 +36,14 @@ export function Deck() {
         <h1 className="display" style={{ fontSize: 30 }}>Deck</h1>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <span className="label" style={{ fontSize: 12 }}>{deck.active.length}/8</span>
-          <span className="label" style={{ fontSize: 12, color: 'var(--blue-pale)' }}>power {deck.power()}</span>
+          {/* Power is the number the whole screen exists to move, so it reacts. */}
+          <span
+            ref={powerRef as React.RefObject<HTMLSpanElement>}
+            className="label"
+            style={{ fontSize: 12, color: 'var(--blue-pale)', display: 'inline-block' }}
+          >
+            power {deck.power()}
+          </span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span
               aria-hidden
@@ -89,7 +102,11 @@ export function Deck() {
         {Array.from({ length: 8 }, (_, i) => {
           const c = inDeck[i];
           return c ? (
-            <CardFrame key={c.id} card={c} width={70} fluid selected onClick={() => deck.toggleCard(c.id)} />
+            // Keyed by card id, so a card arriving in a slot plays the drop once
+            // and cards already seated stay still.
+            <div key={c.id} style={{ animation: 'slotDrop 300ms cubic-bezier(0.16,1,0.3,1) both' }}>
+              <CardFrame card={c} width={70} fluid selected onClick={() => deck.toggleCard(c.id)} />
+            </div>
           ) : (
             // A `+` that does nothing points at a dead target. It scrolls to the
             // collection, which is the only place the slot can actually be filled.

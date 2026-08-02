@@ -13,6 +13,7 @@ import { useChain } from '../state/chain';
 import { COINS, ineligibleReason, tickerOf, toRawAmount, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
+import { EASE_SNAP, usePulse } from '../lib/motion';
 import { revealSection } from '../lib/scroll';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
 import { useEconomy } from '../state/economy';
@@ -450,6 +451,11 @@ export function Cards() {
   const [stakeCard, setStakeCard] = useState<string | null>(null);
   const [gemShop, setGemShop] = useState(false);
   const bagsRef = useRef<HTMLElement>(null);
+  const gemRef = usePulse(gems, [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.28)', offset: 0.38 },
+    { transform: 'scale(1)' },
+  ], { duration: 440, easing: EASE_SNAP });
   const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
   const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
   const totalStaked = cards.reduce((s, c) => s + c.stakedUsd, 0);
@@ -492,7 +498,15 @@ export function Cards() {
           }}
         >
           <span aria-hidden style={{ fontSize: 16 }}>💎</span>
-          <span className="display display--sm" style={{ fontSize: 16 }}>{gems}</span>
+          {/* Gems arrive from chests, lending and purchases — all of which happen
+              elsewhere on the screen, so the counter has to announce itself. */}
+          <span
+            ref={gemRef as React.RefObject<HTMLSpanElement>}
+            className="display display--sm"
+            style={{ fontSize: 16, display: 'inline-block' }}
+          >
+            {gems}
+          </span>
           <span className="display display--sm" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
         </button>
       </header>
