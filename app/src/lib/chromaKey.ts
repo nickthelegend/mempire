@@ -126,7 +126,7 @@ export function keyedCanvas(url: string): Promise<HTMLCanvasElement | null> {
   return p;
 }
 
-/** Keyed image as a blob URL, for plain `<img>` consumers. */
+/** Keyed image as a blob URL, for DOM image elements that cannot take a canvas. */
 const urlCache = new Map<string, Promise<string | null>>();
 
 export function keyedUrl(src: string): Promise<string | null> {
