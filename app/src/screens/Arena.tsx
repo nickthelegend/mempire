@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CardFrame } from '../components/CardFrame';
+import { Tutorial, resetTutorial, tutorialDone } from '../components/Tutorial';
 import { Crowns, Pill } from '../components/ui';
 import { fmtSol, shortAddr } from '../lib/format';
 import { FEES, useCollection } from '../state/collection';
@@ -71,7 +72,7 @@ function ConnectHero() {
   );
 }
 
-function TopHud() {
+function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
   const wallet = useWallet();
   const history = useMatch((s) => s.history);
   const [open, setOpen] = useState(false);
@@ -138,6 +139,13 @@ function TopHud() {
               Copy address
             </button>
             <button
+              onClick={() => { resetTutorial(); setOpen(false); onReplayTutorial(); }}
+              className="menu-item"
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700, color: 'var(--dim-on-wood)' }}
+            >
+              Replay tutorial
+            </button>
+            <button
               onClick={() => { wallet.disconnect(); setOpen(false); }}
               className="menu-item"
               style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700, color: 'var(--red-on-wood)' }}
@@ -159,6 +167,11 @@ export function Arena() {
   const nav = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [feedIdx, setFeedIdx] = useState(0);
+  // First connect only; replay lives in the account menu.
+  const [showTutorial, setShowTutorial] = useState(false);
+  useEffect(() => {
+    if (wallet.connected && !tutorialDone()) setShowTutorial(true);
+  }, [wallet.connected]);
 
   useEffect(() => {
     const t = setInterval(() => setFeedIdx((i) => i + 1), 2600);
@@ -182,11 +195,11 @@ export function Arena() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 16px 8px' }}>
-      <TopHud />
+      <TopHud onReplayTutorial={() => setShowTutorial(true)} />
       <Logo width={210} />
 
       {/* tier picker — carved wood rail of stake plates */}
-      <section className="panel" style={{ padding: 9 }}>
+      <section className="panel" data-tut="tier" style={{ padding: 9 }}>
         <div className="label" style={{ marginBottom: 7, textAlign: 'center' }}>
           Stake tier
         </div>
@@ -274,18 +287,22 @@ export function Arena() {
           </>
         ) : (
           <>
-            <Pill onClick={() => setError(match.startQueue())} tone="gold" style={{ fontSize: 25, padding: '19px 24px' }}>
-              Battle
-            </Pill>
+            <div data-tut="battle">
+              <Pill onClick={() => setError(match.startQueue())} tone="gold" style={{ fontSize: 25, padding: '19px 24px' }}>
+                Battle
+              </Pill>
+            </div>
             {/* No stake, no rake, no chest — somewhere to learn the controls
                 without paying tuition in SOL. */}
-            <Pill
-              tone="green"
-              onClick={() => setError(match.startQueue({ practice: true }))}
-              style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}
-            >
-              Practice · free
-            </Pill>
+            <div data-tut="practice">
+              <Pill
+                tone="green"
+                onClick={() => setError(match.startQueue({ practice: true }))}
+                style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}
+              >
+                Practice · free
+              </Pill>
+            </div>
           </>
         )}
         {error && (
@@ -323,7 +340,7 @@ export function Arena() {
       </section>
 
       {/* deck strip */}
-      <section>
+      <section data-tut="deck">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
           <span className="label">Battle deck</span>
           {/* power is a game stat, not money — gold stays reserved for SOL */}
@@ -337,6 +354,8 @@ export function Arena() {
           {deckCards.slice(0, 4).map((c) => c && <CardFrame key={c.id} card={c} width={74} fluid />)}
         </div>
       </section>
+
+      {showTutorial && <Tutorial onDone={() => setShowTutorial(false)} />}
     </div>
   );
 }
