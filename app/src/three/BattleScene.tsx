@@ -1,15 +1,15 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { useTexture } from '@react-three/drei';
 import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { ARENA, PALETTE } from '../lib/palette';
+import { PALETTE } from '../lib/palette';
 import { FP, fp } from '../sim/fixed';
-import { ARENA_H, ARENA_W, BRIDGE_X, RIVER_BOT, RIVER_TOP } from '../sim/engine';
-import type { Tower } from '../sim/types';
+import { ARENA_W, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
+import { Arena } from './Arena';
+import { TowerMesh } from './Towers';
+import { Units } from './Units';
 
 const W = ARENA_W / FP; // 18
-const H = ARENA_H / FP; // 32
 
 /** Owns the camera every mount (HMR-safe); frames the full field portrait. */
 let activeCamera: THREE.Camera | null = null;
@@ -18,8 +18,10 @@ function CameraRig() {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   useEffect(() => {
-    camera.position.set(W / 2, 33, -11.5);
-    camera.lookAt(W / 2, 0, 14);
+    // Pulled back and raised so the wood frame encloses the whole board rather
+    // than running off the bottom of a portrait screen.
+    camera.position.set(W / 2, 38, -15);
+    camera.lookAt(W / 2, 0, 15);
     camera.updateProjectionMatrix();
     // Deliberately never cleared: StrictMode double-invokes effect cleanup in
     // dev, and nulling here left deploy raycasts with no camera to project
@@ -76,70 +78,6 @@ export function clampDrop(x: number, z: number): { x: number; z: number } {
     x: Math.min(Math.max(x, OWN_HALF.minX), OWN_HALF.maxX),
     z: Math.min(Math.max(z, OWN_HALF.minZ), OWN_HALF.maxZ),
   };
-}
-
-function TowerMesh({ index }: { index: number }) {
-  const group = useRef<THREE.Group>(null);
-  const barGroup = useRef<THREE.Group>(null);
-  const bar = useRef<THREE.Mesh>(null);
-  const barMat = useRef<THREE.MeshBasicMaterial>(null);
-
-  useFrame(({ camera }) => {
-    const sim = useMatch.getState().sim;
-    if (!sim || !group.current) return;
-    const t: Tower = sim.towers[index];
-    const pct = Math.max(0, t.hp / t.maxHp);
-    group.current.visible = t.hp > 0;
-    if (bar.current) bar.current.scale.x = Math.max(0.001, pct);
-    if (barMat.current) {
-      // gold is reserved for money; a hurt tower reads as damage, so it goes red
-      barMat.current.color.set(pct > 0.4 ? (t.owner === 0 ? PALETTE.teal : PALETTE.red) : PALETTE.red);
-    }
-    barGroup.current?.quaternion.copy(camera.quaternion);
-  });
-
-  const sim = useMatch.getState().sim;
-  if (!sim) return null;
-  const t = sim.towers[index];
-  const isKing = t.kind === 'king';
-  const x = t.x / FP;
-  const z = t.y / FP;
-  const height = isKing ? 2.6 : 2.0;
-  const radius = isKing ? 1.15 : 0.85;
-  const bodyColor = t.owner === 0 ? ARENA.towerOwn : ARENA.towerEnemy;
-
-  return (
-    <group ref={group} position={[x, 0, z]}>
-      <mesh position={[0, height / 2, 0]}>
-        <cylinderGeometry args={[radius * 0.82, radius, height, 8]} />
-        <meshStandardMaterial color={bodyColor} roughness={0.8} />
-      </mesh>
-      <mesh position={[0, height + 0.09, 0]}>
-        <cylinderGeometry args={[radius * 1.02, radius * 0.82, 0.3, 8]} />
-        <meshStandardMaterial color={PALETTE.gold} metalness={0.55} roughness={0.35} />
-      </mesh>
-      {isKing && (
-        <mesh position={[0, height + 0.55, 0]}>
-          <coneGeometry args={[0.5, 0.75, 4]} />
-          <meshStandardMaterial
-            color={PALETTE.goldHi} metalness={0.7} roughness={0.25}
-            emissive={PALETTE.gold} emissiveIntensity={0.45}
-          />
-        </mesh>
-      )}
-      {/* hp bar — billboarded to camera */}
-      <group ref={barGroup} position={[0, height + (isKing ? 1.2 : 0.7), 0]}>
-        <mesh>
-          <planeGeometry args={[1.7, 0.18]} />
-          <meshBasicMaterial color={ARENA.hpTrack} />
-        </mesh>
-        <mesh ref={bar} position={[0, 0, 0.01]}>
-          <planeGeometry args={[1.62, 0.12]} />
-          <meshBasicMaterial ref={barMat} color={PALETTE.teal} />
-        </mesh>
-      </group>
-    </group>
-  );
 }
 
 function SpellMarkers() {
@@ -274,89 +212,6 @@ function DropMarker({ at }: { at: { x: number; z: number; legal: boolean } | nul
   );
 }
 
-/** Untextured field, shown for the frames before the floor texture decodes. */
-function FallbackGround() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0, H / 2]}>
-      <planeGeometry args={[W, H]} />
-      <meshStandardMaterial color={ARENA.ground} roughness={0.9} />
-    </mesh>
-  );
-}
-
-function Ground({ placing }: { placing: boolean }) {
-  // built once — rebuilding per render replaced the GPU buffer every frame
-  const gridGeo = useMemo(() => {
-    const pts: number[] = [];
-    for (let i = 1; i < W; i += 1) pts.push(i, 0, 0, i, 0, H);
-    for (let j = 1; j < H; j += 1) pts.push(0, 0, j, W, 0, j);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    return g;
-  }, []);
-  useEffect(() => () => gridGeo.dispose(), [gridGeo]);
-
-  const floor = useTexture('/art/arena_ground.png');
-  useMemo(() => {
-    floor.wrapS = THREE.RepeatWrapping;
-    floor.wrapT = THREE.RepeatWrapping;
-    floor.repeat.set(4, 7);
-    floor.colorSpace = THREE.SRGBColorSpace;
-  }, [floor]);
-
-  return (
-    <group>
-      {/* textured field */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0, H / 2]}>
-        <planeGeometry args={[W, H]} />
-        <meshStandardMaterial map={floor} color="#b9a8ff" roughness={0.85} />
-      </mesh>
-      {/* half tints so ownership reads instantly */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.008, (RIVER_TOP / FP) / 2]}>
-        <planeGeometry args={[W, RIVER_TOP / FP]} />
-        <meshBasicMaterial color={PALETTE.teal} transparent opacity={0.07} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.008, H - (RIVER_TOP / FP) / 2]}>
-        <planeGeometry args={[W, RIVER_TOP / FP]} />
-        <meshBasicMaterial color={PALETTE.red} transparent opacity={0.07} />
-      </mesh>
-      <lineSegments geometry={gridGeo} position={[0, 0.014, 0]}>
-        <lineBasicMaterial color={ARENA.grid} transparent opacity={0.35} />
-      </lineSegments>
-      {/* river */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.02, (RIVER_TOP / FP + RIVER_BOT / FP) / 2]}>
-        <planeGeometry args={[W, (RIVER_BOT - RIVER_TOP) / FP]} />
-        <meshStandardMaterial
-          color={ARENA.river} emissive={PALETTE.teal} emissiveIntensity={0.35} roughness={0.4}
-        />
-      </mesh>
-      {/* bridges */}
-      {BRIDGE_X.map((bx) => (
-        <mesh key={bx} position={[bx / FP, 0.09, H / 2]}>
-          <boxGeometry args={[2.4, 0.18, 2.6]} />
-          <meshStandardMaterial color={ARENA.bridge} roughness={0.75} />
-        </mesh>
-      ))}
-      {/* gold trim on bridge edges */}
-      {BRIDGE_X.map((bx) => (
-        <mesh key={`t${bx}`} position={[bx / FP, 0.19, H / 2]}>
-          <boxGeometry args={[2.5, 0.04, 0.12]} />
-          <meshStandardMaterial color={PALETTE.gold} metalness={0.7} roughness={0.3} />
-        </mesh>
-      ))}
-      {/* own-half highlight while placing */}
-      {placing && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.03, (RIVER_TOP / FP) / 2]}>
-          <planeGeometry args={[W, RIVER_TOP / FP]} />
-          <meshBasicMaterial color={PALETTE.purple} transparent opacity={0.14} />
-        </mesh>
-      )}
-    </group>
-  );
-}
-
-import { Units } from './Units';
-
 export function BattleScene({ onPlace, placing, marker, sceneRef }: {
   onPlace: (xFp: number, yFp: number) => void;
   placing: boolean;
@@ -380,16 +235,15 @@ export function BattleScene({ onPlace, placing, marker, sceneRef }: {
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
         <CameraRig />
-        <color attach="background" args={['#0d2a5c']} />
-        <fog attach="fog" args={['#123566', 62, 120]} />
-        <ambientLight intensity={1.9} color="#cfe0ff" />
-        <directionalLight position={[7, 20, 3]} intensity={2.5} color="#fff3d4" />
-        <directionalLight position={[-9, 12, 30]} intensity={0.9} color="#8fd8ff" />
-        {/* Separate boundaries: the field must not wait on ~30MB of unit
-            meshes, or the arena is blank for the first seconds of a match. */}
-        <Suspense fallback={<FallbackGround />}>
-          <Ground placing={placing} />
-        </Suspense>
+        {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}
+        <color attach="background" args={['#5aa9e0']} />
+        <fog attach="fog" args={['#7cc0e8', 74, 132]} />
+        <ambientLight intensity={2.1} color="#e8f2ff" />
+        <directionalLight position={[8, 22, 6]} intensity={2.3} color="#fff6e0" />
+        <directionalLight position={[-10, 14, 30]} intensity={0.7} color="#bfe4ff" />
+        {/* The arena draws its own canvas textures, so it never suspends.
+            Units load separately — the field must never wait on meshes. */}
+        <Arena placing={placing} />
         <Suspense fallback={null}>
           <Units />
         </Suspense>
