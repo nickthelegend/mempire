@@ -53,8 +53,6 @@ export interface Coin {
 /** Ticker → look and demo balance. Economic facts never live here. */
 const PRESENTATION: Record<string, {
   name: string; hue: number; balance: number; art: string;
-  /** Character card art slug under /art/card_. Absent until generated. */
-  card?: string;
 }> = {
   DOGGO: { name: 'Doggo', hue: 38, balance: 1_250_000, art: 'coin_doggo' },
   WIFHAT: { name: 'Dog Wif Hat', hue: 320, balance: 48_000, art: 'coin_wifhat' },
@@ -120,7 +118,11 @@ function build(): Coin[] {
       decimals: c.decimals,
       kind: 'meme',
       logoUrl: look ? `/art/${look.art}.png` : undefined,
-      cardArt: look?.card ? `/art/card_${look.card}.png` : undefined,
+      // Always the conventional path. The file may not exist yet; both the card
+      // frame and the battle billboard fall back to the round badge on a load
+      // error, so dropping `card_<ticker>.png` into /art is the whole install
+      // step — no registry edit, no rebuild.
+      cardArt: `/art/card_${c.ticker.toLowerCase()}.png`,
     };
   });
 }

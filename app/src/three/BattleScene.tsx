@@ -7,7 +7,7 @@ import { ARENA_W, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
 import { Arena } from './Arena';
 import { TowerMesh } from './Towers';
-import { Units } from './Units';
+import { UnitsBillboard } from './UnitsBillboard';
 
 const W = ARENA_W / FP; // 18
 const H = 32; // ARENA_H in tiles
@@ -271,7 +271,7 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
             Units load separately — the field must never wait on meshes. */}
         <Arena placing={placing} />
         <Suspense fallback={null}>
-          <Units />
+          <UnitsBillboard />
         </Suspense>
         {[0, 1, 2, 3, 4, 5].map((i) => <TowerMesh key={i} index={i} />)}
         <SpellMarkers />

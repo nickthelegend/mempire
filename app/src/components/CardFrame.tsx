@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { MintedCard } from '../state/collection';
 import { coinByMint, tickerOf } from '../lib/coins';
 import { ARCHETYPES } from '../sim/archetypes';
@@ -14,6 +15,7 @@ export function CardFrame({
   card: MintedCard; width?: number; selected?: boolean; dimmed?: boolean;
   disabled?: boolean; fluid?: boolean; onClick?: () => void;
 }) {
+  const [artFailed, setArtFailed] = useState(false);
   const coin = coinByMint(card.mint);
   if (!coin) return null;
   const cost = ARCHETYPES[card.archetype].elixir;
@@ -64,13 +66,16 @@ export function CardFrame({
         overflow: 'hidden',
       }}
       >
-        {coin.cardArt ? (
+        {coin.cardArt && !artFailed ? (
           <img
             src={coin.cardArt}
             alt=""
             aria-hidden
             draggable={false}
             loading="lazy"
+            // The art set fills in over time; a missing file falls back to the
+            // badge rather than showing a broken image.
+            onError={() => setArtFailed(true)}
             style={{
               width: '100%', height: '100%', objectFit: 'cover',
               // The art is drawn head-up, so bias the crop toward the top: a
