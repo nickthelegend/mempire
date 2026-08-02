@@ -292,7 +292,14 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   100% { transform: none; opacity: 1; }
 }
 
-.screen-in { animation: screenIn 260ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* `backwards`, never `both`.
+   `both` keeps the final keyframe applied forever, which leaves an identity
+   transform on the element — and *any* transform makes it the containing block
+   for `position: fixed` descendants. With gutters on desktop that shifted every
+   fixed overlay rendered inside <main> (sheets, the tutorial spotlight) right by
+   the gutter width. `backwards` styles the pre-animation frame and stops
+   applying once it finishes, so no transform lingers. */
+.screen-in { animation: screenIn 260ms cubic-bezier(0.16, 1, 0.3, 1) backwards; }
 
 /* The primary CTA breathes so the eye finds it on a busy field. Transform only,
    paused when the tab is hidden by the reduced-motion rule below. */

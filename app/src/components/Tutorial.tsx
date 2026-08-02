@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { click } from '../lib/audio';
 
 /**
@@ -69,20 +70,43 @@ export function Tutorial({ onDone }: { onDone: () => void }) {
   const measure = useCallback(() => {
     const el = document.querySelector<HTMLElement>(`[data-tut="${current.anchor}"]`);
     if (!el) { setRect(null); return; }
-    el.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
     const r = el.getBoundingClientRect();
-    setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+    setRect((prev) => (
+      prev && prev.top === r.top && prev.left === r.left
+        && prev.width === r.width && prev.height === r.height
+        ? prev // identical — don't re-render
+        : { top: r.top, left: r.left, width: r.width, height: r.height }
+    ));
   }, [current.anchor]);
 
-  useLayoutEffect(() => { measure(); }, [measure]);
+  /**
+   * Bring the anchor into view once per step — not inside `measure`.
+   *
+   * It used to live in `measure`, which the scroll listener called, so every
+   * scroll yanked the page back and the player could not look around.
+   */
+  useLayoutEffect(() => {
+    document.querySelector<HTMLElement>(`[data-tut="${current.anchor}"]`)
+      ?.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
+    measure();
+  }, [current.anchor, measure]);
 
+  /**
+   * Track the anchor every frame while the tutorial is open.
+   *
+   * Measuring once on mount left the hole wherever the element happened to be
+   * at first paint — and this screen is still settling then: card art and the
+   * ad boards load, fonts swap, the CTA breathes. `resize` and `scroll` do not
+   * fire for an image finishing, so the spotlight silently drifted off its
+   * target. One `getBoundingClientRect` per frame on a single element is cheap,
+   * the overlay is transient, and `measure` bails out when nothing moved, so
+   * this costs a comparison per frame rather than a re-render.
+   */
   useEffect(() => {
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
+    let raf = 0;
+    const tick = () => { measure(); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [measure]);
 
   const finish = () => { markDone(); onDone(); };
@@ -117,7 +141,18 @@ export function Tutorial({ onDone }: { onDone: () => void }) {
   // Card above or below the cutout, whichever half has room.
   const below = cut.top + cut.height / 2 < window.innerHeight / 2;
 
-  return (
+  /**
+   * Rendered into <body>, not in place.
+   *
+   * The spotlight positions from `getBoundingClientRect`, which is viewport
+   * space — so the overlay must be in viewport space too. Any ancestor with a
+   * transform (even an identity one left behind by an animation) silently
+   * becomes the containing block for `position: fixed`, and the hole lands
+   * offset by however far that ancestor sits from the viewport edge. A portal
+   * makes that class of bug impossible rather than relying on no ancestor ever
+   * growing a transform.
+   */
+  return createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -199,6 +234,7 @@ export function Tutorial({ onDone }: { onDone: () => void }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

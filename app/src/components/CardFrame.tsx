@@ -49,7 +49,11 @@ export function CardFrame({
         display: 'block',
       }}
     >
-      {/* portrait well */}
+      {/* Portrait well.
+          Character art fills it edge to edge (`cover`), which is what makes a
+          card read as a fighter rather than a token in a frame. Coins without
+          character art yet fall back to the round badge floating on the hue
+          wash, so the grid stays consistent while the art set fills in. */}
       <div style={{
         position: 'absolute', inset: pad, bottom: `${Math.max(22, width * 0.24)}px`,
         borderRadius: Math.max(5, width * 0.05),
@@ -60,7 +64,24 @@ export function CardFrame({
         overflow: 'hidden',
       }}
       >
-        <CoinBadge mint={card.mint} size={width * 0.56} />
+        {coin.cardArt ? (
+          <img
+            src={coin.cardArt}
+            alt=""
+            aria-hidden
+            draggable={false}
+            loading="lazy"
+            style={{
+              width: '100%', height: '100%', objectFit: 'cover',
+              // The art is drawn head-up, so bias the crop toward the top: a
+              // centred crop on a 3:4 portrait cuts the face off in a wide slot.
+              objectPosition: '50% 18%',
+              display: 'block',
+            }}
+          />
+        ) : (
+          <CoinBadge mint={card.mint} size={width * 0.56} />
+        )}
       </div>
 
       {/* elixir cost gem */}

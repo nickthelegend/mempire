@@ -15,6 +15,15 @@ import devnet from './devnet-coins.json';
  * seed file so re-seeding cannot leave the UI describing a coin that no longer
  * exists. Real balances, when a wallet is connected, come from the chain store.
  */
+/** Meme coins, blue-chip crypto, and tokenised stocks all become cards. */
+export type AssetKind = 'meme' | 'crypto' | 'stock';
+
+export const ASSET_KINDS: { id: AssetKind; label: string }[] = [
+  { id: 'meme', label: 'Memes' },
+  { id: 'crypto', label: 'Crypto' },
+  { id: 'stock', label: 'Stocks' },
+];
+
 export interface Coin {
   mint: string;
   ticker: string;
@@ -25,6 +34,13 @@ export interface Coin {
   liquidityUsd: number;
   ageHours: number;
   logoUrl?: string;
+  /**
+   * Full-bleed character card art (3:4). When present the card frame fills its
+   * portrait well with this instead of the round badge — a fighter, not a token.
+   */
+  cardArt?: string;
+  /** What this asset is, for the Cards filter. */
+  kind: AssetKind;
   decimals: number;
   /** Live market data, present only on coins enriched from the feed. */
   fdvUsd?: number;
@@ -35,7 +51,11 @@ export interface Coin {
 }
 
 /** Ticker → look and demo balance. Economic facts never live here. */
-const PRESENTATION: Record<string, { name: string; hue: number; balance: number; art: string }> = {
+const PRESENTATION: Record<string, {
+  name: string; hue: number; balance: number; art: string;
+  /** Character card art slug under /art/card_. Absent until generated. */
+  card?: string;
+}> = {
   DOGGO: { name: 'Doggo', hue: 38, balance: 1_250_000, art: 'coin_doggo' },
   WIFHAT: { name: 'Dog Wif Hat', hue: 320, balance: 48_000, art: 'coin_wifhat' },
   POPKAT: { name: 'Popkat', hue: 265, balance: 310_000, art: 'coin_popkat' },
@@ -98,7 +118,9 @@ function build(): Coin[] {
       // coins stay gated for the same reason the program gates them.
       ageHours: Math.max(0, Math.round((nowSec - c.firstSeen) / 3600)),
       decimals: c.decimals,
+      kind: 'meme',
       logoUrl: look ? `/art/${look.art}.png` : undefined,
+      cardArt: look?.card ? `/art/card_${look.card}.png` : undefined,
     };
   });
 }
