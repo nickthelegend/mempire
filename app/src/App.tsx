@@ -14,6 +14,7 @@ world, chosen in interview); battle runs full-column 3D under the same HUD gramm
 import { lazy, Suspense } from 'react';
 import { HashRouter, Route, Routes } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Loading } from './components/Loading';
 import { Shell } from './components/Shell';
 import { Arena } from './screens/Arena';
 import { Cards } from './screens/Cards';
@@ -35,17 +36,7 @@ export default function App() {
             <Route
               path="/battle"
               element={(
-                <Suspense
-                  fallback={(
-                    <div style={{
-                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      minHeight: '100dvh', color: 'var(--dim)', fontSize: 13,
-                    }}
-                    >
-                      entering the arena…
-                    </div>
-                  )}
-                >
+                <Suspense fallback={<Loading />}>
                   <Battle />
                 </Suspense>
               )}

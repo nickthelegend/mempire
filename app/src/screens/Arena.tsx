@@ -226,10 +226,39 @@ export function Arena() {
       <section style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {queueing ? (
           <>
-            <Pill disabled style={{ fontSize: 21, padding: '18px 24px' }}>
-              {match.status === 'found' ? 'Opponent found!' : 'Searching…'}
-            </Pill>
-            <Pill tone="blue" onClick={() => match.cancelQueue()} style={{ fontSize: 14, minHeight: 44, padding: '9px 18px' }}>
+            <div
+              className="panel"
+              style={{
+                padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12,
+              }}
+            >
+              {/* three pulsing crowns — a search that visibly progresses */}
+              <span aria-hidden style={{ display: 'flex', gap: 3 }}>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    style={{
+                      fontSize: 17, color: 'var(--gold)',
+                      animation: `searchPulse 1.1s ${i * 0.18}s ease-in-out infinite`,
+                    }}
+                  >
+                    ♛
+                  </span>
+                ))}
+              </span>
+              <span style={{ minWidth: 0, textAlign: 'left' }}>
+                <span className="display" style={{ fontSize: 17, display: 'block' }}>
+                  {match.status === 'found' ? 'Opponent found!' : 'Finding opponent'}
+                </span>
+                <span className="fine" style={{ color: 'var(--dim-on-wood)', fontSize: 11.5 }}>
+                  {match.status === 'found'
+                    ? `${match.opponentName} · entering arena`
+                    : `matching your deck power (${deck.power()})`}
+                </span>
+              </span>
+              <style>{'@keyframes searchPulse{0%,100%{opacity:.28;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}'}</style>
+            </div>
+            <Pill tone="blue" onClick={() => match.cancelQueue()} style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}>
               Cancel search
             </Pill>
           </>
