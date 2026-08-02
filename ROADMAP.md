@@ -51,12 +51,12 @@ engineering plan.
 | 26 | Drag-and-drop deploy | ✅ | — | Plus a tap fallback. |
 | 27 | Crowns, tower fire, spawn/death VFX | ✅ | — | Tower fire was invisible before. |
 | 28 | Real human matchmaking | 🔨 | L | Offchain matchmaker; the bot stays for demos. |
-| 29 | 3 saved deck slots | ⬜ | S | Store already has the field. |
+| 29 | 3 saved deck slots | ✅ | — | Selected slot mirrors the live deck, so edits survive switching. |
 | 30 | Spells: freeze, rage, heal | ⬜ | M | Only one spell archetype exists today. |
 | 31 | Buildings: cannon, tesla | ⬜ | M | Adds a defensive axis. |
 | 32 | Emotes during battle | ⬜ | S | Feeds #10. |
 | 33 | Replays from the input log | ⬜ | M | Nearly free — the log is the replay. |
-| 34 | Training arena vs bot, no stake | ⬜ | S | Lets new players learn without losing SOL. |
+| 34 | Practice mode, no stake | ✅ | — | No rake, no chest, no history — cannot be farmed. |
 | 35 | Clans + Clan Wars | ⬜ | L | Strongest retention mechanic in the genre. |
 
 ## D. Polish and feel
@@ -69,7 +69,7 @@ engineering plan.
 | 38 | Official wallet adapters with real logos | ✅ | — | Phantom, Solflare, Coinbase, Trust, Nightly. |
 | 39 | Chest open ceremony | ✅ | — | Shake, burst, sparks, rays. |
 | 40 | Living unit motion (hop-march, idle breath) | ✅ | — | Procedural; the meshes have no skeleton. |
-| 41 | Rigged unit animation | ⬜ | L | The auto-rigger is humanoid-only and fails on animal silhouettes. Options: hand-rig in Blender, or buy a rigged chibi pack and retexture. |
+| 41 | Rigged unit animation | ✅ | — | KayKit CC0 chibi rigs with Idle/Walk/Attack/Hit/Death, cross-faded. Clips stripped 76→9, five characters in 1.7MB. |
 | 42 | Loading screen with art + progress | ✅ | — | Logo, gold progress bar, rotating gameplay tips. |
 | 43 | Compress models (meshopt + WebP) | ✅ | — | 46MB → 1.4MB, a 33x reduction. |
 | 44 | First-run tutorial | ⬜ | M | Judges arrive cold. |
@@ -95,12 +95,10 @@ engineering plan.
    "working product", which is the judging line.
 3. **#7 coin sponsorship** — the pitch nobody else in the bracket can make.
 4. **#6 tournaments** — 8% of every pool, and it scales without us operating it.
-5. **#41 rigged units** — the last visible gap between this and a shipped game.
+5. **#44 first-run tutorial** — judges arrive cold and nothing teaches them.
 
 ## Known limits, stated plainly
 
-- **Units are static meshes.** They move convincingly, but nothing articulates.
-  Real skeletal animation needs #41.
 - **The economy is simulated on devnet.** Balances, opponents and the settlement
   feed are mock; the program that would make them real exists but is undeployed.
 - **One human cannot yet play another.** The bot is a real opponent running the
