@@ -8,9 +8,12 @@ import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
 import {
   claimUnstakeTx, mintCardTx, readableChainError, requestUnstakeTx, stakeTx,
 } from '../chain/actions';
-import { play } from '../lib/audio';
+import { click, play } from '../lib/audio';
 import { useChain } from '../state/chain';
-import { COINS, ineligibleReason, tickerOf, toRawAmount, type Coin } from '../lib/coins';
+import {
+  ASSET_KINDS, COINS, ineligibleReason, tickerOf, toRawAmount,
+  type AssetKind, type Coin,
+} from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { EASE_SNAP, usePulse } from '../lib/motion';
@@ -20,6 +23,12 @@ import { useEconomy } from '../state/economy';
 import { signer, useWallet } from '../state/wallet';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
+
+/** "All" first, then the three asset classes from the shared catalogue. */
+const FILTERS: { id: AssetKind | 'all'; label: string }[] = [
+  { id: 'all', label: 'All' },
+  ...ASSET_KINDS,
+];
 const TAP = { minHeight: 44 } as const;
 
 /** Live seconds remaining; re-renders once a second only while counting. */
@@ -451,6 +460,11 @@ export function Cards() {
   const [stakeCard, setStakeCard] = useState<string | null>(null);
   const [gemShop, setGemShop] = useState(false);
   const bagsRef = useRef<HTMLElement>(null);
+  const [kind, setKind] = useState<AssetKind | 'all'>('all');
+  const shownCoins = useMemo(
+    () => (kind === 'all' ? COINS : COINS.filter((c) => c.kind === kind)),
+    [kind],
+  );
   const gemRef = usePulse(gems, [
     { transform: 'scale(1)' },
     { transform: 'scale(1.28)', offset: 0.38 },
@@ -544,13 +558,59 @@ export function Cards() {
         )}
       </section>
 
-      <section aria-label="Your meme coins" ref={bagsRef} style={{ scrollMarginTop: 12 }}>
+      <section aria-label="Your bags" ref={bagsRef} style={{ scrollMarginTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
           <span className="label">Your bags · mint fee {fmtSol(FEES.mintSol)}</span>
           <ChainBadge compact />
         </div>
+
+        {/* Memes, blue-chips and stocks are three different reasons to be here,
+            and the list is long enough that scrolling past two of them to reach
+            the third is the whole problem. Counts are on the chips so an empty
+            class is visible before it is tapped. */}
+        <div
+          role="tablist"
+          aria-label="Filter bags by asset class"
+          style={{ display: 'flex', gap: 6, marginBottom: 7 }}
+        >
+          {FILTERS.map((f) => {
+            const on = kind === f.id;
+            const n = f.id === 'all' ? COINS.length : COINS.filter((c) => c.kind === f.id).length;
+            return (
+              <button
+                key={f.id}
+                role="tab"
+                aria-selected={on}
+                onClick={() => { click(); setKind(f.id); }}
+                className="btn-3d"
+                style={{
+                  flex: 1, minWidth: 0, minHeight: 44, borderRadius: 9,
+                  background: on
+                    ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
+                    : 'var(--recess)',
+                  border: '2px solid var(--ink)',
+                  boxShadow: on
+                    ? 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)'
+                    : 'var(--bevel-in)',
+                  fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text)',
+                  WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+                  transition: 'background 160ms var(--ease-snap)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                }}
+              >
+                {f.label}
+                <span style={{ opacity: 0.8, fontSize: 12 }}>{n}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="panel" style={{ padding: '4px 14px' }}>
-          {COINS.map((c, i) => (
+          {shownCoins.length === 0 ? (
+            <p style={{ padding: '18px 0', textAlign: 'center', color: 'var(--dim-on-wood)', fontSize: 13 }}>
+              nothing here yet, anon
+            </p>
+          ) : shownCoins.map((c, i) => (
             <div key={c.mint} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
               <CoinRow coin={c} />
             </div>

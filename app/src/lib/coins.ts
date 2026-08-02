@@ -1,3 +1,4 @@
+import cardCatalogue from '../../../design/cards.json';
 import devnet from './devnet-coins.json';
 
 /**
@@ -68,6 +69,16 @@ const PRESENTATION: Record<string, {
   RUGPROOF: { name: 'Rugproof', hue: 28, balance: 900_000, art: 'coin_rugproof' },
 };
 
+/**
+ * Asset class per ticker, read from the card catalogue that also drives art
+ * generation. One source: a coin cannot be a stock in the filter and a meme in
+ * the art pipeline.
+ */
+const KIND_BY_TICKER = new Map<string, AssetKind>(
+  (cardCatalogue.cards as { ticker: string; kind: string }[])
+    .map((c) => [c.ticker.toUpperCase(), c.kind as AssetKind]),
+);
+
 interface SeededCoin {
   mint: string;
   ticker: string;
@@ -109,14 +120,19 @@ function build(): Coin[] {
       ticker: c.ticker,
       name: look?.name ?? c.name,
       hue: look?.hue ?? c.hue,
-      balance: look?.balance ?? 0,
+      // Simulated-mode holdings. Assets without a hand-tuned entry get roughly
+      // $600 worth, so every card in the registry is actually stakeable in the
+      // demo rather than sitting at zero and looking broken.
+      balance: look?.balance ?? Math.max(1, Math.round(600 / Math.max(c.priceUsd, 1e-6))),
       priceUsd: c.priceUsd,
       liquidityUsd: c.liquidityUsd,
       // Age is derived from the seeded first-seen timestamp, so the two gated
       // coins stay gated for the same reason the program gates them.
       ageHours: Math.max(0, Math.round((nowSec - c.firstSeen) / 3600)),
       decimals: c.decimals,
-      kind: 'meme',
+      kind: KIND_BY_TICKER.get(c.ticker.toUpperCase()) ?? 'meme',
+      // Round badge only for the originally-arted coins; everything else relies
+      // on its character card, with CoinBadge's procedural fallback behind it.
       logoUrl: look ? `/art/${look.art}.png` : undefined,
       // Always the conventional path. The file may not exist yet; both the card
       // frame and the battle billboard fall back to the round badge on a load
