@@ -3,7 +3,7 @@ import { CardDetail } from '../components/CardDetail';
 import { CardFrame } from '../components/CardFrame';
 import { ChestRail, GemShop } from '../components/Chests';
 import { Shop } from '../components/Shop';
-import { CoinBadge, LevelPips, Pill } from '../components/ui';
+import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
 import { COINS, ineligibleReason, tickerOf, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
@@ -60,16 +60,9 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         role="dialog"
         aria-modal="true"
         aria-label={`Stake into ${tickerOf(coin)}`}
-        className="panel"
-        style={{
-          position: 'absolute', bottom: 0, width: 'min(100vw, 430px)',
-          borderRadius: '22px 22px 0 0', borderBottom: 'none',
-          padding: '18px 16px calc(20px + env(safe-area-inset-bottom))',
-          display: 'flex', flexDirection: 'column', gap: 12, outline: 'none',
-          animation: 'sheetUp 240ms var(--ease-snap)',
-        }}
+        className="panel sheet"
+        style={{ gap: 12 }}
       >
-        <style>{'@keyframes sheetUp{from{transform:translateY(40%);opacity:0}to{transform:none;opacity:1}}'}</style>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <CoinBadge mint={card.mint} size={44} />
           <div>
@@ -79,6 +72,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
           <button
             onClick={onClose}
             aria-label="Close"
+            className="icon-btn"
             style={{ marginLeft: 'auto', color: 'var(--dim-on-wood)', fontSize: 26, width: 44, height: 44 }}
           >
             ×
@@ -114,12 +108,13 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
                   onClick={() => { setAmount(v); setError(null); }}
                   aria-pressed={amount === v}
                   disabled={!affordable}
+                  className="btn-3d"
                   style={{
                     flex: 1, minWidth: 0, ...TAP, borderRadius: 9,
                     fontFamily: 'var(--font-display)', fontSize: 14,
                     background: amount === v
                       ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
-                      : 'rgba(6,16,38,.5)',
+                      : 'var(--recess)',
                     border: '2px solid var(--ink)',
                     boxShadow: amount === v
                       ? 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)'
@@ -128,6 +123,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
                     WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
                     filter: affordable ? 'none' : 'saturate(.3)',
                     opacity: affordable ? 1 : 0.55,
+                    transition: 'background 160ms var(--ease-snap), box-shadow 120ms var(--ease-snap)',
                   }}
                 >
                   ${v}
@@ -151,7 +147,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         )}
 
         {error && (
-          <p role="alert" className="fine" style={{ color: '#ffb3c0', textAlign: 'center' }}>{error}</p>
+          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
         )}
 
         {cooling ? (
@@ -201,13 +197,22 @@ function CoinRow({ coin }: { coin: Coin }) {
             </span>
           )}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--dim)' }}>
+        <div style={{ fontSize: 12, color: 'var(--dim-on-wood)' }}>
           {fmtTokens(coin.balance)} · {fmtUsd(value)}
         </div>
       </div>
-      <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+      <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
         {reason ? (
-          <span style={{ fontSize: 12, color: 'var(--red)' }}>{reason}</span>
+          // Bare --red on wood is 2.3:1. The chip gives it a ground to sit on.
+          <span
+            className="well"
+            style={{
+              display: 'inline-block', padding: '5px 8px', fontSize: 12,
+              fontWeight: 700, color: 'var(--red-on-wood)', maxWidth: 116,
+            }}
+          >
+            {reason}
+          </span>
         ) : (
           <button
             onClick={() => {
@@ -217,16 +222,26 @@ function CoinRow({ coin }: { coin: Coin }) {
             }}
             disabled={minting || !affordable}
             title={affordable ? undefined : `needs ${fmtSol(FEES.mintSol)}`}
+            className="btn-3d"
             style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
               padding: '0 14px', ...TAP, borderRadius: 'var(--r-pill)',
-              fontWeight: 800, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase',
-              border: '1px solid var(--purple)',
-              color: minting || !affordable ? 'var(--dim)' : 'var(--text)',
-              opacity: affordable ? 1 : 0.5,
+              fontFamily: 'var(--font-display)', fontSize: 14, letterSpacing: '0.03em',
+              background: affordable
+                ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 52%, var(--btn-gold-dark))'
+                : 'var(--recess)',
+              border: '2px solid var(--ink)',
+              boxShadow: affordable
+                ? 'inset 0 2px 0 rgba(255,255,255,.45), 0 3px 0 var(--btn-gold-dark)'
+                : 'var(--bevel-in)',
+              color: 'var(--text)',
+              WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+              opacity: minting ? 0.7 : 1,
               whiteSpace: 'nowrap',
             }}
           >
-            {minting ? 'Minting…' : affordable ? `Mint · ${fmtSol(FEES.mintSol)}` : 'Need SOL'}
+            {minting && <Spinner />}
+            {minting ? 'Minting' : affordable ? `Mint · ${fmtSol(FEES.mintSol)}` : 'Need SOL'}
           </button>
         )}
       </div>
@@ -242,6 +257,7 @@ export function Cards() {
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [stakeCard, setStakeCard] = useState<string | null>(null);
   const [gemShop, setGemShop] = useState(false);
+  const bagsRef = useRef<HTMLElement>(null);
   const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
   const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
   const totalStaked = cards.reduce((s, c) => s + c.stakedUsd, 0);
@@ -253,7 +269,7 @@ export function Cards() {
         justifyContent: 'center', gap: 16, padding: 30, textAlign: 'center',
       }}
       >
-        <h1 className="display" style={{ fontSize: 28 }}>Cards</h1>
+        <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
         <p style={{ color: 'var(--dim)', fontSize: 14 }}>
           Connect a wallet to see your bags and mint them into cards.
         </p>
@@ -263,7 +279,7 @@ export function Cards() {
   }
 
   return (
-    <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 22 }}>
+    <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <header style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
         <div>
           <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
@@ -284,8 +300,8 @@ export function Cards() {
           }}
         >
           <span aria-hidden style={{ fontSize: 16 }}>💎</span>
-          <span className="display" style={{ fontSize: 16 }}>{gems}</span>
-          <span className="display" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
+          <span className="display display--sm" style={{ fontSize: 16 }}>{gems}</span>
+          <span className="display display--sm" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
         </button>
       </header>
 
@@ -294,21 +310,35 @@ export function Cards() {
       <Shop />
 
       <section aria-label="Your cards">
+        {/* This section is the point of the screen; its neighbours both carry a
+            visible header, so without one it read as a gap between them. */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+          <span className="label">Your cards</span>
+          <span className="label" style={{ fontSize: 12 }}>{cards.length} minted</span>
+        </div>
         {cards.length === 0 ? (
-          <div className="panel" style={{ padding: 24, textAlign: 'center', color: 'var(--dim)' }}>
-            bag is empty, anon — mint your first card below
+          <div className="panel" style={{ padding: '20px 18px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 11, alignItems: 'center' }}>
+            <span style={{ color: 'var(--dim-on-wood)', fontSize: 14 }}>
+              bag is empty, anon — turn a coin you hold into a card
+            </span>
+            <Pill
+              tone="blue"
+              onClick={() => bagsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              style={{ maxWidth: 220, fontSize: 15, minHeight: 46, padding: '10px 18px' }}
+            >
+              Show my bags
+            </Pill>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
             {cards.map((c) => (
               <CardFrame key={c.id} card={c} width={104} fluid onClick={() => setOpenCard(c.id)} />
             ))}
-
           </div>
         )}
       </section>
 
-      <section aria-label="Your meme coins">
+      <section aria-label="Your meme coins" ref={bagsRef} style={{ scrollMarginTop: 12 }}>
         <div className="label" style={{ marginBottom: 4 }}>Your bags · mint fee {fmtSol(FEES.mintSol)}</div>
         <div className="panel" style={{ padding: '4px 14px' }}>
           {COINS.map((c, i) => (
