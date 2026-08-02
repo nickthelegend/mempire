@@ -19,7 +19,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 /**
- * Every asset in `design/cards.json`, so the registry and the art set can never
+ * Every asset in `app/src/data/cards.json`, so the registry and the art set can never
  * disagree about what exists. Economics are plausible placeholders — the mock
  * oracle owns price on devnet — except the two deliberately gated coins below,
  * which exist to prove the eligibility gate rejects them.

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { apiFetch } from '../lib/api';
 import {
   LEAGUES, STARTING_TROPHIES, applyMatch, leagueFor, leagueProgress, nextLeague,
   type League, type Outcome, type TrophyChange,
@@ -16,7 +17,6 @@ import {
  * is the only party that sees both sides of a match.
  */
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8787';
 
 export interface LadderRow {
   address: string;
@@ -69,8 +69,8 @@ export const useLadder = create<LadderState>((set, get) => ({
     if (!address) return;
     set({ loading: true });
     try {
-      const res = await fetch(`${API}/api/ladder/${address}`);
-      if (!res.ok) throw new Error(String(res.status));
+      const res = await apiFetch(`/api/ladder/${address}`);
+      if (!res?.ok) throw new Error(res ? String(res.status) : 'no backend');
       const d = await res.json();
       set({
         trophies: Number(d?.trophies) || 0,
@@ -89,8 +89,8 @@ export const useLadder = create<LadderState>((set, get) => ({
 
   loadTop: async () => {
     try {
-      const res = await fetch(`${API}/api/ladder`);
-      if (!res.ok) return;
+      const res = await apiFetch(`/api/ladder`);
+      if (!res?.ok) return;
       const d = await res.json();
       set({ top: Array.isArray(d?.players) ? d.players : [] });
     } catch { /* leaderboard is decoration when offline */ }
@@ -110,12 +110,12 @@ export const useLadder = create<LadderState>((set, get) => ({
 
     // Fire-and-forget: the result screen must never wait on the ladder service.
     if (address) {
-      void fetch(`${API}/api/ladder/${address}`, {
+      void apiFetch(`/api/ladder/${address}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ opponentTrophies, outcome }),
       })
-        .then((r) => (r.ok ? r.json() : null))
+        .then((r) => (r?.ok ? r.json() : null))
         .then((d) => {
           // The server sees both sides, so it is the authority. Reconcile quietly.
           if (d && typeof d.trophies === 'number') {

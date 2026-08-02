@@ -7,8 +7,8 @@ import type { MintedCard } from '../state/collection';
 import type { ChestSlot } from '../state/economy';
 import type { MatchResult } from '../state/match';
 import type { ShopOffer } from '../state/shop';
+import { apiFetch } from './api';
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8787';
 const SAVE_DEBOUNCE_MS = 900;
 
 export interface SavedState {
@@ -38,8 +38,8 @@ export const isOnline = (): boolean => online;
 
 export async function loadPlayer(address: string): Promise<SavedState | null> {
   try {
-    const res = await fetch(`${API}/api/player/${address}`);
-    if (!res.ok) throw new Error(String(res.status));
+    const res = await apiFetch(`/api/player/${address}`);
+    if (!res?.ok) throw new Error(res ? String(res.status) : 'no backend');
     online = true;
     return (await res.json()) as SavedState | null;
   } catch {
@@ -52,12 +52,12 @@ export function savePlayer(address: string, state: SavedState): void {
   if (!address) return;
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
-    void fetch(`${API}/api/player/${address}`, {
+    void apiFetch(`/api/player/${address}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
     })
-      .then((r) => { online = r.ok; })
+      .then((r) => { online = r?.ok ?? false; })
       .catch(() => { online = false; });
   }, SAVE_DEBOUNCE_MS);
 }
@@ -65,7 +65,7 @@ export function savePlayer(address: string, state: SavedState): void {
 /** Records a settled match for the leaderboard. Never blocks the result screen. */
 export function recordMatch(address: string, result: MatchResult): void {
   if (!address) return;
-  void fetch(`${API}/api/match/${address}`, {
+  void apiFetch(`/api/match/${address}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(result),
@@ -83,8 +83,8 @@ export interface LeaderRow {
 
 export async function loadLeaderboard(): Promise<LeaderRow[]> {
   try {
-    const res = await fetch(`${API}/api/leaderboard`);
-    if (!res.ok) throw new Error(String(res.status));
+    const res = await apiFetch(`/api/leaderboard`);
+    if (!res?.ok) throw new Error(res ? String(res.status) : 'no backend');
     return (await res.json()) as LeaderRow[];
   } catch {
     return [];

@@ -1,4 +1,5 @@
 import type { InputEvent, MatchCard } from '../sim/types';
+import { wsUrl } from './api';
 
 /**
  * PvP transport — the client half of the matchmaker.
@@ -40,10 +41,7 @@ export interface PvpCallbacks {
   onSocketLost?: () => void;
 }
 
-function wsUrl(): string {
-  const api = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8787';
-  return `${api.replace(/^http/, 'ws')}/ws`;
-}
+
 
 let socket: WebSocket | null = null;
 let callbacks: PvpCallbacks = {};
@@ -54,9 +52,17 @@ export function pvpConnect(cb: PvpCallbacks): void {
   callbacks = cb;
   matched = false;
 
+  const url = wsUrl();
+  if (!url) {
+    // No matchmaker configured for this build. Same outcome as an unreachable
+    // one, reached without opening a socket that could never connect.
+    cb.onUnavailable?.();
+    return;
+  }
+
   let ws: WebSocket;
   try {
-    ws = new WebSocket(wsUrl());
+    ws = new WebSocket(url);
   } catch {
     cb.onUnavailable?.();
     return;

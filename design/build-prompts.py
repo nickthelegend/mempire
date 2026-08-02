@@ -5,7 +5,10 @@ import os
 import sys
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-data = json.load(open(os.path.join(root, 'design', 'cards.json')))
+# The catalogue lives inside the app because it is runtime data: the Cards
+# filter reads it. Vercel roots the deployment at app/, so anything the
+# bundle imports from outside that directory is simply not uploaded.
+data = json.load(open(os.path.join(root, 'app', 'src', 'data', 'cards.json')))
 want = {a.upper() for a in sys.argv[1:]}
 for c in data['cards']:
     if want and c['ticker'].upper() not in want:

@@ -1,4 +1,4 @@
-import cardCatalogue from '../../../design/cards.json';
+import cardCatalogue from '../data/cards.json';
 import devnet from './devnet-coins.json';
 
 /**

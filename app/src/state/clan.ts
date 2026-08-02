@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Crest } from '../components/ClanCrest';
+import { apiFetch } from '../lib/api';
 
 /**
  * Clans.
@@ -14,7 +15,6 @@ import type { Crest } from '../components/ClanCrest';
  * surface honestly.
  */
 
-const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8787';
 
 export const MEMBER_CAP = 50;
 export const CLAN_CREATE_GEM_COST = 500;
@@ -142,10 +142,17 @@ async function call<T>(
   path: string, init?: RequestInit,
 ): Promise<{ data: T | null; error: string | null; offline: boolean }> {
   try {
-    const res = await fetch(`${API}${path}`, {
+    const res = await apiFetch(path, {
       ...init,
       headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
     });
+    if (!res) {
+      return {
+        data: null,
+        error: 'Clans need the API — this build has no server configured',
+        offline: true,
+      };
+    }
     if (!res.ok) {
       let msg = `request failed (${res.status})`;
       try {

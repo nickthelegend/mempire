@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Batch-generate every card in design/cards.json.
+# Batch-generate every card in app/src/data/cards.json.
 #
 # Resumable by design: a card whose PNG already sits in app/public/art/ is
 # skipped without spending a credit. So an interrupted run, a rate limit, or a
