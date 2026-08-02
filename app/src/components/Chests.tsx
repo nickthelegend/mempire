@@ -155,6 +155,14 @@ function OpenCeremony({
   );
 }
 
+/* The slot is tall enough for a 44px action under 44px of art — 44 is the touch
+   floor, and the skip label needs two lines at 320px. */
+const SLOT_RATIO = '1 / 1.45';
+const ACTION = {
+  width: '100%', minHeight: 44, borderRadius: 7, fontSize: 12.5,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+} as const;
+
 function Slot({ chest, onOpened }: {
   chest: ChestSlot | null;
   onOpened: (def: ChestDef) => void;
@@ -165,14 +173,28 @@ function Slot({ chest, onOpened }: {
     return (
       <div
         role="img"
-        aria-label="Empty chest slot"
+        aria-label="Empty chest slot — win a battle to earn one"
         className="well"
         style={{
-          aspectRatio: '1 / 1.15', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', flexDirection: 'column', gap: 3,
+          aspectRatio: SLOT_RATIO, display: 'flex', alignItems: 'center',
+          justifyContent: 'center', flexDirection: 'column', gap: 4, padding: 5,
         }}
       >
-        <span className="label" style={{ fontSize: 12, opacity: 0.7 }}>empty</span>
+        {/* a dark keyhole, not a blank box — the slot shows what it is for */}
+        <span
+          aria-hidden
+          style={{
+            width: 30, height: 30, borderRadius: 7,
+            border: '2.5px dashed rgba(246,230,204,.34)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 15, opacity: 0.7,
+          }}
+        >
+          🎁
+        </span>
+        <span className="label" style={{ fontSize: 12, textAlign: 'center', lineHeight: 1.15 }}>
+          win a<br />battle
+        </span>
       </div>
     );
   }
@@ -186,7 +208,7 @@ function Slot({ chest, onOpened }: {
     <div
       className="well"
       style={{
-        aspectRatio: '1 / 1.15', padding: 5, display: 'flex',
+        aspectRatio: SLOT_RATIO, padding: 5, display: 'flex',
         flexDirection: 'column', alignItems: 'center', justifyContent: 'space-between',
         borderColor: ready ? 'var(--gold)' : undefined,
       }}
@@ -199,41 +221,49 @@ function Slot({ chest, onOpened }: {
             const got = collect(chest.id);
             if (got) onOpened(got);
           }}
+          className="btn-3d"
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
-            fontFamily: 'var(--font-display)',
+            ...ACTION,
             background: 'linear-gradient(180deg,var(--btn-green-hi),var(--btn-green))',
             border: '2px solid var(--ink)', color: '#fff',
+            fontFamily: 'var(--font-display)',
             WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
-            boxShadow: '0 2px 0 var(--btn-green-dark)',
+            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-green-dark)',
           }}
         >
           OPEN
         </button>
       ) : chest.unlocking ? (
+        // Two deliberate lines. "12h 0m · 216💎" on one line wraps at every
+        // width the four-slot grid can produce, which used to burst the slot.
         <button
           onClick={() => { click(); skipUnlock(chest.id); }}
           disabled={gems < cost}
           aria-label={`Skip ${fmtLeft(remaining)} for ${cost} gems`}
+          className="btn-3d"
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
-            background: 'rgba(6,16,38,.6)', border: '2px solid var(--ink)',
+            ...ACTION,
+            flexDirection: 'column', gap: 0, lineHeight: 1.05,
+            background: 'var(--recess)', border: '2px solid var(--ink)',
+            boxShadow: 'var(--bevel-in)',
             color: gems < cost ? 'var(--dim)' : 'var(--gold-hi)', fontWeight: 800,
             opacity: gems < cost ? 0.6 : 1,
           }}
         >
-          {fmtLeft(remaining)} · {cost}💎
+          <span>{fmtLeft(remaining)}</span>
+          <span style={{ fontSize: 12 }}>{cost}💎</span>
         </button>
       ) : (
         <button
           onClick={() => { click(); startUnlock(chest.id); }}
+          className="btn-3d"
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
-            fontFamily: 'var(--font-display)',
+            ...ACTION,
             background: 'linear-gradient(180deg,var(--btn-blue-hi),var(--btn-blue))',
             border: '2px solid var(--ink)', color: '#fff',
+            fontFamily: 'var(--font-display)',
             WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
-            boxShadow: '0 2px 0 var(--btn-blue-dark)',
+            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)',
           }}
         >
           START
@@ -283,20 +313,19 @@ export function GemShop({ onClose }: { onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Buy gems"
-        className="panel"
-        style={{
-          position: 'absolute', bottom: 0, width: 'min(100vw, 430px)',
-          borderRadius: '22px 22px 0 0', borderBottom: 'none',
-          padding: '18px 16px calc(20px + env(safe-area-inset-bottom))',
-          display: 'flex', flexDirection: 'column', gap: 10,
-          animation: 'sheetUp 240ms var(--ease-snap)',
-        }}
+        className="panel sheet"
+        style={{ gap: 10 }}
       >
-        <style>{'@keyframes sheetUp{from{transform:translateY(42%);opacity:0}to{transform:none;opacity:1}}'}</style>
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <h2 className="display" style={{ fontSize: 24 }}>Gems</h2>
-          <span className="money" style={{ marginLeft: 10, fontSize: 18 }}>{gems}💎</span>
-          <button onClick={() => { click(); onClose(); }} aria-label="Close" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
+          {/* gems are not SOL, and gold means only one thing here */}
+          <span
+            className="display display--sm"
+            style={{ marginLeft: 10, fontSize: 18, color: 'var(--blue-pale)' }}
+          >
+            {gems}💎
+          </span>
+          <button onClick={() => { click(); onClose(); }} aria-label="Close" className="icon-btn" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
         </div>
         <p className="fine" style={{ color: 'var(--dim-on-wood)', marginTop: -6 }}>
           Gems skip chest timers, enter tournaments and buy cosmetics.
