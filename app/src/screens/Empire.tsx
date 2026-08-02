@@ -1,8 +1,76 @@
+import { useEffect, useState } from 'react';
 import { MoneyRow, Pill } from '../components/ui';
+import { RankChip } from '../components/ClanBits';
 import { fmtSol, shortAddr } from '../lib/format';
+import { loadLeaderboard, type LeaderRow } from '../lib/persist';
 import { useCollection } from '../state/collection';
 import { useMatch } from '../state/match';
 import { useWallet } from '../state/wallet';
+
+/**
+ * Top players by net SOL, from the persistence API.
+ *
+ * Renders nothing when the API is down or the board is empty — a leaderboard
+ * with no rows is dead weight, and the rest of the screen already works
+ * without the server.
+ */
+function Leaderboard({ me }: { me: string }) {
+  const [rows, setRows] = useState<LeaderRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadLeaderboard().then((r) => { if (!cancelled) setRows(r); });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <section aria-label="Leaderboard">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+        <span className="label">Leaderboard</span>
+        <span className="label" style={{ fontSize: 12 }}>by net SOL</span>
+      </div>
+      <div className="well" style={{ padding: '2px 10px' }}>
+        {rows.slice(0, 10).map((r, i) => {
+          const isMe = r.address === me;
+          return (
+            <div
+              key={r.address}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0',
+                borderTop: i === 0 ? 'none' : '2px solid rgba(0,0,0,.28)',
+              }}
+            >
+              <RankChip rank={i + 1} />
+              <span
+                className="mono"
+                style={{
+                  fontSize: 12, minWidth: 0, flex: 1,
+                  color: isMe ? 'var(--gold-hi)' : 'var(--dim)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  fontWeight: isMe ? 800 : 400,
+                }}
+              >
+                {shortAddr(r.address)}
+                {isMe && <span className="label" style={{ fontSize: 12, marginLeft: 5 }}>you</span>}
+              </span>
+              <span className="fine" style={{ fontSize: 12, flexShrink: 0 }}>
+                {r.wins}W · {r.losses}L
+              </span>
+              <span
+                className="money"
+                style={{ fontSize: 13, flexShrink: 0, color: r.netSol >= 0 ? 'var(--gold)' : 'var(--red)' }}
+              >
+                {r.netSol >= 0 ? '+' : '−'}{fmtSol(Math.abs(r.netSol))}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 export function Empire() {
   const wallet = useWallet();
@@ -95,6 +163,8 @@ export function Empire() {
               </div>
             )}
           </section>
+
+          <Leaderboard me={wallet.address} />
 
           <p className="fine" style={{ fontSize: 12 }}>
             Devnet build — balances, opponents, and the settlement feed are simulated.

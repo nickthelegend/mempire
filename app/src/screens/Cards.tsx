@@ -5,7 +5,9 @@ import { ChainBadge } from '../components/ChainBadge';
 import { ChestRail, GemShop } from '../components/Chests';
 import { Shop } from '../components/Shop';
 import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
-import { mintCardTx, readableChainError, stakeTx } from '../chain/actions';
+import {
+  claimUnstakeTx, mintCardTx, readableChainError, requestUnstakeTx, stakeTx,
+} from '../chain/actions';
 import { play } from '../lib/audio';
 import { useChain } from '../state/chain';
 import { COINS, ineligibleReason, tickerOf, toRawAmount, type Coin } from '../lib/coins';
@@ -68,6 +70,46 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
       play('reward');
       void refresh();
     } catch (e) {
+      setError(readableChainError(e));
+      play('error');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  /** Both unstake steps run against the program when the card lives onchain. */
+  const unstakeOnchain = async (usd: number) => {
+    if (!chainCard || !coin) return;
+    setPending(true);
+    setError(null);
+    try {
+      const { signature } = await requestUnstakeTx(
+        signer(), chainCard.id, toRawAmount(coin, usd / coin.priceUsd),
+      );
+      noteSignature(signature);
+      requestUnstake(card.id, usd);
+      void refresh();
+    } catch (e) {
+      setError(readableChainError(e));
+      play('error');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const claimOnchain = async () => {
+    if (!chainCard || !coin) return;
+    setPending(true);
+    setError(null);
+    try {
+      const { signature } = await claimUnstakeTx(signer(), chainCard.id, coin.mint);
+      noteSignature(signature);
+      claimUnstake(card.id);
+      play('reward');
+      void refresh();
+    } catch (e) {
+      // CooldownActive here means the local clock ran ahead of the chain's —
+      // the program is the authority, so surface it and leave the claim pending.
       setError(readableChainError(e));
       play('error');
     } finally {
@@ -176,8 +218,14 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         </div>
 
         {claimable ? (
-          <Pill onClick={() => claimUnstake(card.id)}>
-            Claim {fmtUsd(card.pendingUnstakeUsd * (1 - FEES.unstakePct / 100))}
+          <Pill
+            disabled={pending}
+            onClick={() => {
+              if (chainCard) { void claimOnchain(); return; }
+              claimUnstake(card.id);
+            }}
+          >
+            {pending ? 'Confirm in wallet…' : `Claim ${fmtUsd(card.pendingUnstakeUsd * (1 - FEES.unstakePct / 100))}`}
           </Pill>
         ) : (
           <Pill
@@ -210,8 +258,13 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
           </p>
         ) : !claimable && (
           <button
-            onClick={() => { requestUnstake(card.id, Math.min(amount, card.stakedUsd)); setError(null); }}
-            disabled={card.stakedUsd === 0}
+            onClick={() => {
+              const usd = Math.min(amount, card.stakedUsd);
+              if (chainCard) { void unstakeOnchain(usd); return; }
+              requestUnstake(card.id, usd);
+              setError(null);
+            }}
+            disabled={card.stakedUsd === 0 || pending}
             style={{
               ...TAP, fontSize: 13, fontWeight: 700, textDecoration: 'underline',
               color: card.stakedUsd === 0 ? 'var(--dim-on-wood)' : 'var(--text)',

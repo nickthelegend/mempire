@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { play, startMusic, stopMusic } from '../lib/audio';
 import { COINS } from '../lib/coins';
+import { recordMatch } from '../lib/persist';
 import { archetypeForMint } from '../sim/archetypes';
 import { decideBot, type BotDifficulty } from '../sim/bot';
 import { createMatch, hashState, stepSim } from '../sim/engine';
@@ -276,10 +277,14 @@ function settle(): void {
     history: practice ? s.history : [result, ...s.history],
   }));
 
-  // Crowns roll up to the clan ladder. Fire-and-forget by design: settlement
-  // must never wait on, or fail because of, the clan service. Practice stays
-  // out for the same reason it stays out of history — it cannot be farmed.
-  if (!practice && crowns[0] > 0) {
-    useClan.getState().reportCrowns(wallet.address, crowns[0], useDeck.getState().power());
+  // Standing rolls up after settlement, fire-and-forget by design: the result
+  // screen must never wait on, or fail because of, a service. Practice stays
+  // out of all of it for the same reason it stays out of history — it cannot
+  // be farmed.
+  if (!practice) {
+    recordMatch(wallet.address, result);
+    if (crowns[0] > 0) {
+      useClan.getState().reportCrowns(wallet.address, crowns[0], useDeck.getState().power());
+    }
   }
 }
