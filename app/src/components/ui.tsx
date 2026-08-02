@@ -16,6 +16,11 @@ const TONES: Record<Tone, { top: string; mid: string; base: string }> = {
  * The arcade button. A solid colour face over a hard base edge, so it reads as
  * a physical key — and presses into its own shadow on tap. Everything
  * clickable in the game uses this; nothing is a flat rectangle.
+ *
+ * `ghost` is a live secondary control and `disabled` is a dead one, so they must
+ * not look alike: they used to share one flat recipe, which made "Keep fighting"
+ * read as switched off next to a fully lit "Forfeit" on the one confirm that
+ * costs real SOL.
  */
 export function Pill({
   children, onClick, disabled, ghost, danger, tone = 'gold', style,
@@ -24,7 +29,7 @@ export function Pill({
   ghost?: boolean; danger?: boolean; tone?: Tone; style?: CSSProperties;
 }) {
   const t = TONES[danger ? 'red' : tone];
-  const flat = ghost || disabled;
+  const raised = !ghost && !disabled;
   return (
     <button
       onClick={onClick ? () => { click(); onClick(); } : undefined}
@@ -33,25 +38,48 @@ export function Pill({
       style={{
         display: 'block', width: '100%', padding: '13px 22px',
         borderRadius: 'var(--r-pill)',
-        background: flat
-          ? 'rgba(9,22,48,.5)'
-          : `linear-gradient(180deg, ${t.top} 0%, ${t.mid} 46%, ${t.mid} 100%)`,
-        border: `3px solid ${flat ? 'rgba(0,0,0,.45)' : 'var(--ink)'}`,
+        background: raised
+          ? `linear-gradient(180deg, ${t.top} 0%, ${t.mid} 46%, ${t.mid} 100%)`
+          : disabled
+            ? 'var(--recess)'
+            : 'linear-gradient(180deg, rgba(90,140,210,.5), rgba(23,62,110,.62))',
+        border: `3px solid ${disabled ? 'rgba(0,0,0,.45)' : 'var(--ink)'}`,
         color: disabled ? 'var(--dim)' : 'var(--text)',
         fontFamily: 'var(--font-display)',
         fontWeight: 400, fontSize: 17, letterSpacing: '0.04em', textTransform: 'uppercase',
-        WebkitTextStroke: flat ? '0' : '2.5px var(--ink)',
+        WebkitTextStroke: disabled ? '0' : '2.5px var(--ink)',
         paintOrder: 'stroke fill',
         minHeight: 48,
-        boxShadow: flat
-          ? 'var(--bevel-in)'
-          : `inset 0 2px 0 rgba(255,255,255,.5), inset 0 -4px 0 rgba(0,0,0,.22), 0 5px 0 ${t.base}, 0 9px 14px rgba(0,0,0,.45)`,
+        boxShadow: raised
+          ? `inset 0 2px 0 rgba(255,255,255,.5), inset 0 -4px 0 rgba(0,0,0,.22), 0 5px 0 ${t.base}, 0 9px 14px rgba(0,0,0,.45)`
+          : disabled
+            ? 'var(--bevel-in)'
+            : 'inset 0 2px 0 rgba(255,255,255,.3), inset 0 -3px 0 rgba(0,0,0,.24), 0 4px 0 var(--btn-blue-dark), 0 7px 12px rgba(0,0,0,.4)',
         transition: 'transform 90ms var(--ease-snap), box-shadow 90ms var(--ease-snap), filter 140ms',
         ...style,
       }}
     >
       {children}
     </button>
+  );
+}
+
+/** Inline pending mark. A pending action must look different from a dead one. */
+export function Spinner({ size = 13 }: { size?: number }) {
+  return (
+    <>
+      <span
+        aria-hidden
+        style={{
+          width: size, height: size, flexShrink: 0, borderRadius: '50%',
+          border: `${Math.max(2, size * 0.17)}px solid rgba(0,0,0,.35)`,
+          borderTopColor: 'rgba(255,255,255,.95)',
+          display: 'inline-block',
+          animation: 'spin 720ms linear infinite',
+        }}
+      />
+      <style>{'@keyframes spin{to{transform:rotate(360deg)}}'}</style>
+    </>
   );
 }
 
@@ -135,9 +163,13 @@ export function LevelPips({ level }: { level: number }) {
           key={i}
           style={{
             width: 6, height: 6, borderRadius: '50%',
-            background: i < level ? 'var(--gold)' : 'var(--raised)',
-            border: i < level ? 'none' : '1px solid var(--border)',
-            boxShadow: i < level ? '0 0 4px rgba(240,185,11,.6)' : 'none',
+            // an unfilled pip is a hole punched in the wood, not a navy dot —
+            // both consumers of this are wood sheets
+            background: i < level ? 'var(--gold)' : 'rgba(0,0,0,.45)',
+            border: i < level ? 'none' : '1px solid rgba(0,0,0,.5)',
+            boxShadow: i < level
+              ? '0 0 4px rgba(255,196,34,.6)'
+              : 'inset 0 1px 2px rgba(0,0,0,.5)',
           }}
         />
       ))}
@@ -157,10 +189,13 @@ export function Crowns({ n, size = 13 }: { n: number; size?: number }) {
   );
 }
 
-/** Sacred money readout: mono, gold, exact. */
 /**
- * Money readout. `stack` puts the label above the value — required in
- * narrow two-column grids where side-by-side collides at 375px.
+ * The sacred money readout: gold, exact, never abbreviated. A carved well with
+ * a gold rim — it was the last flat 1px rectangle in the game, which made the
+ * pot look less real than the buttons around it.
+ *
+ * `stack` puts the label above the value — required in narrow two-column grids
+ * where side-by-side collides at 375px.
  */
 export function MoneyRow({
   label, value, big, stack,
@@ -173,7 +208,9 @@ export function MoneyRow({
       justifyContent: stack ? 'center' : 'space-between',
       gap: stack ? 2 : 8,
       padding: big ? '13px 15px' : '10px 13px',
-      background: 'var(--surface)', border: '1px solid rgba(240,185,11,.4)',
+      background: 'var(--recess)',
+      border: '2px solid var(--gold)',
+      boxShadow: 'var(--bevel-in), 0 0 0 1px rgba(0,0,0,.5)',
       borderRadius: 'var(--r-card)', minWidth: 0,
     }}
     >

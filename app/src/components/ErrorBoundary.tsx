@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Pill } from './ui';
 
 interface Props { children: ReactNode }
 interface State { error: Error | null }
@@ -22,9 +23,12 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     const { error } = this.state;
     if (!error) return this.props.children;
+    // .quilt on the root: this boundary wraps the router, so without it a crash
+    // also loses the field and the app drops to a flat blue rectangle.
     return (
       <div
         role="alert"
+        className="quilt"
         style={{
           minHeight: '100dvh', display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center', gap: 16,
@@ -37,24 +41,20 @@ export class ErrorBoundary extends Component<Props, State> {
           account — nothing is lost onchain.
         </p>
         <code
+          className="well"
           style={{
-            fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--red)',
-            maxWidth: 320, wordBreak: 'break-word',
+            fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--red-on-wood)',
+            maxWidth: 320, wordBreak: 'break-word', padding: '9px 12px',
+            display: 'block',
           }}
         >
           {error.message}
         </code>
-        <button
-          onClick={() => { window.location.hash = '#/'; window.location.reload(); }}
-          style={{
-            padding: '15px 28px', borderRadius: 'var(--r-pill)',
-            background: 'var(--grad-solana)', color: 'var(--void)',
-            fontWeight: 800, fontSize: 14, letterSpacing: '.09em',
-            textTransform: 'uppercase', minHeight: 44,
-          }}
-        >
-          Back to Arena
-        </button>
+        <div style={{ width: 'min(100%, 280px)' }}>
+          <Pill onClick={() => { window.location.hash = '#/'; window.location.reload(); }}>
+            Back to Arena
+          </Pill>
+        </div>
       </div>
     );
   }
