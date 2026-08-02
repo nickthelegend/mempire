@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { CardFrame } from '../components/CardFrame';
+import { click } from '../lib/audio';
 import { COINS } from '../lib/coins';
 import { ARCHETYPES } from '../sim/archetypes';
 import { useCollection } from '../state/collection';
-import { useDeck } from '../state/deck';
+import { DECK_SLOTS, useDeck } from '../state/deck';
 
 export function Deck() {
   const cards = useCollection((s) => s.cards);
@@ -41,6 +42,38 @@ export function Deck() {
           </span>
         </div>
       </header>
+
+      {/* saved loadouts */}
+      <div role="tablist" aria-label="Deck slots" style={{ display: 'flex', gap: 7 }}>
+        {Array.from({ length: DECK_SLOTS }, (_, i) => {
+          const active = deck.slot === i;
+          const filled = (deck.slots[i]?.length ?? 0) === 8;
+          return (
+            <button
+              key={i}
+              role="tab"
+              aria-selected={active}
+              onClick={() => { click(); deck.selectSlot(i); }}
+              className="btn-3d"
+              style={{
+                flex: 1, minHeight: 44, borderRadius: 'var(--r-card)',
+                background: active
+                  ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold))'
+                  : 'rgba(6,16,38,.5)',
+                border: '2.5px solid var(--ink)',
+                boxShadow: active
+                  ? 'inset 0 2px 0 rgba(255,255,255,.5), 0 4px 0 var(--btn-gold-dark)'
+                  : 'var(--bevel-in)',
+                fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--text)',
+                WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
+              }}
+            >
+              Deck {i + 1}
+              {filled && !active && <span style={{ color: 'var(--teal)' }}> ✓</span>}
+            </button>
+          );
+        })}
+      </div>
 
       <section
         aria-label="active deck"

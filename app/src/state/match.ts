@@ -44,7 +44,9 @@ interface MatchStore {
   opponentName: string;
   crowns: [number, number]; // live tower count, [you, them]
   shock: Shock | null;
-  startQueue: () => string | null; // error string or null
+  /** No stake, no rake, no chest — a place to learn the controls. */
+  practice: boolean;
+  startQueue: (opts?: { practice?: boolean }) => string | null; // error string or null
   cancelQueue: () => void;
   playCard: (deckIndex: number, xFp: number, yFp: number) => void;
   forfeit: () => void;
@@ -95,14 +97,16 @@ export const useMatch = create<MatchStore>((set, get) => ({
   opponentName: '',
   crowns: [0, 0],
   shock: null,
+  practice: false,
 
-  startQueue: () => {
+  startQueue: (opts) => {
+    const practice = opts?.practice ?? false;
     const deck = useDeck.getState();
     const wallet = useWallet.getState();
     if (!wallet.connected) return 'connect your wallet first';
     if (!deck.isComplete()) return 'deck needs 8 cards';
     const tier = TIERS[deck.tier];
-    if (wallet.sol < tier.stakeSol) return `need ${tier.stakeSol} SOL to enter`;
+    if (!practice && wallet.sol < tier.stakeSol) return `need ${tier.stakeSol} SOL to enter`;
 
     const { player, bot } = buildDecks();
     clearTimers();
@@ -110,25 +114,29 @@ export const useMatch = create<MatchStore>((set, get) => ({
       status: 'queuing',
       playerDeck: player,
       botDeck: bot,
-      stakeSol: tier.stakeSol,
+      stakeSol: practice ? 0 : tier.stakeSol,
+      practice,
       result: null,
-      opponentName: BOT_NAMES[deck.tier],
+      opponentName: practice ? 'Training Dummy' : BOT_NAMES[deck.tier],
     });
 
-    const queueMs = 1200 + Math.random() * 1300;
+    // practice skips the search theatre — the point is to get to the arena
+    const queueMs = practice ? 400 : 1200 + Math.random() * 1300;
     queueTimers.push(setTimeout(() => {
       if (get().status !== 'queuing') return;
       set({ status: 'found' });
       queueTimers.push(setTimeout(() => {
         if (get().status !== 'found') return;
         // Escrow happens here, not at queue time: a cancelled or abandoned
-        // search must never cost the player anything.
-        if (!useWallet.getState().spend(tier.stakeSol)) {
-          clearTimers();
-          set({ status: 'idle' });
-          return;
+        // search must never cost the player anything. Practice never escrows.
+        if (!practice) {
+          if (!useWallet.getState().spend(tier.stakeSol)) {
+            clearTimers();
+            set({ status: 'idle' });
+            return;
+          }
+          play('coin');
         }
-        play('coin');
         const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
         const sim = createMatch(seed, [player, bot]);
         pending = new Map();
@@ -173,7 +181,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
   dismiss: () => {
     clearTimers();
     stopMusic();
-    set({ status: 'idle', sim: null, result: null, version: 0, crowns: [0, 0], shock: null });
+    set({ status: 'idle', sim: null, result: null, version: 0, crowns: [0, 0], shock: null, practice: false });
   },
 }));
 
@@ -234,7 +242,7 @@ function countCrowns(sim: SimState): [number, number] {
 }
 
 function settle(): void {
-  const { sim, stakeSol, status } = useMatch.getState();
+  const { sim, stakeSol, status, practice } = useMatch.getState();
   if (!sim || status === 'settled') return; // idempotent: never pay twice
   const crowns = countCrowns(sim);
   stopMusic();
@@ -254,10 +262,16 @@ function settle(): void {
   }
   play(won || draw ? 'victory' : 'defeat');
   // A win earns a chest. Full slots deliberately award nothing — that pressure
-  // is what makes the skip-timer purchase land.
-  const chest = won ? useEconomy.getState().awardChest(Math.random()) : null;
+  // is what makes the skip-timer purchase land. Practice earns nothing at all,
+  // so it cannot be farmed for chests.
+  const chest = won && !practice ? useEconomy.getState().awardChest(Math.random()) : null;
   const result: MatchResult = {
     won, draw, potSol: pot, payoutSol, rakeSol, hashes: hashes.length, crowns, chest,
   };
-  useMatch.setState((s) => ({ status: 'settled', result, history: [result, ...s.history] }));
+  useMatch.setState((s) => ({
+    status: 'settled',
+    result,
+    // practice never enters the record — a padded W/L is worse than none
+    history: practice ? s.history : [result, ...s.history],
+  }));
 }

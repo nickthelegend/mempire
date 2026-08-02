@@ -35,7 +35,7 @@ function GoldBurst() {
 }
 
 function ResultOverlay() {
-  const { result, stakeSol, dismiss } = useMatch();
+  const { result, stakeSol, dismiss, practice } = useMatch();
   const nav = useNavigate();
   if (!result) return null;
   const title = result.draw ? 'Split' : result.won ? 'Pot Secured' : 'Rekt';
@@ -58,6 +58,12 @@ function ResultOverlay() {
         {title}
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {practice ? (
+          <p className="fine" style={{ fontSize: 13 }}>
+            Practice match — no stake, no rake, nothing recorded.
+          </p>
+        ) : (
+        <>
         <MoneyRow label="Pot" value={fmtSol(result.potSol)} />
         <MoneyRow label={`House rake (${result.draw ? 5 : 10}%)`} value={`−${fmtSol(result.rakeSol)}`} />
         <MoneyRow
@@ -65,11 +71,13 @@ function ResultOverlay() {
           label={result.won ? 'You take' : result.draw ? 'Returned' : 'You lost'}
           value={result.payoutSol > 0 ? `+${fmtSol(result.payoutSol)}` : `−${fmtSol(stakeSol)}`}
         />
+        </>
+        )}
       </div>
       <div style={{ display: 'flex', justifyContent: 'center', gap: 14, alignItems: 'center' }}>
         <CrownScore crowns={result.crowns} />
       </div>
-      {result.won && (
+      {result.won && !practice && (
         <div className="well" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span aria-hidden style={{ fontSize: 22 }}>🎁</span>
           <span style={{ textAlign: 'left', minWidth: 0 }}>
@@ -288,8 +296,11 @@ export function Battle() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
           <CrownScore crowns={match.crowns} />
-          <span className="money" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-            {fmtSol(match.stakeSol * 2)}
+          <span
+            className={match.practice ? 'label' : 'money'}
+            style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+          >
+            {match.practice ? 'practice · no stake' : fmtSol(match.stakeSol * 2)}
           </span>
         </div>
       </div>
@@ -509,10 +520,12 @@ export function Battle() {
           }}
         >
           <p style={{ textAlign: 'center', fontSize: 15 }}>
-            Forfeit the match? Your opponent takes the {fmtSol(match.stakeSol * 2)} pot.
+            {match.practice
+              ? 'Leave practice? Nothing is staked.'
+              : `Forfeit the match? Your opponent takes the ${fmtSol(match.stakeSol * 2)} pot.`}
           </p>
           <Pill danger onClick={() => { setConfirmQuit(false); match.forfeit(); }}>
-            Forfeit — lose {fmtSol(match.stakeSol)}
+            {match.practice ? 'Leave practice' : `Forfeit — lose ${fmtSol(match.stakeSol)}`}
           </Pill>
           <Pill ghost onClick={() => setConfirmQuit(false)}>Keep fighting</Pill>
         </div>

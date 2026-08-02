@@ -263,9 +263,20 @@ export function Arena() {
             </Pill>
           </>
         ) : (
-          <Pill onClick={() => setError(match.startQueue())} tone="gold" style={{ fontSize: 25, padding: '19px 24px' }}>
-            Battle
-          </Pill>
+          <>
+            <Pill onClick={() => setError(match.startQueue())} tone="gold" style={{ fontSize: 25, padding: '19px 24px' }}>
+              Battle
+            </Pill>
+            {/* No stake, no rake, no chest — somewhere to learn the controls
+                without paying tuition in SOL. */}
+            <Pill
+              tone="green"
+              onClick={() => setError(match.startQueue({ practice: true }))}
+              style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}
+            >
+              Practice · free
+            </Pill>
+          </>
         )}
         {error && (
           <div role="alert" className="well" style={{ color: '#ffb3c0', fontSize: 13, textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>
