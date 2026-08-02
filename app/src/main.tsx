@@ -26,9 +26,11 @@ createRoot(document.getElementById('root')!).render(
 if (import.meta.env.DEV) {
   void Promise.all([
     import('./state/match'), import('./state/wallet'), import('./state/deck'),
-  ]).then(([m, w, d]) => {
+    import('./state/economy'), import('./state/collection'),
+  ]).then(([m, w, d, e, c]) => {
     (window as unknown as Record<string, unknown>).__mempire = {
       match: m.useMatch, wallet: w.useWallet, deck: d.useDeck,
+      economy: e.useEconomy, collection: c.useCollection,
     };
   });
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { buzz, click, play } from '../lib/audio';
 import {
   CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy,
-  type ChestDef, type ChestSlot,
+  type ChestSlot, type OpenedChest,
 } from '../state/economy';
 
 /** One-second ticker, only while something is actually counting down. */
@@ -53,7 +53,7 @@ function ChestArt({ tier, size = 54, glow }: { tier: ChestSlot['tier']; size?: n
  */
 function OpenCeremony({
   def, onDone,
-}: { def: ChestDef; onDone: () => void }) {
+}: { def: OpenedChest; onDone: () => void }) {
   const [phase, setPhase] = useState<'shake' | 'burst'>('shake');
 
   useEffect(() => {
@@ -148,7 +148,25 @@ function OpenCeremony({
               <span className="display" style={{ fontSize: 19 }}>+{def.gems} 💎</span>
             </span>
           </div>
-          <p className="fine" style={{ color: 'var(--dim)' }}>tap to continue</p>
+          {def.droppedTickers.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 300 }}>
+              {def.droppedTickers.map((t, i) => (
+                <span
+                  key={`${t}_${i}`}
+                  className="well"
+                  style={{
+                    padding: '5px 10px', fontSize: 13, fontWeight: 800,
+                    color: 'var(--gold-hi)',
+                  }}
+                >
+                  ${t}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="fine" style={{ color: 'var(--dim)' }}>
+            {def.droppedTickers.length ? 'minted to your collection · tap to continue' : 'tap to continue'}
+          </p>
         </>
       )}
     </div>
@@ -165,7 +183,7 @@ const ACTION = {
 
 function Slot({ chest, onOpened }: {
   chest: ChestSlot | null;
-  onOpened: (def: ChestDef) => void;
+  onOpened: (def: OpenedChest) => void;
 }) {
   const { startUnlock, skipUnlock, collect, gems } = useEconomy();
 
@@ -276,7 +294,7 @@ function Slot({ chest, onOpened }: {
 /** The chest rail — four slots, exactly like the games this borrows from. */
 export function ChestRail() {
   const chests = useEconomy((s) => s.chests);
-  const [opened, setOpened] = useState<ChestDef | null>(null);
+  const [opened, setOpened] = useState<OpenedChest | null>(null);
   useTicker(chests.some((c) => c.unlocking && c.readyAt > Date.now()));
 
   const slots: (ChestSlot | null)[] = Array.from(

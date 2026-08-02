@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { COINS, isEligible } from '../lib/coins';
+import { useCollection } from './collection';
 
 /**
  * Gems and chests — the premium economy.
@@ -19,6 +21,11 @@ export interface ChestDef {
   /** Relative weight when a win rolls a chest. */
   weight: number;
   colors: [string, string];
+}
+
+/** What actually came out — the def plus the cards it minted, by ticker. */
+export interface OpenedChest extends ChestDef {
+  droppedTickers: string[];
 }
 
 export const CHESTS: Record<ChestTier, ChestDef> = {
@@ -85,9 +92,31 @@ interface EconomyState {
   awardChest: (roll: number) => ChestTier | null;
   startUnlock: (id: string) => void;
   skipUnlock: (id: string) => boolean;
-  collect: (id: string) => ChestDef | null;
+  collect: (id: string) => OpenedChest | null;
   spendGems: (n: number) => boolean;
   addGems: (n: number) => void;
+}
+
+/**
+ * Mint `n` cards from eligible coins into the collection.
+ *
+ * Unowned coins first — a drop that teaches you a new card beats a duplicate —
+ * then random eligible dupes. Returns the tickers for the ceremony to name.
+ */
+function dropCards(n: number): string[] {
+  const { cards, mintCard } = useCollection.getState();
+  const eligible = COINS.filter((c) => isEligible(c));
+  if (!eligible.length) return [];
+  const owned = new Set(cards.map((c) => c.mint));
+  const fresh = eligible.filter((c) => !owned.has(c.mint));
+  const out: string[] = [];
+  for (let i = 0; i < n; i += 1) {
+    const pool = fresh.length ? fresh : eligible;
+    const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0]
+      ?? eligible[Math.floor(Math.random() * eligible.length)];
+    if (mintCard(pick.mint)) out.push(pick.ticker);
+  }
+  return out;
 }
 
 function rollTier(roll: number): ChestTier {
@@ -164,7 +193,12 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       chests: s.chests.filter((c) => c.id !== id),
       gems: s.gems + def.gems,
     }));
-    return def;
+    // The chest's card count mints real cards, not a number on a toast.
+    // Drops favour coins the player has no card for yet; duplicates are
+    // possible on purpose once the collection fills out (Clash's dupes feed
+    // upgrades; ours feed extra stake vessels for the same coin).
+    const dropped = dropCards(def.cards);
+    return { ...def, droppedTickers: dropped };
   },
 
   spendGems: (n) => {
