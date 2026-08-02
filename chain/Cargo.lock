@@ -1417,6 +1417,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mempire-rollup"
+version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+ "ephemeral-rollups-sdk",
+]
+
+[[package]]
 name = "merlin"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

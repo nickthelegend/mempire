@@ -7,9 +7,11 @@ skip-lint = false
 
 [programs.devnet]
 mempire = "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP"
+mempire_rollup = "3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N"
 
 [programs.localnet]
 mempire = "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP"
+mempire_rollup = "3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N"
 
 [registry]
 url = "https://api.apr.dev"

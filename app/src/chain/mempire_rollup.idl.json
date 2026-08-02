@@ -1,0 +1,777 @@
+{
+  "address": "3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N",
+  "metadata": {
+    "name": "mempire_rollup",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Mempire match log on a MagicBlock ephemeral rollup"
+  },
+  "docs": [
+    "`#[ephemeral]` injects `process_undelegation`, the callback the delegation",
+    "program CPIs into when handing an account back. Without it a delegated log",
+    "could never return to base layer."
+  ],
+  "instructions": [
+    {
+      "name": "checkpoint",
+      "docs": [
+        "Rollup. Records a state-hash checkpoint.",
+        "",
+        "Keeps the newest hash and a count rather than the whole stream:",
+        "settlement needs the final hash, and a divergence is caught live by the",
+        "clients comparing checkpoints as they go."
+      ],
+      "discriminator": [
+        213,
+        200,
+        19,
+        204,
+        240,
+        143,
+        184,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "tick",
+          "type": "u32"
+        },
+        {
+          "name": "hash",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "close_log",
+      "docs": [
+        "Base layer. Reclaims the log's rent once the match is over.",
+        "",
+        "Only a player may close it, and only after `end_log` has sealed it — so a",
+        "live match cannot have its record deleted out from under settlement."
+      ],
+      "discriminator": [
+        70,
+        179,
+        241,
+        79,
+        9,
+        76,
+        97,
+        124
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_log",
+      "docs": [
+        "Base layer. Hands the log to an ephemeral rollup.",
+        "",
+        "`validator` is optional and must be set when the delegation has to land on",
+        "a *specific* ER — which is always true on localnet, where the only rollup",
+        "is the one you started. Leaving it `None` (the `DelegateConfig::default()`",
+        "behaviour) publishes an unassigned delegation, and a specific validator",
+        "will then refuse writes to the account even though base ownership and the",
+        "ER clone both look correct. On devnet the router assigns placement, so",
+        "`None` is the normal case there."
+      ],
+      "discriminator": [
+        178,
+        143,
+        235,
+        179,
+        95,
+        76,
+        53,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buffer_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                33,
+                146,
+                200,
+                214,
+                41,
+                130,
+                153,
+                69,
+                160,
+                242,
+                61,
+                71,
+                148,
+                40,
+                85,
+                8,
+                202,
+                97,
+                24,
+                180,
+                20,
+                24,
+                29,
+                216,
+                232,
+                139,
+                252,
+                235,
+                5,
+                242,
+                26,
+                195
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "docs": [
+            "on localnet; omitted on devnet so the router chooses placement."
+          ],
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "end_log",
+      "docs": [
+        "Rollup. Seals the log and commits it back to base layer.",
+        "",
+        "No post-commit Magic Action is attached. An action that fails can be",
+        "stripped from its whole transaction strategy before the committor retries,",
+        "so the payout must not ride on one — settlement is a separate base-layer",
+        "transaction against the main program."
+      ],
+      "discriminator": [
+        109,
+        105,
+        15,
+        83,
+        234,
+        2,
+        177,
+        94
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "u8"
+        },
+        {
+          "name": "final_hash",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_log",
+      "docs": [
+        "Base layer. Creates the log for a match the main program already opened.",
+        "",
+        "`players` is supplied by the caller and then enforced on every rollup",
+        "write. This program cannot read the main program's `MatchAccount` from",
+        "inside the rollup, so the seats are captured here, on base layer, while",
+        "the payer still has to be one of them."
+      ],
+      "discriminator": [
+        222,
+        82,
+        106,
+        163,
+        40,
+        99,
+        36,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        },
+        {
+          "name": "players",
+          "type": {
+            "array": [
+              "pubkey",
+              2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "play_card",
+      "docs": [
+        "Rollup. One card play, at rollup latency instead of base-layer latency.",
+        "",
+        "This is what makes the input log genuinely onchain rather than relayed by",
+        "a server we happen to operate."
+      ],
+      "discriminator": [
+        63,
+        150,
+        161,
+        24,
+        68,
+        231,
+        108,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "tick",
+          "type": "u32"
+        },
+        {
+          "name": "deck_index",
+          "type": "u8"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "MatchLog",
+      "discriminator": [
+        49,
+        109,
+        128,
+        177,
+        64,
+        255,
+        56,
+        187
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "NotAPlayer",
+      "msg": "signer is not a player in this match"
+    },
+    {
+      "code": 6001,
+      "name": "AlreadyEnded",
+      "msg": "match already ended"
+    },
+    {
+      "code": 6002,
+      "name": "NotEnded",
+      "msg": "match has not ended yet"
+    },
+    {
+      "code": 6003,
+      "name": "BadDeckIndex",
+      "msg": "deck index out of range"
+    },
+    {
+      "code": 6004,
+      "name": "LogFull",
+      "msg": "input log is full"
+    },
+    {
+      "code": 6005,
+      "name": "StaleTick",
+      "msg": "tick is older than the last recorded tick"
+    },
+    {
+      "code": 6006,
+      "name": "BadWinner",
+      "msg": "invalid winner value"
+    }
+  ],
+  "types": [
+    {
+      "name": "MatchLog",
+      "docs": [
+        "The delegated account. Holds the input log and the newest checkpoint, and no",
+        "lamports beyond its own rent — which is the whole safety argument for putting",
+        "a wagered match on a rollup."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "plays",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "PlayEntry"
+                }
+              }
+            }
+          },
+          {
+            "name": "last_tick",
+            "type": "u32"
+          },
+          {
+            "name": "last_hash",
+            "type": "u64"
+          },
+          {
+            "name": "checkpoints",
+            "type": "u16"
+          },
+          {
+            "name": "ended",
+            "type": "bool"
+          },
+          {
+            "name": "winner",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayEntry",
+      "docs": [
+        "A single card play. 14 bytes, appended on the rollup."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tick",
+            "type": "u32"
+          },
+          {
+            "name": "player",
+            "type": "u8"
+          },
+          {
+            "name": "deck_index",
+            "type": "u8"
+          },
+          {
+            "name": "x",
+            "type": "i32"
+          },
+          {
+            "name": "y",
+            "type": "i32"
+          }
+        ]
+      }
+    }
+  ]
+}

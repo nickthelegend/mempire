@@ -32,6 +32,21 @@ const FALLBACK_ER = (import.meta.env.VITE_MB_ER as string | undefined)
 
 export const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
 export const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111111');
+/**
+ * The local `mb-stack` validator's identity.
+ *
+ * Delegation must name this explicitly on localnet: an unassigned delegation
+ * (`DelegateConfig::validator = None`) is refused by a specific ER even though
+ * base ownership flips and the ER clone reports the right owner — the write then
+ * fails with `InvalidWritableAccount`, which points nowhere near the cause. On
+ * devnet the router assigns placement, so the field is left unset.
+ */
+export const LOCALNET_VALIDATOR = new PublicKey('mAGicPQYBMvcYveUZA5F5UNNwyHvfYh5xkLS2Fr1mev');
+
+/** True when the configured cluster is a local validator. */
+export const IS_LOCALNET = /localhost|127\.0\.0\.1/.test(
+  (import.meta.env.VITE_RPC_URL as string | undefined) ?? '',
+);
 
 export interface DelegationStatus {
   isDelegated: boolean;

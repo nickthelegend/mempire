@@ -149,6 +149,51 @@ whether real users keep their money and progress:
   tappable retry, not a permanent red dot; a live badge never sits above a
   simulated purchase without saying so.
 
+## MagicBlock Ephemeral Rollups
+
+The battle loop runs on a MagicBlock ephemeral rollup, proven end to end against
+a real ephemeral validator (`chain/scripts/e2e-rollup-local.ts`, 21/21).
+
+**Two programs, and the split is the safety argument.** `mempire_rollup`
+(`3G4Gidvj…5g6N`) owns only the delegated `MatchLog` — the input log and the
+newest state-hash checkpoint. It holds no lamports beyond its own rent and has
+**no transfer path at all**, so a delegated log can never guard a pot. Escrow,
+deck locks and payout stay in `mempire` on base layer. A rollup that stalls costs
+latency and falls back to `claim_timeout`.
+
+Settlement deliberately does **not** ride a post-commit Magic Action: an action
+that fails can be stripped from its whole transaction strategy before the
+committor retries, and a payout must never depend on that.
+
+What the local run proves: delegation flips base ownership to the delegation
+program while the ER reports our program as owner (the delegation invariant);
+card plays land on the rollup in **7–17ms**; the rollup enforces authorization
+rather than just routing (a non-player is rejected with `NotAPlayer`, a replayed
+tick with `StaleTick`); `commit_and_undelegate` returns the log to base layer with
+its rollup state intact; and a sealed log's rent is reclaimable.
+
+Three findings worth keeping, each of which cost real debugging time:
+
+1. **`DelegateConfig::validator` must be set on localnet.** Left as `None` the
+   delegation is unassigned, and a specific ER refuses writes with
+   `InvalidWritableAccount` even though base ownership flips and the ER clone
+   reports the right owner — the error points nowhere near the cause. On devnet
+   the router assigns placement, so `None` is correct there.
+2. **Flush before committing.** Anchor serializes `Account<T>` mutations when the
+   instruction exits, but `commit_and_undelegate` transfers the account away
+   *during* the instruction, so the deferred write lands after ownership changed
+   and fails with "modified data of an account it does not own". `exit()` before
+   the CPI makes the committed state the sealed state.
+3. **ER mutability sync is asynchronous.** A clone can arrive read-only and
+   become writable a moment later, so the first write is polled rather than
+   attempted once.
+
+Not proven locally: hosted router placement across regions, which needs devnet.
+The devnet deploy of `mempire_rollup` is one command
+(`solana program deploy target/deploy/mempire_rollup.so --program-id
+target/deploy/mempire_rollup-keypair.json`) and needs ~2.31 SOL; the wallet holds
+2.07 and the public faucet refused ~50 requests over an hour.
+
 ## Known limits, stated plainly
 
 - **The program is live on devnet and mint/stake/unstake are real wallet-signed

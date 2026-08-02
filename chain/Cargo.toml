@@ -21,3 +21,10 @@ panic = "abort"
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+# The rollup program performs no arithmetic on lamports — it appends plays and
+# compares ticks. Overflow checks are load-bearing in `mempire`, which moves the
+# pot; here they only add code to a binary whose size is the constraint on being
+# deployable at all.
+[profile.release.package.mempire-rollup]
+overflow-checks = false

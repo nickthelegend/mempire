@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
-  checkpointEr, delegateMatchLogTx, endMatchEr, initMatchLogTx, matchLogPda,
-  playCardEr, readableChainError, settleFromLogTx,
+  checkpointEr, closeLogTx, delegateLogTx, endLogEr, fetchLog, initLogTx,
+  matchLogPda, playCardEr, readableChainError,
 } from '../chain/erActions';
 import { createMatchTx } from '../chain/actions';
-import { resolveEr } from '../chain/magicblock';
+import { IS_LOCALNET, resolveEr } from '../chain/magicblock';
 import { useChain } from './chain';
 import { signer } from './wallet';
 
@@ -48,7 +48,9 @@ interface ErMatchState {
   commitSignature: string | null;
 
   /** Base layer: create + delegate. Safe to call once per match. */
-  begin: (adapter: Adapter | null, matchId: number) => Promise<void>;
+  begin: (
+    adapter: Adapter | null, matchId: number, players: [string, string],
+  ) => Promise<void>;
   /**
    * The whole onchain opening: escrow the stake in a real match, then put its
    * log on a rollup. Returns the onchain match id, or null when this session
@@ -56,6 +58,7 @@ interface ErMatchState {
    */
   openOnchainMatch: (
     tier: number, stakeSol: number, deckCardIds: number[], deckHash: Uint8Array,
+    opponent?: string,
   ) => Promise<number | null>;
   /** ER: record one play. Never throws — a battle must not stall on a rollup. */
   play: (
@@ -65,8 +68,16 @@ interface ErMatchState {
   mark: (adapter: Adapter | null, tick: number, hash: bigint) => Promise<void>;
   /** ER: seal and undelegate, then report whether the log made it home. */
   finish: (adapter: Adapter | null, winner: number, finalHash: bigint) => Promise<boolean>;
-  /** Base layer: pay the pot from the committed log, with one signature. */
-  settle: (adapter: Adapter | null, deckCardIds: number[]) => Promise<string | null>;
+  /**
+   * Base layer: reads the committed log back off Solana.
+   *
+   * Settlement itself stays in the `mempire` program — the rollup program owns no
+   * lamports and has no transfer path, which is exactly why a delegated log can
+   * never strand a pot. This is the record settlement is verified against.
+   */
+  readCommitted: (matchId: number) => Promise<Awaited<ReturnType<typeof fetchLog>>>;
+  /** Base layer: reclaim the log's rent once sealed. Never blocks the UI. */
+  cleanup: (adapter: Adapter | null) => Promise<void>;
   reset: () => void;
 }
 
@@ -81,7 +92,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   lastSignature: null,
   commitSignature: null,
 
-  begin: async (adapter, matchId) => {
+  begin: async (adapter, matchId, players) => {
     if (!adapter) { set({ phase: 'off' }); return; }
     set({
       phase: 'preparing', matchId, writes: 0, failed: 0,
@@ -89,8 +100,8 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       logAddress: matchLogPda(matchId).toBase58(),
     });
     try {
-      await initMatchLogTx(adapter, matchId);
-      await delegateMatchLogTx(adapter, matchId);
+      await initLogTx(adapter, matchId, players);
+      await delegateLogTx(adapter, matchId, IS_LOCALNET);
       // Placement is the router's call — confirm it before claiming 'live'.
       const er = await resolveEr(matchLogPda(matchId));
       if (!er) throw new Error('router did not place the log on a rollup');
@@ -109,7 +120,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
    * match that `claim_timeout` can resolve — never a delegated log guarding a
    * pot nobody can reach.
    */
-  openOnchainMatch: async (tier, stakeSol, deckCardIds, deckHash) => {
+  openOnchainMatch: async (tier, stakeSol, deckCardIds, deckHash, opponent) => {
     const adapter = signer();
     // Guest has an address but no keypair; simulated play is the honest fallback.
     if (!adapter || useChain.getState().mode !== 'onchain') { set({ phase: 'off' }); return null; }
@@ -117,7 +128,12 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
     try {
       const { matchId } = await createMatchTx(adapter, tier, stakeSol, deckCardIds, deckHash);
-      await get().begin(adapter, matchId);
+      // Both seats are captured on base layer so the rollup can enforce them.
+      // Seat 1 is filled when the opponent joins; until then both are this player,
+      // which the program rejects — so the second seat is the opponent's address
+      // when known and this player's otherwise (solo/bot play stays local).
+      const me = adapter.publicKey!.toBase58();
+      await get().begin(adapter, matchId, [me, opponent ?? me]);
       void useChain.getState().refresh();
       return matchId;
     } catch (e) {
@@ -154,7 +170,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
     if (phase !== 'live' || matchId === null || !adapter) return false;
     set({ phase: 'committing' });
     try {
-      const r = await endMatchEr(adapter, matchId, winner, finalHash);
+      const r = await endLogEr(adapter, matchId, winner, finalHash);
       // 'committed' means the log is readable on base layer — the only state in
       // which settle_from_log can succeed.
       set({
@@ -169,16 +185,15 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
     }
   },
 
-  settle: async (adapter, deckCardIds) => {
+  readCommitted: async (matchId) => fetchLog(matchId),
+
+  cleanup: async (adapter) => {
     const { phase, matchId } = get();
-    if (phase !== 'committed' || matchId === null || !adapter) return null;
+    if (phase !== 'committed' || matchId === null || !adapter) return;
     try {
-      const { signature } = await settleFromLogTx(adapter, matchId, deckCardIds);
-      set({ lastSignature: signature });
-      return signature;
-    } catch (e) {
-      set({ lastError: readableChainError(e) });
-      return null;
+      await closeLogTx(adapter, matchId);
+    } catch {
+      // Rent recovery is best-effort; the log is harmless if it lingers.
     }
   },
 

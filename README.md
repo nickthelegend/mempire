@@ -57,11 +57,17 @@ design/ generation pipeline: gen.sh, gen-audio.sh, gen-3d.sh, slice.py
 
 **Battle model** (the onchain story): card plays are an input log
 `{tick, player, deckIndex, x, y}`. Both clients run the identical integer-only
-sim; state hashes commit every 40 ticks; settlement takes the final hash signed
-by both players. Next hardening step: delegate the match account to a
-[MagicBlock ephemeral rollup](https://magicblock.gg) so the input log and hash
-checkpoints commit gaslessly in real time, with session keys replacing per-play
-wallet popups (the sim + hash design is already ER-shaped).
+sim; state hashes commit every 40 ticks; settlement takes the final hash.
+
+That log lives on a [MagicBlock ephemeral rollup](https://magicblock.gg). A
+`MatchLog` PDA is delegated at match start, card plays and hash checkpoints are
+written to the rollup at **7–17ms** instead of base-layer latency, and
+`commit_and_undelegate` returns the sealed log to Solana at the end. The rollup
+program (`mempire_rollup`) is deliberately separate from the money program and
+has **no transfer path**, so a delegated log can never strand a pot — escrow and
+payout stay on base layer, and a stalled rollup degrades to `claim_timeout`.
+Proven end to end against a real ephemeral validator: `cd chain && npx tsx
+scripts/e2e-rollup-local.ts` (21/21, needs `npx mb-stack` running).
 
 ## Run it
 
@@ -134,6 +140,7 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] MongoDB persistence, model compression (46MB → 1.7MB), loading screen
 - [x] Rigged animated units, Clash-grade arena, daily Shop, practice mode
 - [x] Full design audit: 21 findings closed, 12px legibility floor enforced
+- [x] MagicBlock ephemeral rollup: card plays onchain at 7–17ms, 21/21 e2e
 - [x] **Program live on devnet** — deployed, seeded with 12 real SPL mints,
       proven by a 16-assertion onchain e2e (mint, gate, stake, 2-step unstake)
 - [x] Client wired: mint/stake/unstake are wallet-signed transactions with
