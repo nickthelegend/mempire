@@ -56,14 +56,16 @@ export function Loading({ label = 'Entering the arena' }: { label?: string }) {
           aria-label={label}
           style={{
             height: 22, borderRadius: 8, overflow: 'hidden',
-            background: 'rgba(6,16,38,.75)',
+            background: 'var(--recess)',
             border: '2.5px solid var(--ink)', boxShadow: 'var(--bevel-in)',
           }}
         >
+          {/* progress is the Solana beam, not the gold button face — gold in this
+              world means SOL is moving, and nothing is moving here */}
           <div style={{
             height: '100%',
-            background: 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 48%, var(--btn-gold-dark))',
-            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5)',
+            background: 'var(--grad-solana)',
+            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.35)',
             // scale rather than width — animating width thrashes layout
             transform: `scaleX(${pct / 100})`,
             transformOrigin: 'left',
@@ -71,7 +73,7 @@ export function Loading({ label = 'Entering the arena' }: { label?: string }) {
           }}
           />
         </div>
-        <p className="display" style={{ fontSize: 15, marginTop: 8 }}>
+        <p className="display display--sm" style={{ fontSize: 15, marginTop: 8 }}>
           {label}… {Math.round(pct)}%
         </p>
       </div>

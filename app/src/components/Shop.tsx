@@ -81,7 +81,7 @@ export function Shop() {
               <CoinBadge mint={o.mint} size={40} />
               <span style={{ minWidth: 0, flex: 1 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span className="display" style={{ fontSize: 15 }}>{tickerOf(coin)}</span>
+                  <span className="display display--sm" style={{ fontSize: 15 }}>{tickerOf(coin)}</span>
                   {o.discountPct > 0 && !o.bought && (
                     <span
                       className="label"
@@ -147,7 +147,7 @@ export function Shop() {
           className="btn-3d"
           style={{
             minHeight: 44, borderRadius: 9, marginTop: 1,
-            background: 'rgba(6,16,38,.5)', border: '2px solid var(--ink)',
+            background: 'var(--recess)', border: '2px solid var(--ink)',
             boxShadow: 'var(--bevel-in)',
             fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--text)',
             WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
@@ -157,7 +157,7 @@ export function Shop() {
         </button>
 
         {error && (
-          <p role="alert" className="fine" style={{ color: '#ffb3c0', textAlign: 'center' }}>{error}</p>
+          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
         )}
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
           You hold {gems}💎 · offers refresh every 24h

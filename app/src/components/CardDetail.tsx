@@ -17,7 +17,7 @@ function Stat({ icon, label, value, delta }: {
       <span aria-hidden style={{ fontSize: 15 }}>{icon}</span>
       <span style={{ minWidth: 0 }}>
         <span className="label" style={{ fontSize: 12, display: 'block' }}>{label}</span>
-        <span className="display" style={{ fontSize: 15, WebkitTextStroke: '2px var(--ink)' }}>
+        <span className="display display--sm" style={{ fontSize: 15 }}>
           {value}
           {delta && (
             <span style={{ color: 'var(--teal)', fontSize: 12, marginLeft: 4 }}>{delta}</span>
@@ -66,18 +66,9 @@ export function CardDetail({
         role="dialog"
         aria-modal="true"
         aria-label={`${tickerOf(coin)} card details`}
-        className="panel"
-        style={{
-          position: 'absolute', bottom: 0, width: 'min(100vw, 430px)',
-          maxHeight: '92dvh', overflowY: 'auto',
-          borderRadius: '22px 22px 0 0', borderBottom: 'none',
-          padding: '16px 14px calc(18px + env(safe-area-inset-bottom))',
-          display: 'flex', flexDirection: 'column', gap: 10, outline: 'none',
-          animation: 'sheetUp 250ms var(--ease-snap)',
-        }}
+        className="panel sheet"
+        style={{ maxHeight: '92dvh', overflowY: 'auto', gap: 10 }}
       >
-        <style>{'@keyframes sheetUp{from{transform:translateY(44%);opacity:0}to{transform:none;opacity:1}}'}</style>
-
         {/* hero: the coin's own art, big */}
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <div style={{
@@ -101,7 +92,7 @@ export function CardDetail({
               <span className="money" style={{ fontSize: 13, marginLeft: 'auto' }}>{def.elixir}⚡</span>
             </div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)', alignSelf: 'flex-start' }}>×</button>
+          <button onClick={onClose} aria-label="Close" className="icon-btn" style={{ fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)', alignSelf: 'flex-start', flexShrink: 0 }}>×</button>
         </div>
 
         <LevelPips level={card.level} />
@@ -155,7 +146,7 @@ export function CardDetail({
           </span>
           <span style={{ marginLeft: 'auto', textAlign: 'right' }}>
             <span className="label" style={{ fontSize: 12, display: 'block' }}>Next level</span>
-            <span className="display" style={{ fontSize: 15 }}>
+            <span className="display display--sm" style={{ fontSize: 15 }}>
               {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
             </span>
           </span>

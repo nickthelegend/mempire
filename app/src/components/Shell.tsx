@@ -57,12 +57,10 @@ export function Shell({ children }: { children: ReactNode }) {
         {!inBattle && (
           <nav
             aria-label="Main"
+            className="wood"
             style={{
               position: 'fixed', bottom: 0, width: 'min(100vw, 430px)', zIndex: 20,
               display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-              background:
-                'linear-gradient(180deg, rgba(255,255,255,.1), transparent 30%),'
-                + "url('/art/wood_seamless.png') center / 340px repeat, var(--wood)",
               borderTop: '3px solid var(--wood-edge)',
               boxShadow: '0 -6px 18px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,255,255,.16)',
               paddingBottom: 'env(safe-area-inset-bottom)',

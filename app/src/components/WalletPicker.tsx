@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { click } from '../lib/audio';
 import { listWallets, useWallet } from '../state/wallet';
+import { Spinner } from './ui';
 
 /** Guest mark — the only entry without an official adapter icon. */
 function GuestMark({ size = 34 }: { size?: number }) {
@@ -16,10 +17,15 @@ function GuestMark({ size = 34 }: { size?: number }) {
   );
 }
 
+/**
+ * `busy` is the row the player actually tapped. Dimming every row equally while
+ * one connects left no trace of which one was chosen — the only signal was a
+ * 12px sub-line.
+ */
 function Row({
-  onClick, disabled, mark, title, sub, right, highlight,
+  onClick, disabled, busy, mark, title, sub, right, highlight,
 }: {
-  onClick: () => void; disabled?: boolean; mark: React.ReactNode;
+  onClick: () => void; disabled?: boolean; busy?: boolean; mark: React.ReactNode;
   title: string; sub: string; right?: React.ReactNode; highlight?: boolean;
 }) {
   return (
@@ -33,17 +39,17 @@ function Row({
         textAlign: 'left',
         background: highlight
           ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
-          : 'rgba(6,16,38,.55)',
-        border: '2.5px solid var(--ink)',
+          : 'var(--recess)',
+        border: `2.5px solid ${busy ? 'var(--gold)' : 'var(--ink)'}`,
         boxShadow: highlight
           ? 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)'
           : 'var(--bevel-in)',
-        opacity: disabled ? 0.55 : 1,
+        opacity: disabled && !busy ? 0.45 : 1,
       }}
     >
       {mark}
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span className="display" style={{ display: 'block', fontSize: 16, WebkitTextStroke: '2px var(--ink)' }}>
+        <span className="display display--sm" style={{ display: 'block', fontSize: 16 }}>
           {title}
         </span>
         <span className="fine" style={{ display: 'block', fontSize: 12, color: 'var(--dim)' }}>
@@ -76,18 +82,9 @@ export function WalletPicker() {
         role="dialog"
         aria-modal="true"
         aria-label="Connect a wallet"
-        className="panel"
-        style={{
-          position: 'absolute', bottom: 0, width: 'min(100vw, 430px)',
-          maxHeight: '90dvh', overflowY: 'auto',
-          borderRadius: '22px 22px 0 0', borderBottom: 'none',
-          padding: '18px 15px calc(20px + env(safe-area-inset-bottom))',
-          display: 'flex', flexDirection: 'column', gap: 9,
-          animation: 'sheetUp 260ms var(--ease-snap)',
-        }}
+        className="panel sheet"
+        style={{ maxHeight: '90dvh', overflowY: 'auto', gap: 9 }}
       >
-        <style>{'@keyframes sheetUp{from{transform:translateY(46%);opacity:0}to{transform:none;opacity:1}}'}</style>
-
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
           <div>
             <h2 className="display" style={{ fontSize: 25, lineHeight: 1.1 }}>Connect Wallet</h2>
@@ -96,7 +93,8 @@ export function WalletPicker() {
           <button
             onClick={() => { click(); closePicker(); }}
             aria-label="Close"
-            style={{ marginLeft: 'auto', color: 'var(--dim-on-wood)', fontSize: 27, width: 44, height: 44 }}
+            className="icon-btn"
+            style={{ marginLeft: 'auto', color: 'var(--dim-on-wood)', fontSize: 27, width: 44, height: 44, flexShrink: 0 }}
           >
             ×
           </button>
@@ -109,6 +107,7 @@ export function WalletPicker() {
               key={w.name}
               highlight={w.installed}
               disabled={connecting !== null}
+              busy={busy}
               onClick={() => void connect(w.name)}
               mark={(
                 <img
@@ -122,12 +121,12 @@ export function WalletPicker() {
               )}
               title={w.name}
               sub={busy ? 'Approve in your wallet…' : w.installed ? 'Detected' : 'Not installed — get it'}
-              right={(
+              right={busy ? <Spinner size={16} /> : (
                 <span
                   className="label"
                   style={{ fontSize: 12, color: w.installed ? 'var(--teal)' : 'var(--dim)' }}
                 >
-                  {busy ? '…' : w.installed ? 'Ready' : 'Install'}
+                  {w.installed ? 'Ready' : 'Install'}
                 </span>
               )}
             />
@@ -149,7 +148,7 @@ export function WalletPicker() {
         />
 
         {error && (
-          <p role="alert" className="fine" style={{ color: '#ffb3c0', textAlign: 'center' }}>{error}</p>
+          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
         )}
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
           Mempire never asks for your seed phrase.
