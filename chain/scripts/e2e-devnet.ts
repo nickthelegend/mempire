@@ -64,9 +64,26 @@ async function main() {
   const accounts = program.account as any;
 
   const seed = JSON.parse(readFileSync(join(__dirname, '../../app/src/lib/devnet-coins.json'), 'utf8'));
-  const eligible = seed.coins.find((c: any) => c.ticker === 'DOGGO');
+  // Pick the eligible coin from the seed rather than naming one.
+  //
+  // This used to hardcode $DOGGO, which stopped existing the moment the
+  // registry was regenerated from the real asset list — and the suite died on
+  // `undefined.ticker` before running a single assertion. The gate's own rules
+  // (>= $25k liquidity, >= 48h old) are the stable thing to select on; the two
+  // deliberately-gated coins are still named because they exist *to* be named.
+  const nowSec = Date.now() / 1000;
+  const isEligible = (c: any) =>
+    c.liquidityUsd >= 25_000 && (nowSec - c.firstSeen) / 3600 >= 48;
   const gatedAge = seed.coins.find((c: any) => c.ticker === 'BBWHALE');
   const gatedLiq = seed.coins.find((c: any) => c.ticker === 'RUGPROOF');
+  const eligible = seed.coins.find(
+    (c: any) => isEligible(c) && c.ticker !== 'BBWHALE' && c.ticker !== 'RUGPROOF',
+  );
+  if (!eligible || !gatedAge || !gatedLiq) {
+    throw new Error(
+      'seed is missing an eligible coin or the two gated ones — re-run seed-devnet.ts',
+    );
+  }
 
   const u64le = (n: number | bigint) => {
     const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b;

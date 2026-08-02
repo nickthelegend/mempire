@@ -3,7 +3,7 @@
   "programId": "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP",
   "config": "E8M2mfPwxD7xoSDCujWVtNzbUt6TEKim2xUFnVMsAN4b",
   "admin": "3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5",
-  "seededAt": 1785667962,
+  "seededAt": 1785699031,
   "coins": [
     {
       "mint": "9RRBPuMLxh9iGBkyPZMN1QEAGUWYLedAENcgqa35Gzwy",
@@ -646,13 +646,13 @@
       "decimals": 6
     },
     {
-      "mint": "4zrJPYu86ptpWVE3tYZSJHrhZNLH6ZcGmTsBHZFUF7fC",
+      "mint": "6JU6JCKLeCSjMVD3UVEgDyAfJY9kPVd5YKdfDXiWQwHD",
       "ticker": "BBWHALE",
       "name": "Baby Whale",
       "hue": 190,
       "priceUsd": 0.0008,
       "liquidityUsd": 140000,
-      "firstSeen": 1785365133,
+      "firstSeen": 2101059031,
       "decimals": 6
     },
     {

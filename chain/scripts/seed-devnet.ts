@@ -90,7 +90,7 @@ const COINS = [
   { ticker: 'HARAMBE', name: 'Harambe', hue: 265, priceUsd: 0.00214, liquidityUsd: 820000, ageDays: 308, kind: 'meme' },
   { ticker: 'WEN', name: 'Wen', hue: 205, priceUsd: 0.00235, liquidityUsd: 60000, ageDays: 312, kind: 'meme' },
   // the gate at work: one too illiquid, one too young
-  { ticker: 'BBWHALE', name: 'Baby Whale', hue: 190, priceUsd: 0.0008, liquidityUsd: 140_000, ageDays: 0, kind: 'meme' },
+  { ticker: 'BBWHALE', name: 'Baby Whale', hue: 190, priceUsd: 0.0008, liquidityUsd: 140_000, ageDays: -3650, kind: 'meme' },
   { ticker: 'RUGPROOF', name: 'Rugproof', hue: 28, priceUsd: 0.000031, liquidityUsd: 8_200, ageDays: 216, kind: 'meme' },
 ];
 
@@ -224,6 +224,18 @@ async function main() {
   for (const c of COINS) {
     if (done.has(c.ticker)) { console.log(`${c.ticker.padEnd(9)} (already seeded)`); continue; }
 
+    // A negative `ageDays` puts `first_seen` in the future, which makes the
+    // coin permanently "younger than 48h" and therefore permanently gated.
+    //
+    // That is deliberate, and it fixes a live time bomb. BBWHALE exists to
+    // demonstrate the age gate and was seeded at `ageDays: 0` — genuinely zero
+    // hours old at seed time, correctly refused. Forty-eight hours later it
+    // aged past the gate and started minting, so the demo silently stopped
+    // demonstrating anything. `register_coin` uses `init` and `set_price` does
+    // not touch `first_seen`, so there is no way to refresh it in place; the
+    // fixture has to be one that never expires. This is the devnet mock oracle,
+    // which Jupiter/Pyth replaces on mainnet, so a fixture that is honestly a
+    // fixture is the right answer.
     const firstSeen = now - c.ageDays * 86_400;
     const priceMicro = Math.round(c.priceUsd * 1_000_000);
     await withRetry(c.ticker, async () => {
