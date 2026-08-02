@@ -34,8 +34,8 @@ engineering plan.
 | # | Feature | Status | Effort | Note |
 |---|---|---|---|---|
 | 16 | Anchor program: cards, vaults, pots | ✅ | — | Compiles; eligibility gate and timeout crank included. |
-| 17 | Deploy to devnet + seed 12 coins | 🔨 | S | **Blocked:** needs ~3.5 devnet SOL in the deploy wallet. |
-| 18 | Wire client stores to the program | 🔨 | L | The last mile between a great demo and a real product. |
+| 17 | Deploy to devnet + seed 12 coins | ✅ | — | Live: `BnLD…FxeP`, IDL onchain, 12 real SPL mints registered, gate verified (BBWHALE/RUGPROOF rejected). |
+| 18 | Wire client stores to the program | ✅ | — | Mint/stake/two-step unstake are wallet-signed transactions; real SPL balances shown; explorer receipts; honest live/simulated/offline badge. Match escrow txs exist in `chain/actions.ts`, wired next. |
 | 19 | MagicBlock ER delegation | ⬜ | L | Sim and hash design is already ER-shaped. |
 | 20 | Session keys — no popup per card | ⬜ | M | Non-negotiable for playability. |
 | 21 | Bubblegum cNFT layer over card PDAs | ⬜ | M | Makes cards tradeable, which unlocks #12. |
@@ -57,7 +57,7 @@ engineering plan.
 | 32 | Emotes during battle | ⬜ | S | Feeds #10. |
 | 33 | Replays from the input log | ⬜ | M | Nearly free — the log is the replay. |
 | 34 | Practice mode, no stake | ✅ | — | No rake, no chest, no history — cannot be farmed. |
-| 35 | Clans + Clan Wars | ⬜ | L | Strongest retention mechanic in the genre. |
+| 35 | Clans + Clan Wars | ✅ | — | Full backend (48-assertion test) + fifth tab: browse/found/join, lend loop (+5💎), crown ladder, roles, succession. Clan Wars still ⬜. |
 
 ## D. Polish and feel
 
@@ -72,7 +72,7 @@ engineering plan.
 | 41 | Rigged unit animation | ✅ | — | KayKit CC0 chibi rigs with Idle/Walk/Attack/Hit/Death, cross-faded. Clips stripped 76→9, five characters in 1.7MB. |
 | 42 | Loading screen with art + progress | ✅ | — | Logo, gold progress bar, rotating gameplay tips. |
 | 43 | Compress models (meshopt + WebP) | ✅ | — | 46MB → 1.4MB, a 33x reduction. |
-| 44 | First-run tutorial | ⬜ | M | Judges arrive cold. |
+| 44 | First-run tutorial | ✅ | — | Four coach marks spotlighting the live controls; once, skippable, replayable. |
 | 45 | Victory/defeat cinematics | ⬜ | M | Currently a panel; should be a moment. |
 | 46 | Haptics on mobile | ✅ | — | Deploy, chest, purchase only — a signal, not noise. |
 | 46b | Full-app design audit and remediation | ✅ | — | 21 findings closed. See note below. |
@@ -115,18 +115,26 @@ literals. DESIGN.md records each rule with the failure that produced it.
 ## Do these next, in this order
 
 1. **#49 rotate credentials** — everything else can wait behind this.
-2. **#17 + #18** devnet deploy (fund `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5`
-   with ~3.5 devnet SOL) then wire the client. This converts "great demo" into
-   "working product", which is the judging line.
-3. **#7 coin sponsorship** — the pitch nobody else in the bracket can make.
+2. **#28 human matchmaking** — `createMatchTx`/`joinMatchTx` and the deck
+   commitment already exist; an offchain matchmaker pairs two open matches and
+   the sim already runs lockstep. This is the biggest remaining truth gap.
+3. **#7 coin sponsorship** — the pitch nobody else in the bracket can make, and
+   the ad-slot boards in the gutters are already selling it.
 4. **#6 tournaments** — 8% of every pool, and it scales without us operating it.
-5. **#44 first-run tutorial** — judges arrive cold and nothing teaches them.
+5. **#48 deploy** — Vercel + Railway, `VITE_API_URL` and `VITE_RPC_URL` per env.
 
 ## Known limits, stated plainly
 
-- **The economy is simulated on devnet.** Balances, opponents and the settlement
-  feed are mock; the program that would make them real exists but is undeployed.
+- **The program is live on devnet and mint/stake/unstake are real wallet-signed
+  transactions.** Battles against the bot still settle in the simulated ledger:
+  onchain settlement needs both players' signatures by design, and a bot has no
+  key. Match escrow instructions exist in `chain/actions.ts` and go live with
+  human matchmaking (#28).
+- **Guest mode is simulated end to end** — it has an address but no keypair,
+  and the badge says so.
 - **One human cannot yet play another.** The bot is a real opponent running the
   same simulation, but #28 is unbuilt.
 - **Chest contents are not yet minted cards.** The ceremony awards gems and
-  reports card counts; wiring drops to real mints is part of #18.
+  reports card counts; real drops ride on the cNFT layer (#21).
+- **Clan state lives in MongoDB, not onchain.** Deliberate: it is social
+  standing, not custody. Anything that moves value stays in the program.

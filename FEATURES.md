@@ -112,6 +112,13 @@ B2B revenue with no player-facing cost at all, and it could out-earn the rake.
 
 **Revenue: direct sponsorship, priced per week.**
 
+**Shipped first slice:** the desktop gutters the layout law always reserved now
+carry carved ad boards — slot id, what the buyer gets, and `ads@mempire.fun`.
+The inventory sells itself in the product instead of waiting for a deck; slot B1
+pitches Coin of the Week specifically. Generated board art, live HTML copy
+(generated lettering is garbled pseudo-text, and an ad slot's whole job is to be
+read). Phones never see them — the game does not give up its column to an ad.
+
 ### 10. Spectator mode with tipping
 Watch live high-tier matches. Tip a player in SOL; we take 5%.
 
