@@ -1,0 +1,120 @@
+import type { MintedCard } from '../state/collection';
+import { coinByMint } from '../lib/coins';
+import { ARCHETYPES } from '../sim/archetypes';
+import { ArchetypeIcon, CoinBadge } from './ui';
+
+/**
+ * The battle card. A thick beveled frame over a tinted portrait well, with the
+ * elixir cost as a gem in the top-left and a level banner across the foot —
+ * the Supercell card grammar, carrying a meme coin instead of a troop.
+ */
+export function CardFrame({
+  card, width = 150, selected, dimmed, disabled, fluid, onClick,
+}: {
+  card: MintedCard; width?: number; selected?: boolean; dimmed?: boolean;
+  disabled?: boolean; fluid?: boolean; onClick?: () => void;
+}) {
+  const coin = coinByMint(card.mint);
+  if (!coin) return null;
+  const cost = ARCHETYPES[card.archetype].elixir;
+  const h = Math.round((width * 4) / 3);
+  const Tag = onClick ? 'button' : 'div';
+  const pad = Math.max(3, width * 0.035);
+
+  return (
+    <Tag
+      onClick={onClick}
+      disabled={Tag === 'button' ? disabled : undefined}
+      aria-label={`${coin.ticker}, level ${card.level}, ${cost} elixir`}
+      className={onClick ? 'btn-3d' : undefined}
+      style={{
+        width: fluid ? '100%' : width,
+        maxWidth: '100%',
+        aspectRatio: fluid ? '3 / 4' : undefined,
+        height: fluid ? undefined : h,
+        position: 'relative',
+        flexShrink: fluid ? 1 : 0,
+        padding: pad,
+        borderRadius: Math.max(8, width * 0.075),
+        border: '2.5px solid var(--ink)',
+        background: selected
+          ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 55%, var(--btn-gold-dark))'
+          : 'linear-gradient(180deg, #8fa8d8, #5d76ad 52%, #3b4f7d)',
+        boxShadow: selected
+          ? 'inset 0 2px 0 rgba(255,255,255,.55), 0 4px 0 #7a4f04, 0 7px 12px rgba(0,0,0,.5)'
+          : 'inset 0 2px 0 rgba(255,255,255,.4), 0 4px 0 #26324f, 0 7px 12px rgba(0,0,0,.45)',
+        opacity: dimmed ? 0.5 : 1,
+        transition: 'opacity 180ms var(--ease-snap), box-shadow 120ms var(--ease-snap)',
+        textAlign: 'inherit' as never,
+        display: 'block',
+      }}
+    >
+      {/* portrait well */}
+      <div style={{
+        position: 'absolute', inset: pad, bottom: `${Math.max(17, width * 0.2)}px`,
+        borderRadius: Math.max(5, width * 0.05),
+        background: `linear-gradient(180deg, hsl(${coin.hue} 62% 42%), hsl(${coin.hue} 55% 22%))`,
+        border: '2px solid rgba(0,0,0,.45)',
+        boxShadow: 'inset 0 3px 7px rgba(0,0,0,.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden',
+      }}
+      >
+        <CoinBadge mint={card.mint} size={width * 0.56} />
+      </div>
+
+      {/* elixir cost gem */}
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute', top: -Math.max(4, width * 0.045), left: -Math.max(3, width * 0.03),
+          width: Math.max(19, width * 0.26), height: Math.max(19, width * 0.26),
+          borderRadius: '50%',
+          background: 'radial-gradient(circle at 34% 28%, #ff9cf5, var(--elixir) 58%, #7a1d7a)',
+          border: '2.5px solid var(--ink)',
+          boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 2px 4px rgba(0,0,0,.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'var(--font-display)',
+          fontSize: Math.max(11, width * 0.15), color: '#fff',
+          WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
+        }}
+      >
+        {cost}
+      </span>
+
+      {/* archetype crest */}
+      {width >= 66 && (
+        <span style={{ position: 'absolute', top: pad + 2, right: pad + 2, opacity: 0.95 }}>
+          <ArchetypeIcon archetype={card.archetype} size={Math.max(13, width * 0.17)} />
+        </span>
+      )}
+
+      {/* level banner */}
+      <div style={{
+        position: 'absolute', left: pad, right: pad, bottom: pad,
+        height: Math.max(14, width * 0.155),
+        borderRadius: Math.max(4, width * 0.04),
+        background: card.level >= 8
+          ? 'linear-gradient(180deg, #ffd766, #d99b0d)'
+          : 'linear-gradient(180deg, #2f4780, #1b2c56)',
+        border: '2px solid var(--ink)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.35)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3,
+      }}
+      >
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontSize: Math.max(8, width * 0.098),
+          color: card.level >= 8 ? '#3a2600' : '#fff',
+          WebkitTextStroke: card.level >= 8 ? '0' : '1.6px var(--ink)',
+          paintOrder: 'stroke fill',
+          letterSpacing: '.03em', whiteSpace: 'nowrap',
+          overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
+        }}
+        >
+          {width >= 66 ? `${coin.ticker} ${card.level}` : `L${card.level}`}
+        </span>
+      </div>
+    </Tag>
+  );
+}
