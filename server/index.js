@@ -10,6 +10,7 @@ import cors from 'cors';
 import express from 'express';
 import { MongoClient } from 'mongodb';
 import { registerClanRoutes } from './clans.js';
+import { registerMatchmaker } from './matchmaker.js';
 
 const { MONGODB_URI, MONGODB_DB = 'mempire', PORT = 8787 } = process.env;
 if (!MONGODB_URI) {
@@ -22,7 +23,8 @@ let players;
 let leaderboard;
 
 const app = express();
-app.use(cors());
+// Locked to the deployed app's origin in production; open in development.
+app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
 app.use(express.json({ limit: '256kb' }));
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, Solana pubkey shape
@@ -248,7 +250,9 @@ const server = await (async () => {
   await leaderboard.createIndex({ netSol: -1 });
   registerClanRoutes(app, db);
   console.log(`mongo connected → ${MONGODB_DB}`);
-  return app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
+  const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
+  registerMatchmaker(httpServer);
+  return httpServer;
 })();
 
 for (const sig of ['SIGINT', 'SIGTERM']) {

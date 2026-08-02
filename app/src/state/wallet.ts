@@ -24,7 +24,29 @@ import { create } from 'zustand';
 
 const NETWORK = WalletAdapterNetwork.Devnet;
 const START_BALANCE = 12.4;
-const GUEST_ADDRESS = 'ANoNKiNG7xR4qJ9mPvE2wYbTzC5dHgU8fLsWjkQ3VtXu';
+
+/**
+ * Guest identity is per **tab** (sessionStorage), not per browser.
+ *
+ * The matchmaker refuses to pair a wallet against itself — the program's
+ * SelfMatch rule, mirrored — so two guest tabs sharing one hardcoded address
+ * could never fight each other, which is exactly how PvP gets demoed on one
+ * machine. The address is random but stable within the tab, so a mid-session
+ * refresh keeps the same identity. Real wallets are untouched.
+ */
+const GUEST_KEY = 'mempire_guest_addr';
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+function guestAddress(): string {
+  try {
+    const saved = sessionStorage.getItem(GUEST_KEY);
+    if (saved) return saved;
+  } catch { /* private mode */ }
+  let addr = 'ANoN';
+  for (let i = 0; i < 40; i += 1) addr += B58[Math.floor(Math.random() * B58.length)];
+  try { sessionStorage.setItem(GUEST_KEY, addr); } catch { /* private mode */ }
+  return addr;
+}
 
 /**
  * Ordered by how likely a Solana player is to have it.
@@ -163,7 +185,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     activeAdapter = null;
     set({
       connected: true, connecting: null, pickerOpen: false,
-      address: GUEST_ADDRESS, walletName: 'Guest', walletIcon: null,
+      address: guestAddress(), walletName: 'Guest', walletIcon: null,
       sol: START_BALANCE, isGuest: true,
     });
   },

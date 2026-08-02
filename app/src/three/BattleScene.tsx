@@ -3,31 +3,47 @@ import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { PALETTE } from '../lib/palette';
 import { FP, fp } from '../sim/fixed';
-import { ARENA_W, RIVER_TOP } from '../sim/engine';
+import { ARENA_W, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
 import { Arena } from './Arena';
 import { TowerMesh } from './Towers';
 import { Units } from './Units';
 
 const W = ARENA_W / FP; // 18
+const H = 32; // ARENA_H in tiles
 
 /** Owns the camera every mount (HMR-safe); frames the full field portrait. */
 let activeCamera: THREE.Camera | null = null;
 
-function CameraRig() {
+/**
+ * Which sim seat this client occupies. The board is one world; the camera
+ * stands behind *your* king so your half is always the bottom of the screen —
+ * for seat 1 that means looking down the field from the far end. Module state
+ * (like activeCamera) because the DOM-layer deploy path needs it outside React.
+ */
+let viewSeat: 0 | 1 = 0;
+export function setViewSeat(seat: 0 | 1): void { viewSeat = seat; }
+
+function CameraRig({ seat }: { seat: 0 | 1 }) {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
   useEffect(() => {
     // Pulled back and raised so the wood frame encloses the whole board rather
-    // than running off the bottom of a portrait screen.
-    camera.position.set(W / 2, 38, -15);
-    camera.lookAt(W / 2, 0, 15);
+    // than running off the bottom of a portrait screen. Seat 1 gets the exact
+    // mirror about the river line, so both players fight "uphill".
+    if (seat === 0) {
+      camera.position.set(W / 2, 38, -15);
+      camera.lookAt(W / 2, 0, 15);
+    } else {
+      camera.position.set(W / 2, 38, H + 15);
+      camera.lookAt(W / 2, 0, H - 15);
+    }
     camera.updateProjectionMatrix();
     // Deliberately never cleared: StrictMode double-invokes effect cleanup in
     // dev, and nulling here left deploy raycasts with no camera to project
     // through, silently swallowing every card the player dropped.
     activeCamera = camera;
-  }, [camera, size]);
+  }, [camera, size, seat]);
   return null;
 }
 
@@ -54,16 +70,20 @@ export function resolveGroundHit(
     : null;
 }
 
-/** Player 0's legal drop zone in world units, mirrored by the sim's clamp. */
-export const OWN_HALF = {
-  minX: 0.5,
-  maxX: W - 0.5,
-  minZ: 0.5,
-  maxZ: RIVER_TOP / FP - 0.5,
-};
+/**
+ * The legal drop zone in world units for the current seat, mirrored by the
+ * sim's own clamp. Seat 0 owns the low-z half, seat 1 the high-z half.
+ */
+function ownHalf(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  return viewSeat === 0
+    ? { minX: 0.5, maxX: W - 0.5, minZ: 0.5, maxZ: RIVER_TOP / FP - 0.5 }
+    : { minX: 0.5, maxX: W - 0.5, minZ: RIVER_BOT / FP + 0.5, maxZ: H - 0.5 };
+}
 
-export const isLegalDrop = (x: number, z: number): boolean =>
-  x >= OWN_HALF.minX && x <= OWN_HALF.maxX && z >= OWN_HALF.minZ && z <= OWN_HALF.maxZ;
+export const isLegalDrop = (x: number, z: number): boolean => {
+  const h = ownHalf();
+  return x >= h.minX && x <= h.maxX && z >= h.minZ && z <= h.maxZ;
+};
 
 /**
  * Snap a ground hit into the player's half.
@@ -74,9 +94,10 @@ export const isLegalDrop = (x: number, z: number): boolean =>
  * so the marker still teaches where the line is.
  */
 export function clampDrop(x: number, z: number): { x: number; z: number } {
+  const h = ownHalf();
   return {
-    x: Math.min(Math.max(x, OWN_HALF.minX), OWN_HALF.maxX),
-    z: Math.min(Math.max(z, OWN_HALF.minZ), OWN_HALF.maxZ),
+    x: Math.min(Math.max(x, h.minX), h.maxX),
+    z: Math.min(Math.max(z, h.minZ), h.maxZ),
   };
 }
 
@@ -212,12 +233,17 @@ function DropMarker({ at }: { at: { x: number; z: number; legal: boolean } | nul
   );
 }
 
-export function BattleScene({ onPlace, placing, marker, sceneRef }: {
+export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 0 }: {
   onPlace: (xFp: number, yFp: number) => void;
   placing: boolean;
   marker: { x: number; z: number; legal: boolean } | null;
   sceneRef?: React.Ref<HTMLDivElement>;
+  /** Which sim seat this client is — decides camera end and legal half. */
+  perspective?: 0 | 1;
 }) {
+  // Set before the camera effect runs so the first painted frame and the first
+  // deploy clamp already agree about which half is "mine".
+  setViewSeat(perspective);
   return (
     <div
       ref={sceneRef}
@@ -234,7 +260,7 @@ export function BattleScene({ onPlace, placing, marker, sceneRef }: {
         style={{ touchAction: 'none' }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
       >
-        <CameraRig />
+        <CameraRig seat={perspective} />
         {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}
         <color attach="background" args={['#5aa9e0']} />
         <fog attach="fog" args={['#7cc0e8', 74, 132]} />

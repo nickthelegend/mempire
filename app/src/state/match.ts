@@ -2,6 +2,10 @@ import { create } from 'zustand';
 import { play, startMusic, stopMusic } from '../lib/audio';
 import { COINS } from '../lib/coins';
 import { recordMatch } from '../lib/persist';
+import {
+  pvpCancel, pvpClose, pvpConnect, pvpQueue, pvpSendEnded, pvpSendHash, pvpSendInput,
+  type MatchedPayload,
+} from '../lib/pvp';
 import { archetypeForMint } from '../sim/archetypes';
 import { decideBot, type BotDifficulty } from '../sim/bot';
 import { createMatch, hashState, stepSim } from '../sim/engine';
@@ -25,6 +29,12 @@ export interface MatchResult {
   hashes: number; // checkpoints committed
   crowns: [number, number]; // towers felled, [you, them]
   chest: ChestTier | null; // won a chest, unless all four slots were full
+  /**
+   * The sims diverged and the match was annulled: stakes returned, no rake,
+   * nothing recorded. Divergence is detected by the hash checkpoints and
+   * neutralised — never silently ignored, never paid out.
+   */
+  voided?: boolean;
 }
 
 /** Transient presentation signal — never read by the sim. */
@@ -48,6 +58,15 @@ interface MatchStore {
   shock: Shock | null;
   /** No stake, no rake, no chest — a place to learn the controls. */
   practice: boolean;
+  /** 'human' when a real opponent is relaying inputs; 'bot' otherwise. */
+  mode: 'bot' | 'human';
+  /**
+   * Which sim seat is *this* client. Both clients run one shared timeline where
+   * seat 0 is the same physical player on both machines — determinism demands
+   * it — so the UI renders from this seat's point of view instead of assuming
+   * it is player 0.
+   */
+  perspective: 0 | 1;
   startQueue: (opts?: { practice?: boolean }) => string | null; // error string or null
   cancelQueue: () => void;
   playCard: (deckIndex: number, xFp: number, yFp: number) => void;
@@ -59,6 +78,14 @@ let loop: ReturnType<typeof setInterval> | null = null;
 let queueTimers: ReturnType<typeof setTimeout>[] = [];
 let pending = new Map<number, InputEvent[]>();
 let hashes: number[] = [];
+/** Human matches step against the wall clock so two clients stay in lockstep. */
+let humanStartAt = 0;
+const TICK_MS = 50;
+/**
+ * Own inputs schedule this far ahead in a human match — 400ms of slack for the
+ * relay round-trip. The bot keeps the tight 2-tick delay; a bot has no latency.
+ */
+const HUMAN_INPUT_DELAY_TICKS = 8;
 
 function clearTimers(): void {
   queueTimers.forEach(clearTimeout);
@@ -67,6 +94,23 @@ function clearTimers(): void {
 }
 
 const BOT_NAMES = ['xX_RugLord_Xx', 'ser_liquidator', 'wagmi_warlord', 'chad.sol'];
+
+/**
+ * How long the queue waits for a human before the bot steps in.
+ *
+ * Overridable via sessionStorage because demoing PvP with two tabs on one
+ * machine fights background-tab timer throttling — the hidden tab's clicks and
+ * timers land seconds late, and an 8s window loses that race through no fault
+ * of the player. `sessionStorage.setItem('pvpWaitMs','60000')` in both tabs
+ * makes the pairing calm; real players on two devices never need it.
+ */
+function pvpWaitMs(): number {
+  try {
+    const v = Number(sessionStorage.getItem('pvpWaitMs'));
+    if (Number.isFinite(v) && v >= 1000) return v;
+  } catch { /* private mode */ }
+  return 8000;
+}
 
 function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } {
   const { cards } = useCollection.getState();
@@ -100,6 +144,8 @@ export const useMatch = create<MatchStore>((set, get) => ({
   crowns: [0, 0],
   shock: null,
   practice: false,
+  mode: 'bot',
+  perspective: 0,
 
   startQueue: (opts) => {
     const practice = opts?.practice ?? false;
@@ -112,84 +158,122 @@ export const useMatch = create<MatchStore>((set, get) => ({
 
     const { player, bot } = buildDecks();
     clearTimers();
+    pvpClose();
     set({
       status: 'queuing',
       playerDeck: player,
       botDeck: bot,
       stakeSol: practice ? 0 : tier.stakeSol,
       practice,
+      mode: 'bot',
+      perspective: 0,
       result: null,
-      opponentName: practice ? 'Training Dummy' : BOT_NAMES[deck.tier],
+      opponentName: practice ? 'Training Dummy' : 'searching…',
     });
 
-    // practice skips the search theatre — the point is to get to the arena
-    const queueMs = practice ? 400 : 1200 + Math.random() * 1300;
-    queueTimers.push(setTimeout(() => {
-      if (get().status !== 'queuing') return;
-      set({ status: 'found' });
-      queueTimers.push(setTimeout(() => {
-        if (get().status !== 'found') return;
-        // Escrow happens here, not at queue time: a cancelled or abandoned
-        // search must never cost the player anything. Practice never escrows.
-        if (!practice) {
-          if (!useWallet.getState().spend(tier.stakeSol)) {
-            clearTimers();
-            set({ status: 'idle' });
-            return;
-          }
-          play('coin');
+    // Practice goes straight to the bot — its whole point is a private arena.
+    if (practice) {
+      beginBotFlow(true, deck.tier, player, bot);
+      return null;
+    }
+
+    // Real stakes try a human first. The matchmaker pairs same-tier players;
+    // if nobody shows inside the window (or the service is down), the bot
+    // steps in — a solo judge still gets a battle every time.
+    let fellBack = false;
+    const fallBack = () => {
+      if (fellBack || get().status === 'battle' || get().status === 'settled') return;
+      fellBack = true;
+      pvpClose();
+      if (get().status === 'idle') return; // player cancelled while waiting
+      set({ opponentName: BOT_NAMES[deck.tier], mode: 'bot', perspective: 0 });
+      beginBotFlow(false, deck.tier, player, bot);
+    };
+
+    pvpConnect({
+      onMatched: (m) => {
+        if (fellBack) return;
+        beginHumanBattle(m, player, tier.stakeSol);
+      },
+      onUnavailable: fallBack,
+      onInput: (ev) => queueRemoteInput(ev),
+      onDesync: () => settleVoid('the two sims diverged'),
+      onOpponentLeft: () => {
+        const s = get();
+        if (s.status === 'battle' && s.sim && s.sim.phase !== 'ended') {
+          // A vanished opponent forfeits — the win is real and pays normally.
+          s.sim.phase = 'ended';
+          s.sim.winner = s.perspective;
+          clearTimers();
+          settle();
+        } else if (s.status !== 'settled') {
+          fallBack();
         }
-        const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-        const sim = createMatch(seed, [player, bot]);
-        pending = new Map();
-        hashes = [];
-        set({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });
-        startMusic();
-        const difficulty: BotDifficulty = deck.tier <= 0 ? 'easy' : deck.tier === 1 ? 'normal' : 'hard';
-        loop = setInterval(() => tickOnce(difficulty), 50);
-      }, 900));
-    }, queueMs));
+      },
+    });
+    pvpQueue({
+      address: wallet.address,
+      name: wallet.walletName || 'anon',
+      tier: deck.tier,
+      power: deck.power(),
+      deck: player,
+      deckHash: player.map((c) => c.coinId).join(','),
+    });
+    queueTimers.push(setTimeout(fallBack, pvpWaitMs()));
     return null;
   },
 
   cancelQueue: () => {
     if (get().status !== 'queuing' && get().status !== 'found') return;
     clearTimers();
+    pvpCancel();
+    pvpClose();
     set({ status: 'idle', sim: null, version: 0 });
   },
 
   playCard: (deckIndex, xFp, yFp) => {
-    const { sim, status } = get();
+    const { sim, status, mode, perspective } = get();
     if (!sim || status !== 'battle' || sim.phase === 'ended') return;
+    const delay = mode === 'human' ? HUMAN_INPUT_DELAY_TICKS : INPUT_DELAY_TICKS;
     const ev: InputEvent = {
-      tick: sim.tick + INPUT_DELAY_TICKS, player: 0, deckIndex, x: xFp, y: yFp,
+      tick: sim.tick + delay, player: perspective, deckIndex, x: xFp, y: yFp,
     };
     const list = pending.get(ev.tick) ?? [];
     list.push(ev);
     pending.set(ev.tick, list);
+    // The opponent applies the identical event at the identical tick — that,
+    // and nothing else, is what keeps the two sims one game.
+    if (mode === 'human') pvpSendInput(ev);
   },
 
   forfeit: () => {
     if (get().status !== 'battle') return; // already settled or never started
-    const { sim } = get();
+    const { sim, mode, perspective } = get();
     clearTimers();
+    // Closing the socket is the forfeit: the server tells the opponent, who
+    // wins by opponent_left. No second message type to disagree with it.
+    if (mode === 'human') pvpClose();
     if (sim && sim.phase !== 'ended') {
       sim.phase = 'ended';
-      sim.winner = 1;
+      sim.winner = (1 - perspective) as 0 | 1;
     }
     settle();
   },
 
   dismiss: () => {
     clearTimers();
+    pvpClose();
     stopMusic();
-    set({ status: 'idle', sim: null, result: null, version: 0, crowns: [0, 0], shock: null, practice: false });
+    set({
+      status: 'idle', sim: null, result: null, version: 0, crowns: [0, 0],
+      shock: null, practice: false, mode: 'bot', perspective: 0,
+    });
   },
 }));
 
+/** The bot's original cadence: decide, then advance one tick per interval. */
 function tickOnce(difficulty: BotDifficulty): void {
-  const store = useMatch.getState();
-  const sim = store.sim;
+  const sim = useMatch.getState().sim;
   if (!sim) return;
 
   const botEv = decideBot(sim, 1, difficulty);
@@ -198,6 +282,15 @@ function tickOnce(difficulty: BotDifficulty): void {
     list.push(botEv);
     pending.set(botEv.tick, list);
   }
+  stepOne(sim);
+}
+
+/**
+ * One sim tick plus its presentation side-effects. Shared by the bot loop and
+ * the human loop — the step itself must be byte-identical in both.
+ */
+function stepOne(sim: SimState): void {
+  const { mode, perspective } = useMatch.getState();
 
   // presentation-only snapshots taken around the step
   const towersBefore = sim.towers.map((t) => t.hp > 0);
@@ -205,7 +298,14 @@ function tickOnce(difficulty: BotDifficulty): void {
 
   stepSim(sim, pending.get(sim.tick) ?? []);
   pending.delete(sim.tick - 1);
-  if (sim.tick % HASH_EVERY_TICKS === 0) hashes.push(hashState(sim));
+  if (sim.tick % HASH_EVERY_TICKS === 0) {
+    const h = hashState(sim);
+    hashes.push(h);
+    // The server compares this against the opponent's hash for the same tick.
+    // A mismatch voids the match — that is the whole anti-cheat story until
+    // settlement moves into the rollup.
+    if (mode === 'human') pvpSendHash(sim.tick, h);
+  }
 
   // a tower fell this tick → crown, sound, screen shock
   let felled: 0 | 1 | null = null;
@@ -219,7 +319,7 @@ function tickOnce(difficulty: BotDifficulty): void {
     const next: Partial<MatchStore> = { version: s.version + 1 };
     if (felled !== null) {
       // derived, never accumulated — two towers can fall on the same tick
-      next.crowns = countCrowns(sim);
+      next.crowns = countCrowns(sim, perspective);
       next.shock = { id: s.version + 1, kind: 'tower', forPlayer: felled };
     }
     return next;
@@ -227,31 +327,172 @@ function tickOnce(difficulty: BotDifficulty): void {
 
   if (sim.phase === 'ended') {
     clearTimers();
+    if (mode === 'human') pvpSendEnded();
     settle();
   }
 }
 
-/** Crowns = enemy towers felled. Read from the sim, so it can never drift. */
-function countCrowns(sim: SimState): [number, number] {
+/**
+ * Human matches step against the shared wall clock, not a free-running
+ * interval: both clients target tick = (now − startAt) / 50ms, so they stay
+ * within a tick of each other without any "are you ready" chatter. The catch-up
+ * bound keeps a tab that was throttled in the background from spiralling.
+ */
+function tickHuman(): void {
+  const sim = useMatch.getState().sim;
+  if (!sim || sim.phase === 'ended') return;
+  const target = Math.floor((Date.now() - humanStartAt) / TICK_MS);
+  let steps = 0;
+  while (sim.tick < target && steps < 6) {
+    stepOne(sim);
+    steps += 1;
+    // stepOne mutates phase, which TS's narrowing can't see through
+    if ((sim.phase as SimState['phase']) === 'ended') break;
+  }
+}
+
+function beginBotFlow(
+  practice: boolean, tierIdx: number, player: MatchCard[], bot: MatchCard[],
+): void {
+  const tier = TIERS[tierIdx];
+  // practice skips the search theatre — the point is to get to the arena
+  const queueMs = practice ? 400 : 1200 + Math.random() * 1300;
+  queueTimers.push(setTimeout(() => {
+    if (useMatch.getState().status !== 'queuing') return;
+    useMatch.setState({ status: 'found' });
+    queueTimers.push(setTimeout(() => {
+      if (useMatch.getState().status !== 'found') return;
+      // Escrow happens here, not at queue time: a cancelled or abandoned
+      // search must never cost the player anything. Practice never escrows.
+      if (!practice) {
+        if (!useWallet.getState().spend(tier.stakeSol)) {
+          clearTimers();
+          useMatch.setState({ status: 'idle' });
+          return;
+        }
+        play('coin');
+      }
+      const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
+      const sim = createMatch(seed, [player, bot]);
+      pending = new Map();
+      hashes = [];
+      useMatch.setState({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });
+      startMusic();
+      const difficulty: BotDifficulty = tierIdx <= 0 ? 'easy' : tierIdx === 1 ? 'normal' : 'hard';
+      loop = setInterval(() => tickOnce(difficulty), 50);
+    }, 900));
+  }, queueMs));
+}
+
+/**
+ * A real opponent. Seat 0's deck is seat 0's deck on both machines — the sim
+ * is one shared timeline and `perspective` only changes who the camera loves.
+ */
+function beginHumanBattle(m: MatchedPayload, myDeck: MatchCard[], stakeSol: number): void {
+  clearTimers(); // the bot fallback timer must not fire mid-handshake
+  const store = useMatch.getState();
+  if (store.status !== 'queuing' && store.status !== 'found') return;
+
+  if (!useWallet.getState().spend(stakeSol)) {
+    pvpClose();
+    useMatch.setState({ status: 'idle' });
+    return;
+  }
+  play('coin');
+
+  const decks: [MatchCard[], MatchCard[]] = m.role === 0
+    ? [myDeck, m.opponent.deck]
+    : [m.opponent.deck, myDeck];
+  const sim = createMatch(m.seed, decks);
+  pending = new Map();
+  hashes = [];
+  humanStartAt = m.startAt;
+
+  useMatch.setState({
+    status: 'found',
+    mode: 'human',
+    perspective: m.role,
+    opponentName: m.opponent.name ?? `${m.opponent.address.slice(0, 4)}…${m.opponent.address.slice(-4)}`,
+  });
+
+  // Both clients hold on 'found' until the shared start instant, then step
+  // against the same clock. The interval runs at half a tick so a late timer
+  // callback still lands inside the right tick window.
+  const untilStart = Math.max(0, m.startAt - Date.now());
+  queueTimers.push(setTimeout(() => {
+    if (useMatch.getState().status !== 'found') return;
+    useMatch.setState({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });
+    startMusic();
+    loop = setInterval(tickHuman, TICK_MS / 2);
+  }, untilStart));
+}
+
+/** Remote inputs join the same queue local ones do — the sim cannot tell. */
+function queueRemoteInput(ev: InputEvent): void {
+  const { sim, perspective, mode } = useMatch.getState();
+  if (!sim || mode !== 'human') return;
+  if (ev.player === perspective) return; // never accept our own seat from outside
+  if (ev.tick <= sim.tick) {
+    // Too late to apply at its stamped tick: the sender already applied it,
+    // so the timelines have split. Void now rather than letting the next hash
+    // checkpoint discover it.
+    settleVoid('an input arrived too late to stay in lockstep');
+    return;
+  }
+  const list = pending.get(ev.tick) ?? [];
+  list.push(ev);
+  pending.set(ev.tick, list);
+}
+
+/**
+ * Annul the match: stakes come back, nothing is raked, nothing is recorded.
+ * This is the designed response to divergence — the one unacceptable outcome
+ * is two players seeing two different games and one of them paying for it.
+ */
+function settleVoid(reason: string): void {
+  const { status, stakeSol, sim } = useMatch.getState();
+  if (status !== 'battle' || !sim) return;
+  clearTimers();
+  pvpClose();
+  stopMusic();
+  useWallet.getState().receive(stakeSol); // the escrowed stake, returned whole
+  const result: MatchResult = {
+    won: false,
+    draw: true,
+    voided: true,
+    potSol: stakeSol * 2,
+    payoutSol: stakeSol,
+    rakeSol: 0,
+    hashes: hashes.length,
+    crowns: countCrowns(sim, useMatch.getState().perspective),
+    chest: null,
+  };
+  console.warn(`match voided: ${reason}`);
+  useMatch.setState({ status: 'settled', result });
+}
+
+/** Crowns = enemy towers felled, seen from `me`. Derived, so it cannot drift. */
+function countCrowns(sim: SimState, me: 0 | 1): [number, number] {
   let mine = 0;
   let theirs = 0;
   for (const t of sim.towers) {
     if (t.hp > 0) continue;
-    if (t.owner === 1) mine += 1;
-    else theirs += 1;
+    if (t.owner === me) theirs += 1;
+    else mine += 1;
   }
   return [mine, theirs];
 }
 
 function settle(): void {
-  const { sim, stakeSol, status, practice } = useMatch.getState();
+  const { sim, stakeSol, status, practice, perspective, mode } = useMatch.getState();
   if (!sim || status === 'settled') return; // idempotent: never pay twice
-  const crowns = countCrowns(sim);
+  if (mode === 'human') pvpClose();
+  const crowns = countCrowns(sim, perspective);
   stopMusic();
   const wallet = useWallet.getState();
   const pot = stakeSol * 2;
   const draw = sim.winner === -2;
-  const won = sim.winner === 0;
+  const won = sim.winner === perspective;
   const rakePct = draw ? FEES.tieRakePct : FEES.rakePct;
   const rakeSol = +(pot * (rakePct / 100)).toFixed(4);
   let payoutSol = 0;

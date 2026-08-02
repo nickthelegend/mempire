@@ -38,7 +38,7 @@ function ResultOverlay() {
   const { result, stakeSol, dismiss, practice } = useMatch();
   const nav = useNavigate();
   if (!result) return null;
-  const title = result.draw ? 'Split' : result.won ? 'Pot Secured' : 'Rekt';
+  const title = result.voided ? 'Voided' : result.draw ? 'Split' : result.won ? 'Pot Secured' : 'Rekt';
   const color = result.draw ? 'var(--dim)' : result.won ? 'var(--gold)' : 'var(--red)';
   return (
     <div style={{
@@ -61,6 +61,11 @@ function ResultOverlay() {
         {practice ? (
           <p className="fine" style={{ fontSize: 13 }}>
             Practice match — no stake, no rake, nothing recorded.
+          </p>
+        ) : result.voided ? (
+          <p className="fine" style={{ fontSize: 13 }}>
+            The two sims stopped agreeing, so the match was annulled — your
+            stake came back whole and nothing was raked or recorded.
           </p>
         ) : (
         <>
@@ -191,7 +196,9 @@ export function Battle() {
   }, [shockId]);
 
   const sim = match.sim;
-  const elixir = sim ? sim.players[0].elixirFP / FP : 0;
+  // Human matches can seat this client as player 1 — everything the HUD shows
+  // is read from the seat, never from a hardcoded 0.
+  const elixir = sim ? sim.players[match.perspective].elixirFP / FP : 0;
 
   const project = useCallback((clientX: number, clientY: number) => {
     const el = sceneEl.current;
@@ -244,7 +251,7 @@ export function Battle() {
 
   if (!sim || match.status === 'idle') return <Navigate to="/" replace />;
 
-  const me = sim.players[0];
+  const me = sim.players[match.perspective];
   const hand = me.cycle.slice(0, 4).map((deckIndex) => ({ deckIndex, card: match.playerDeck[deckIndex] }));
   const next = match.playerDeck[me.cycle[4]];
   const remaining = sim.phase === 'overtime'
@@ -321,6 +328,7 @@ export function Battle() {
       <div ref={shakeEl} style={{ position: 'absolute', inset: 0 }}>
         <BattleScene
           sceneRef={sceneEl}
+          perspective={match.perspective}
           onPlace={(x, y) => {
             if (drag || selected === null) return;
             const snapped = clampDrop(x / FP, y / FP);

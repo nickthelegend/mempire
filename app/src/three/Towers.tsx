@@ -35,7 +35,9 @@ export function TowerMesh({ index }: { index: number }) {
       isKing: t.kind === 'king',
       x: t.x / FP,
       z: t.y / FP,
-      own: t.owner === 0,
+      // friendly is this client's seat, which is player 1 for the second
+      // human in a match — never a hardcoded 0
+      own: t.owner === useMatch.getState().perspective,
     };
   }, [index, sim0]);
 
@@ -49,7 +51,11 @@ export function TowerMesh({ index }: { index: number }) {
     if (barFill.current) barFill.current.scale.x = Math.max(0.001, pct);
     if (barMat.current) {
       // green while healthy, red when hurt — gold is money, never damage
-      barMat.current.color.set(pct > 0.4 ? (t.owner === 0 ? '#4fd14f' : '#ff6b5a') : PALETTE.red);
+      barMat.current.color.set(
+        pct > 0.4
+          ? (t.owner === useMatch.getState().perspective ? '#4fd14f' : '#ff6b5a')
+          : PALETTE.red,
+      );
     }
     barGroup.current?.quaternion.copy(camera.quaternion);
 

@@ -132,12 +132,15 @@ export function Units() {
   const discGeo = useMemo(() => new THREE.CircleGeometry(0.26, 20), []);
   const shadowGeo = useMemo(() => new THREE.CircleGeometry(0.46, 18), []);
 
-  const spawn = (u: Unit, deckOf: (o: 0 | 1) => { coinId: string }[]): LiveUnit => {
+  const spawn = (
+    u: Unit, deckOf: (o: 0 | 1) => { coinId: string }[], me: 0 | 1,
+  ): LiveUnit => {
     const proto = gltfs[u.archetype] ?? gltfs[0];
     const group = new THREE.Group();
 
     const model = SkeletonUtils.clone(proto.scene);
-    const tint = u.owner === 0 ? OWN_TINT : ENEMY_TINT;
+    // friend/enemy is relative to this client's seat, not to seat 0
+    const tint = u.owner === me ? OWN_TINT : ENEMY_TINT;
     model.traverse((o) => {
       const mesh = o as THREE.SkinnedMesh;
       if ((mesh.isMesh || mesh.isSkinnedMesh) && mesh.material) {
@@ -163,7 +166,7 @@ export function Units() {
     const own = new THREE.Mesh(
       ringGeo,
       new THREE.MeshBasicMaterial({
-        color: u.owner === 0 ? '#3fa9ff' : '#ff5a4a',
+        color: u.owner === me ? '#3fa9ff' : '#ff5a4a',
         transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false,
       }),
     );
@@ -185,7 +188,7 @@ export function Units() {
     const shockwave = new THREE.Mesh(
       ringGeo,
       new THREE.MeshBasicMaterial({
-        color: u.owner === 0 ? PALETTE.teal : PALETTE.red,
+        color: u.owner === me ? PALETTE.teal : PALETTE.red,
         transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false,
       }),
     );
@@ -248,13 +251,14 @@ export function Units() {
     if (!sim || !root.current) return;
     const dt = Math.min(dtRaw, 0.05); // a backgrounded tab must not jump the rigs
     const seen = new Set<number>();
-    const deckOf = (o: 0 | 1) => (o === 0 ? store.playerDeck : store.botDeck);
+    // playerDeck is always MY deck regardless of seat; botDeck is the opponent's
+    const deckOf = (o: 0 | 1) => (o === store.perspective ? store.playerDeck : store.botDeck);
 
     for (const u of sim.units) {
       seen.add(u.id);
       let lu = live.current.get(u.id);
       if (!lu) {
-        lu = spawn(u, deckOf);
+        lu = spawn(u, deckOf, store.perspective);
         live.current.set(u.id, lu);
         root.current.add(lu.group);
       }
