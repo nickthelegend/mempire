@@ -26,6 +26,12 @@ export interface PvpCallbacks {
   onOpponentLeft?: () => void;
   /** Socket failed or closed before a match formed — callers fall back to the bot. */
   onUnavailable?: () => void;
+  /**
+   * Socket died unexpectedly *after* a match formed — laptop slept, network
+   * dropped. The server has already told the opponent they won by forfeit, so
+   * the honest local outcome is a loss, and the caller settles it as one.
+   */
+  onSocketLost?: () => void;
 }
 
 function wsUrl(): string {
@@ -73,6 +79,7 @@ export function pvpConnect(cb: PvpCallbacks): void {
   ws.onclose = () => {
     if (socket === ws) socket = null;
     if (!matched) callbacks.onUnavailable?.();
+    else callbacks.onSocketLost?.();
   };
 }
 

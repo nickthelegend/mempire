@@ -21,6 +21,23 @@ import { WebSocketServer } from 'ws';
 const TIERS = 4;
 const HASH_WINDOW = 400; // remember this many recent checkpoint ticks per match
 
+/**
+ * A deck is eight {coinId, name, archetype, level} entries. Validated here not
+ * to enforce game rules — the sims do that — but because this payload is
+ * relayed verbatim into the *other* player's createMatch. Junk must fail at
+ * the door of the sender, never in the runtime of their opponent.
+ */
+function validDeck(deck) {
+  return Array.isArray(deck) && deck.length === 8 && deck.every((c) => c
+    && typeof c.coinId === 'string' && c.coinId.length > 0 && c.coinId.length <= 64
+    && typeof c.name === 'string' && c.name.length <= 24
+    && Number.isInteger(c.archetype) && c.archetype >= 0 && c.archetype <= 5
+    && Number.isInteger(c.level) && c.level >= 1 && c.level <= 10);
+}
+
+/** ~4 plays/second sustained is beyond any human; beyond it is a flood. */
+const INPUT_BUCKET = { capacity: 12, refillPerSec: 4 };
+
 /** FNV-1a over a string, matching the client's hash discipline. */
 function fnv(s) {
   let h = 0x811c9dc5;
@@ -72,7 +89,10 @@ export function registerMatchmaker(server) {
         case 'queue': {
           const tier = Number(msg.tier);
           if (!Number.isInteger(tier) || tier < 0 || tier >= TIERS) return;
-          if (!msg.address || !Array.isArray(msg.deck) || msg.deck.length !== 8) return;
+          if (!msg.address || !validDeck(msg.deck)) return;
+          // A socket already in a live match cannot queue for another — that
+          // would orphan the first match's opponent mid-battle.
+          if (matches.has(ws.matchId)) return;
           leaveQueue(ws); // one queue slot per socket
 
           const waiting = queues.get(tier);
@@ -90,6 +110,7 @@ export function registerMatchmaker(server) {
               addr: [waiting.address, msg.address],
               hashes: new Map(),
               done: false,
+              createdAt: Date.now(),
             };
             matches.set(id, m);
             waiting.ws.matchId = id;
@@ -126,6 +147,16 @@ export function registerMatchmaker(server) {
           // Shape-check only — the sims validate the play. The relay must not
           // become a second rules engine that can disagree with the first.
           if (!i || ![i.tick, i.player, i.deckIndex, i.x, i.y].every(Number.isFinite)) return;
+          // Token bucket per socket: a flooding client gets its excess dropped
+          // here instead of amplified into the opponent's tab.
+          const now = Date.now();
+          ws.tokens = Math.min(
+            INPUT_BUCKET.capacity,
+            (ws.tokens ?? INPUT_BUCKET.capacity) + ((now - (ws.tokensAt ?? now)) / 1000) * INPUT_BUCKET.refillPerSec,
+          );
+          ws.tokensAt = now;
+          if (ws.tokens < 1) return;
+          ws.tokens -= 1;
           send(opponentOf(m, ws), { t: 'input', input: i });
           break;
         }
@@ -182,12 +213,19 @@ export function registerMatchmaker(server) {
     });
   });
 
-  // Reap dead sockets so a phone that lost signal frees its queue slot.
+  // Reap dead sockets so a phone that lost signal frees its queue slot, and
+  // sweep match rooms whose clients both vanished without a close frame — a
+  // match outlives regulation + overtime + grace at 10 minutes, never longer.
+  const MATCH_TTL_MS = 10 * 60_000;
   const reaper = setInterval(() => {
     for (const ws of wss.clients) {
       if (!ws.isAlive) { ws.terminate(); continue; }
       ws.isAlive = false;
       ws.ping();
+    }
+    const now = Date.now();
+    for (const [id, m] of matches) {
+      if (now - (m.createdAt ?? 0) > MATCH_TTL_MS) matches.delete(id);
     }
   }, 30_000);
   wss.on('close', () => clearInterval(reaper));

@@ -281,9 +281,13 @@ export function Arena() {
               </span>
               <style>{'@keyframes searchPulse{0%,100%{opacity:.28;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}'}</style>
             </div>
-            <Pill tone="blue" onClick={() => match.cancelQueue()} style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}>
-              Cancel search
-            </Pill>
+            {/* Once found, the die is cast — stake escrowed, opponent committed.
+                Offering Cancel there would either lie or forfeit; it does neither. */}
+            {match.status === 'queuing' && (
+              <Pill tone="blue" onClick={() => match.cancelQueue()} style={{ fontSize: 15, minHeight: 46, padding: '10px 18px' }}>
+                Cancel search
+              </Pill>
+            )}
           </>
         ) : (
           <>
