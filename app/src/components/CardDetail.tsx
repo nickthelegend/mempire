@@ -16,11 +16,11 @@ function Stat({ icon, label, value, delta }: {
     <div className="well" style={{ padding: '7px 9px', display: 'flex', alignItems: 'center', gap: 7 }}>
       <span aria-hidden style={{ fontSize: 15 }}>{icon}</span>
       <span style={{ minWidth: 0 }}>
-        <span className="label" style={{ fontSize: 9, display: 'block' }}>{label}</span>
+        <span className="label" style={{ fontSize: 12, display: 'block' }}>{label}</span>
         <span className="display" style={{ fontSize: 15, WebkitTextStroke: '2px var(--ink)' }}>
           {value}
           {delta && (
-            <span style={{ color: 'var(--teal)', fontSize: 11, marginLeft: 4 }}>{delta}</span>
+            <span style={{ color: 'var(--teal)', fontSize: 12, marginLeft: 4 }}>{delta}</span>
           )}
         </span>
       </span>
@@ -95,7 +95,7 @@ export function CardDetail({
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
               <ArchetypeIcon archetype={card.archetype} size={15} />
-              <span className="label" style={{ fontSize: 10, color: 'var(--dim-on-wood)' }}>
+              <span className="label" style={{ fontSize: 12, color: 'var(--dim-on-wood)' }}>
                 {ARCHETYPE_NAMES[card.archetype]}
               </span>
               <span className="money" style={{ fontSize: 13, marginLeft: 'auto' }}>{def.elixir}⚡</span>
@@ -147,14 +147,14 @@ export function CardDetail({
         {/* your position */}
         <div className="well" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ minWidth: 0 }}>
-            <span className="label" style={{ fontSize: 9, display: 'block' }}>You have staked</span>
+            <span className="label" style={{ fontSize: 12, display: 'block' }}>You have staked</span>
             <span className="money" style={{ fontSize: 19 }}>{fmtUsd(card.stakedUsd)}</span>
-            <span className="fine" style={{ display: 'block', fontSize: 11 }}>
+            <span className="fine" style={{ display: 'block', fontSize: 12 }}>
               {fmtTokens(card.stakedTokens)} {tickerOf(coin)}
             </span>
           </span>
           <span style={{ marginLeft: 'auto', textAlign: 'right' }}>
-            <span className="label" style={{ fontSize: 9, display: 'block' }}>Next level</span>
+            <span className="label" style={{ fontSize: 12, display: 'block' }}>Next level</span>
             <span className="display" style={{ fontSize: 15 }}>
               {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
             </span>

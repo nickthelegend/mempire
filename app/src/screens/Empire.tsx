@@ -42,7 +42,7 @@ export function Empire() {
             ].map(([label, value]) => (
               <div key={label}>
                 <div className="display" style={{ fontSize: 18 }}>{value}</div>
-                <div className="label" style={{ fontSize: 10 }}>{label}</div>
+                <div className="label" style={{ fontSize: 12 }}>{label}</div>
               </div>
             ))}
           </section>
@@ -72,7 +72,7 @@ export function Empire() {
                     >
                       {h.draw ? 'DRAW' : h.won ? 'WON' : 'REKT'}
                     </span>
-                    <span className="fine" style={{ fontSize: 11.5 }}>
+                    <span className="fine" style={{ fontSize: 12 }}>
                       pot {fmtSol(h.potSol)} · {h.hashes} commits
                     </span>
                     <span className="money" style={{ marginLeft: 'auto', color: h.payoutSol > 0 ? 'var(--gold)' : 'var(--red)' }}>
@@ -84,7 +84,7 @@ export function Empire() {
             )}
           </section>
 
-          <p className="fine" style={{ fontSize: 11.5 }}>
+          <p className="fine" style={{ fontSize: 12 }}>
             Devnet build — balances, opponents, and the settlement feed are simulated.
             Mint fee 0.02 SOL · rake 10% · unstake fee 2%.
           </p>

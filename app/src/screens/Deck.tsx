@@ -27,8 +27,8 @@ export function Deck() {
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <h1 className="display" style={{ fontSize: 30 }}>Deck</h1>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <span className="label" style={{ fontSize: 11 }}>{deck.active.length}/8</span>
-          <span className="label" style={{ fontSize: 11, color: 'var(--gold-hi)' }}>power {deck.power()}</span>
+          <span className="label" style={{ fontSize: 12 }}>{deck.active.length}/8</span>
+          <span className="label" style={{ fontSize: 12, color: 'var(--gold-hi)' }}>power {deck.power()}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span
               aria-hidden
@@ -38,7 +38,7 @@ export function Deck() {
                 border: '1.5px solid var(--ink)', display: 'inline-block',
               }}
             />
-            <span className="label" style={{ fontSize: 11 }}>avg {avgElixir}</span>
+            <span className="label" style={{ fontSize: 12 }}>avg {avgElixir}</span>
           </span>
         </div>
       </header>
@@ -137,7 +137,7 @@ export function Deck() {
                   {dupe && (
                     <span style={{
                       position: 'absolute', bottom: 6, left: 0, right: 0,
-                      fontSize: 9, textAlign: 'center', color: '#ffb3c0',
+                      fontSize: 12, textAlign: 'center', color: '#ffb3c0',
                       fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
                       textShadow: '0 1px 2px rgba(6,16,38,.9)',
                     }}

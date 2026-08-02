@@ -46,7 +46,7 @@ function Row({
         <span className="display" style={{ display: 'block', fontSize: 16, WebkitTextStroke: '2px var(--ink)' }}>
           {title}
         </span>
-        <span className="fine" style={{ display: 'block', fontSize: 11.5, color: 'var(--dim)' }}>
+        <span className="fine" style={{ display: 'block', fontSize: 12, color: 'var(--dim)' }}>
           {sub}
         </span>
       </span>
@@ -125,7 +125,7 @@ export function WalletPicker() {
               right={(
                 <span
                   className="label"
-                  style={{ fontSize: 10, color: w.installed ? 'var(--teal)' : 'var(--dim)' }}
+                  style={{ fontSize: 12, color: w.installed ? 'var(--teal)' : 'var(--dim)' }}
                 >
                   {busy ? '…' : w.installed ? 'Ready' : 'Install'}
                 </span>
@@ -136,7 +136,7 @@ export function WalletPicker() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '3px 2px' }}>
           <span style={{ flex: 1, height: 2, background: 'rgba(0,0,0,.3)' }} />
-          <span className="label" style={{ fontSize: 10, color: 'var(--dim-on-wood)' }}>or</span>
+          <span className="label" style={{ fontSize: 12, color: 'var(--dim-on-wood)' }}>or</span>
           <span style={{ flex: 1, height: 2, background: 'rgba(0,0,0,.3)' }} />
         </div>
 

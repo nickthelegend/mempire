@@ -51,7 +51,7 @@ export function CardFrame({
     >
       {/* portrait well */}
       <div style={{
-        position: 'absolute', inset: pad, bottom: `${Math.max(17, width * 0.2)}px`,
+        position: 'absolute', inset: pad, bottom: `${Math.max(22, width * 0.24)}px`,
         borderRadius: Math.max(5, width * 0.05),
         background: `linear-gradient(180deg, hsl(${coin.hue} 62% 42%), hsl(${coin.hue} 55% 22%))`,
         border: '2px solid rgba(0,0,0,.45)',
@@ -75,7 +75,7 @@ export function CardFrame({
           boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 2px 4px rgba(0,0,0,.55)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontFamily: 'var(--font-display)',
-          fontSize: Math.max(11, width * 0.15), color: '#fff',
+          fontSize: Math.max(13, width * 0.16), color: '#fff',
           WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
         }}
       >
@@ -92,7 +92,7 @@ export function CardFrame({
       {/* level banner */}
       <div style={{
         position: 'absolute', left: pad, right: pad, bottom: pad,
-        height: Math.max(14, width * 0.155),
+        height: Math.max(18, width * 0.19),
         borderRadius: Math.max(4, width * 0.04),
         background: card.level >= 8
           ? 'linear-gradient(180deg, #ffd766, #d99b0d)'
@@ -104,7 +104,7 @@ export function CardFrame({
       >
         <span style={{
           fontFamily: 'var(--font-display)',
-          fontSize: Math.max(8, width * 0.098),
+          fontSize: Math.max(12, width * 0.115),
           color: card.level >= 8 ? '#3a2600' : '#fff',
           WebkitTextStroke: card.level >= 8 ? '0' : '1.6px var(--ink)',
           paintOrder: 'stroke fill',

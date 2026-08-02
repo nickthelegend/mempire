@@ -87,14 +87,14 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
           <div className="well" style={{ padding: '9px 11px' }}>
-            <div className="label" style={{ fontSize: 10 }}>Staked</div>
+            <div className="label" style={{ fontSize: 12 }}>Staked</div>
             <div className="money">{fmtUsd(card.stakedUsd)}</div>
-            <div style={{ color: 'var(--dim)', fontSize: 11 }}>
+            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
               {fmtTokens(card.stakedTokens)} {tickerOf(coin)}
             </div>
           </div>
           <div className="well" style={{ padding: '9px 11px' }}>
-            <div className="label" style={{ fontSize: 10 }}>Next level</div>
+            <div className="label" style={{ fontSize: 12 }}>Next level</div>
             <div style={{ fontWeight: 700 }}>
               {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
             </div>
@@ -196,7 +196,7 @@ function CoinRow({ coin }: { coin: Coin }) {
         <div style={{ fontWeight: 800, fontSize: 14 }}>
           {tickerOf(coin)}
           {owned > 0 && (
-            <span style={{ color: 'var(--teal)', fontSize: 11, marginLeft: 6 }}>
+            <span style={{ color: 'var(--teal)', fontSize: 12, marginLeft: 6 }}>
               {owned} card{owned > 1 ? 's' : ''}
             </span>
           )}
@@ -207,7 +207,7 @@ function CoinRow({ coin }: { coin: Coin }) {
       </div>
       <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
         {reason ? (
-          <span style={{ fontSize: 11, color: 'var(--red)' }}>{reason}</span>
+          <span style={{ fontSize: 12, color: 'var(--red)' }}>{reason}</span>
         ) : (
           <button
             onClick={() => {
@@ -219,7 +219,7 @@ function CoinRow({ coin }: { coin: Coin }) {
             title={affordable ? undefined : `needs ${fmtSol(FEES.mintSol)}`}
             style={{
               padding: '0 14px', ...TAP, borderRadius: 'var(--r-pill)',
-              fontWeight: 800, fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase',
+              fontWeight: 800, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase',
               border: '1px solid var(--purple)',
               color: minting || !affordable ? 'var(--dim)' : 'var(--text)',
               opacity: affordable ? 1 : 0.5,
@@ -317,7 +317,7 @@ export function Cards() {
             </div>
           ))}
         </div>
-        <p style={{ fontSize: 11, color: 'var(--dim)', marginTop: 8 }}>
+        <p style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>
           Eligibility: ≥$25k liquidity and ≥48h old. Price via Jupiter (mocked on devnet).
         </p>
       </section>

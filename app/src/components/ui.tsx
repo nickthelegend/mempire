@@ -116,7 +116,7 @@ export function ArchetypeTag({ archetype }: { archetype: Archetype }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+      fontSize: 12, fontWeight: 700, letterSpacing: '0.06em',
       color: 'var(--dim)', textTransform: 'uppercase',
     }}
     >

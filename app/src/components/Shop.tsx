@@ -59,7 +59,7 @@ export function Shop() {
     <section aria-label="Shop">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <span className="label">Daily shop</span>
-        <span className="label" style={{ fontSize: 10 }}>
+        <span className="label" style={{ fontSize: 12 }}>
           rotates in {fmtLeft(msUntilRotation())}
         </span>
       </div>
@@ -86,7 +86,7 @@ export function Shop() {
                     <span
                       className="label"
                       style={{
-                        fontSize: 9, color: '#0d1120', background: 'var(--btn-green)',
+                        fontSize: 12, color: '#0d1120', background: 'var(--btn-green)',
                         border: '1.5px solid var(--ink)', borderRadius: 4, padding: '1px 4px',
                       }}
                     >
@@ -94,14 +94,14 @@ export function Shop() {
                     </span>
                   )}
                 </span>
-                <span className="fine" style={{ display: 'block', fontSize: 10.5 }}>
+                <span className="fine" style={{ display: 'block', fontSize: 12 }}>
                   {fmtUsd(coin.liquidityUsd)} liquidity
                   {owned && <span style={{ color: 'var(--teal)' }}> · owned</span>}
                 </span>
               </span>
 
               {o.bought ? (
-                <span className="label" style={{ fontSize: 10, color: 'var(--teal)' }}>Bought</span>
+                <span className="label" style={{ fontSize: 12, color: 'var(--teal)' }}>Bought</span>
               ) : (
                 <span style={{ display: 'flex', gap: 5 }}>
                   <button
@@ -159,7 +159,7 @@ export function Shop() {
         {error && (
           <p role="alert" className="fine" style={{ color: '#ffb3c0', textAlign: 'center' }}>{error}</p>
         )}
-        <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 11 }}>
+        <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
           You hold {gems}💎 · offers refresh every 24h
         </p>
       </div>

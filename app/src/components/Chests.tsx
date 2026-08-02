@@ -172,7 +172,7 @@ function Slot({ chest, onOpened }: {
           justifyContent: 'center', flexDirection: 'column', gap: 3,
         }}
       >
-        <span className="label" style={{ fontSize: 9, opacity: 0.7 }}>empty</span>
+        <span className="label" style={{ fontSize: 12, opacity: 0.7 }}>empty</span>
       </div>
     );
   }
@@ -200,7 +200,7 @@ function Slot({ chest, onOpened }: {
             if (got) onOpened(got);
           }}
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 10,
+            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
             fontFamily: 'var(--font-display)',
             background: 'linear-gradient(180deg,var(--btn-green-hi),var(--btn-green))',
             border: '2px solid var(--ink)', color: '#fff',
@@ -216,7 +216,7 @@ function Slot({ chest, onOpened }: {
           disabled={gems < cost}
           aria-label={`Skip ${fmtLeft(remaining)} for ${cost} gems`}
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 9.5,
+            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
             background: 'rgba(6,16,38,.6)', border: '2px solid var(--ink)',
             color: gems < cost ? 'var(--dim)' : 'var(--gold-hi)', fontWeight: 800,
             opacity: gems < cost ? 0.6 : 1,
@@ -228,7 +228,7 @@ function Slot({ chest, onOpened }: {
         <button
           onClick={() => { click(); startUnlock(chest.id); }}
           style={{
-            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 10,
+            width: '100%', minHeight: 26, borderRadius: 7, fontSize: 12.5,
             fontFamily: 'var(--font-display)',
             background: 'linear-gradient(180deg,var(--btn-blue-hi),var(--btn-blue))',
             border: '2px solid var(--ink)', color: '#fff',
@@ -258,7 +258,7 @@ export function ChestRail() {
     <section aria-label="Chests">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <span className="label">Chests</span>
-        <span className="label" style={{ fontSize: 10 }}>
+        <span className="label" style={{ fontSize: 12 }}>
           {chests.length}/{CHEST_SLOTS} · win to earn
         </span>
       </div>
@@ -318,7 +318,7 @@ export function GemShop({ onClose }: { onClose: () => void }) {
             <span style={{ fontSize: 22 }} aria-hidden>💎</span>
             <span className="display" style={{ fontSize: 19 }}>{b.gems}</span>
             {b.bonus && (
-              <span className="label" style={{ fontSize: 9, color: '#d8ffe9' }}>{b.bonus}</span>
+              <span className="label" style={{ fontSize: 12, color: '#d8ffe9' }}>{b.bonus}</span>
             )}
             <span className="money" style={{ marginLeft: 'auto', fontSize: 16 }}>{b.sol} SOL</span>
           </button>

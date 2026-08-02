@@ -84,13 +84,13 @@ function ResultOverlay() {
             <span className="display" style={{ fontSize: 15, display: 'block' }}>
               {result.chest ? `${CHESTS[result.chest].name} earned` : 'Chest slots full'}
             </span>
-            <span className="fine" style={{ fontSize: 11 }}>
+            <span className="fine" style={{ fontSize: 12 }}>
               {result.chest ? 'Open it on the Cards tab' : 'Open one to make room'}
             </span>
           </span>
         </div>
       )}
-      <p className="fine" style={{ fontSize: 11.5 }}>
+      <p className="fine" style={{ fontSize: 12 }}>
         {result.hashes} state hashes committed · settled by final-state signature (devnet sim)
       </p>
       <Pill onClick={() => { dismiss(); nav('/'); }}>Return to Arena</Pill>
@@ -146,7 +146,7 @@ function CrownScore({ crowns }: { crowns: [number, number] }) {
       style={{ display: 'flex', alignItems: 'center', gap: 10 }}
     >
       <Side n={crowns[0]} mine />
-      <span style={{ color: 'var(--dim)', fontSize: 11 }}>vs</span>
+      <span style={{ color: 'var(--dim)', fontSize: 12 }}>vs</span>
       <Side n={crowns[1]} mine={false} />
     </div>
   );
@@ -308,7 +308,7 @@ export function Battle() {
       {doubleElixir && sim.phase !== 'ended' && (
         <div style={{
           position: 'absolute', top: 46, left: 0, right: 0, zIndex: 10, textAlign: 'center',
-          fontSize: 11, fontWeight: 800, letterSpacing: '.14em', color: 'var(--teal)',
+          fontSize: 12, fontWeight: 800, letterSpacing: '.14em', color: 'var(--teal)',
         }}
         >
           2× ELIXIR
@@ -351,7 +351,7 @@ export function Battle() {
           }}
           >
             <CoinBadge mint={dragCard.coinId} size={46} />
-            <span style={{ fontSize: 10, fontWeight: 800 }}>{dragCard.name}</span>
+            <span style={{ fontSize: 12, fontWeight: 800 }}>{dragCard.name}</span>
           </div>
         </div>
       )}
@@ -457,7 +457,7 @@ export function Battle() {
                 >
                   <CoinBadge mint={card.coinId} size={42} />
                   <span style={{
-                    fontFamily: 'var(--font-display)', fontSize: 10,
+                    fontFamily: 'var(--font-display)', fontSize: 12,
                     WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
                     display: 'flex', alignItems: 'center', gap: 3,
                     maxWidth: '100%', minWidth: 0,
@@ -492,12 +492,12 @@ export function Battle() {
             justifyContent: 'center', gap: 3, opacity: 0.6,
           }}
           >
-            <span className="label" style={{ fontSize: 8 }}>next</span>
+            <span className="label" style={{ fontSize: 12 }}>next</span>
             {next && <CoinBadge mint={next.coinId} size={26} />}
           </div>
         </div>
         <p style={{
-          fontSize: 11, color: drag || selected !== null ? 'var(--teal)' : 'var(--dim)',
+          fontSize: 12, color: drag || selected !== null ? 'var(--teal)' : 'var(--dim)',
           textAlign: 'center', margin: 0, height: 14,
         }}
         >

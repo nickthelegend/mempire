@@ -66,7 +66,7 @@ function ConnectHero() {
       <div style={{ padding: '0 12px', marginTop: 6 }}>
         <Pill onClick={openPicker} tone="gold" style={{ fontSize: 19 }}>Connect Wallet</Pill>
       </div>
-      <span className="label" style={{ fontSize: 10 }}>devnet · no real funds</span>
+      <span className="label" style={{ fontSize: 12 }}>devnet · no real funds</span>
     </div>
   );
 }
@@ -105,7 +105,13 @@ function TopHud() {
           >
             anon_king
           </span>
-          <span className="mono" style={{ display: 'block', fontSize: 9, color: 'var(--dim)' }}>
+          <span
+            className="mono"
+            style={{
+              display: 'block', fontSize: 12, color: 'var(--dim)',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}
+          >
             {wallet.walletName} · {shortAddr(wallet.address)}
           </span>
         </span>
@@ -250,7 +256,7 @@ export function Arena() {
                 <span className="display" style={{ fontSize: 17, display: 'block' }}>
                   {match.status === 'found' ? 'Opponent found!' : 'Finding opponent'}
                 </span>
-                <span className="fine" style={{ color: 'var(--dim-on-wood)', fontSize: 11.5 }}>
+                <span className="fine" style={{ color: 'var(--dim-on-wood)', fontSize: 12 }}>
                   {match.status === 'found'
                     ? `${match.opponentName} · entering arena`
                     : `matching your deck power (${deck.power()})`}
@@ -287,7 +293,7 @@ export function Arena() {
         <div className="panel" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="label" style={{ color: '#f3dcc0' }}>Pot</span>
           <span className="money" style={{ fontSize: 22 }}>{fmtSol(pot)}</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#e8cfae', textAlign: 'right', lineHeight: 1.25 }}>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#e8cfae', textAlign: 'right', lineHeight: 1.25 }}>
             you stake {fmtSol(tier.stakeSol)}<br />
             winner takes {100 - FEES.rakePct}%
           </span>

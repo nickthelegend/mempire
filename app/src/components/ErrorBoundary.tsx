@@ -38,7 +38,7 @@ export class ErrorBoundary extends Component<Props, State> {
         </p>
         <code
           style={{
-            fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--red)',
+            fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--red)',
             maxWidth: 320, wordBreak: 'break-word',
           }}
         >
