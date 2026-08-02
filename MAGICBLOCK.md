@@ -146,6 +146,38 @@ of shipping.
 
 ---
 
+## The AMM — $MEMPIRE / USDC
+
+`chain/programs/mempire-amm` · deployed `7tM95L7TooveTGAtmo6nRyJRQpSVADN3DPaagJmSp8CP`
+
+| | |
+|---|---|
+| $MEMPIRE | `AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFpR8` — 1B supply, 6 decimals |
+| Quote asset | **Circle's real USDC** `4zMMC9…ncDU` — not a mint this repo created |
+| Pool | `EHrgXgNjYCtLdWYzGwbgCup5ryy2KJhLhBoFbrdHS29w` — constant product, 0.30% |
+| Client | `app/src/chain/amm.ts`, `app/src/screens/Swap.tsx` |
+
+Nothing about it is simulated. The reserves are two genuine SPL token accounts
+owned by the pool PDA, a swap moves tokens with a real `token::transfer` both
+ways, and LP shares are a real SPL mint whose authority is the pool.
+
+Opened at 1.8M $MEMPIRE / 18 USDC — $0.00001 a token, a $10,000 FDV. **A live
+swap of 1 USDC bought 94,467.547507 $MEMPIRE**, matching the published formula
+to the unit; `k` grew and the price moved $0.00001 → $0.00001114.
+
+The maths is integer-only with `u128` intermediates — `reserve_in * 10_000`
+overflows `u64` at ~1.8e15 base units, which a six-decimal USDC pool reaches —
+and division floors toward the pool everywhere, which the tests assert rather
+than assume.
+
+**Where it runs.** Base layer. `delegate_pool` and `commit_pool` exist and the
+`swap` instruction is layer-agnostic by design, but a swap executed *on* a
+rollup also needs the pool's two vault ATAs delegated through Ephemeral SPL
+Token, and that is not implemented — so an ER swap would fail at the token CPI
+today. Said plainly rather than implied by the presence of the instructions.
+
+---
+
 ## What is still not real
 
 Listed plainly, because a build that hides these is worth less than one that
@@ -160,6 +192,9 @@ names them.
 | **SOL balance in Guest mode** | Simulated, stated on the Empire screen | `screens/Empire.tsx` |
 | **Session keys** | Not implemented. PRODUCT.md promises zero wallet popups mid-battle; today each ER write is a signature | — |
 | **cNFT card layer** | Not implemented. Cards are PDAs, not Bubblegum cNFTs | — |
+| **AMM on the rollup** | The pool has delegate/commit instructions, but swaps run on base layer: the vault ATAs are not delegated through eSPL, so an ER swap would fail at the token CPI | `programs/mempire-amm` |
+| **PER on the pool** | Not built. The design follows the sealed-auction split — public pool so reserves stay auditable, private per-trader orders so size cannot be front-run | — |
+| **AMM error codes** | Source is fixed (one enum, six unique codes); the *deployed* build still carries the 6000 collision and needs an upgrade | `programs/mempire-amm/src/lib.rs` |
 | **Mainnet** | Devnet only | — |
 
 The lockstep hash check is what actually protects a match, not the seed: a
@@ -186,6 +221,8 @@ BASE_RPC=https://api.devnet.solana.com npx tsx scripts/e2e-full-flow.ts
 | `app/test-battle-anim.mjs` | VFX pool, camera shake, strike cue vs. the real engine | 10/10 |
 | `cargo test -p mempire-rollup` | chest odds partition the roll exactly 62/26/9/3 | 4/4 |
 | `app/test-chest-drop.mjs` | the TS tier rule matches the Rust SDK on 256 vectors; drops are reproducible and unbiased | 12/12 |
+| `cargo test -p mempire-amm` | k never decreases, rounding favours the pool, no free round trip, LP accounting | 14/14 |
+| `chain/scripts/e2e-amm.ts` | real SPL tokens moving: vault ownership, conservation, formula agreement, slippage/zero/substituted-vault guards | 18/18 |
 
 `e2e-full-flow.ts` prints every transaction signature it produced. They open in
 any devnet explorer.
