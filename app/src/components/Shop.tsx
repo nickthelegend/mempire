@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { buzz, click, play } from '../lib/audio';
 import { coinByMint, tickerOf } from '../lib/coins';
 import { fmtSol, fmtUsd } from '../lib/format';
+import { useChain } from '../state/chain';
 import { useCollection } from '../state/collection';
 import { useEconomy } from '../state/economy';
 import { FREE_REROLLS, REROLL_GEM_COST, useShop } from '../state/shop';
@@ -26,6 +27,7 @@ export function Shop() {
   const { offers, ensureFresh, reroll, rerollsUsed, markBought, msUntilRotation } = useShop();
   const gems = useEconomy((s) => s.gems);
   const spendGems = useEconomy((s) => s.spendGems);
+  const chainMode = useChain((s) => s.mode);
   const wallet = useWallet();
   const { mintCard, cards } = useCollection();
   const [error, setError] = useState<string | null>(null);
@@ -161,6 +163,9 @@ export function Shop() {
         )}
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
           You hold {gems}💎 · offers refresh every 24h
+          {/* The bags section can be live-onchain while the Shop stays simulated;
+              saying so here beats letting the badge above imply otherwise. */}
+          {chainMode === 'onchain' && ' · shop purchases are simulated on devnet'}
         </p>
       </div>
     </section>

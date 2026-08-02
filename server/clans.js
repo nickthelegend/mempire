@@ -475,7 +475,7 @@ export function registerClanRoutes(app, db) {
       }
 
       await clans.updateOne({ _id: tag }, {
-        $pull: { members: { address } === undefined ? {} : { address: target } },
+        $pull: { members: { address: target } },
         $set: { updatedAt: new Date() },
         $push: {
           feed: {

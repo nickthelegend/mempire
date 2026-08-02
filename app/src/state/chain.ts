@@ -73,7 +73,15 @@ export const useChain = create<ChainState>((set, get) => ({
         set({ mode: 'offline', loading: false, error: 'Program not initialized on this cluster' });
         return;
       }
-      set({ config, coins, loading: false, error: null });
+      set({
+        config,
+        coins,
+        loading: false,
+        error: null,
+        // A successful read leaves `offline` immediately — otherwise a retry
+        // that worked would still wear the red dot until a wallet connected.
+        mode: get().mode === 'offline' ? 'simulated' : get().mode,
+      });
     } catch (e) {
       // A dead RPC must not take the game down with it.
       set({

@@ -16,11 +16,13 @@ export function ChainBadge({ compact }: { compact?: boolean }) {
   const cluster = useChain((s) => s.cluster);
   const config = useChain((s) => s.config);
   const explorer = useChain((s) => s.explorer);
+  const init = useChain((s) => s.init);
+  const loading = useChain((s) => s.loading);
 
   const look = {
     onchain: { dot: 'var(--teal)', text: `live · ${cluster}`, title: 'Transactions are real' },
     simulated: { dot: 'var(--gold)', text: 'simulated', title: 'Reads are real; writes are local' },
-    offline: { dot: 'var(--red)', text: 'offline', title: 'Cluster unreachable — playing locally' },
+    offline: { dot: 'var(--red)', text: loading ? 'retrying…' : 'offline · retry', title: 'Cluster unreachable — tap to retry' },
   }[mode];
 
   const body = (
@@ -56,6 +58,21 @@ export function ChainBadge({ compact }: { compact?: boolean }) {
       >
         {body}
       </a>
+    );
+  }
+
+  // Offline is actionable: a dead RPC at boot must not be a permanent state
+  // that only a full reload can leave.
+  if (mode === 'offline') {
+    return (
+      <button
+        onClick={() => { void init(); }}
+        disabled={loading}
+        title={look.title}
+        style={{ ...shell, cursor: loading ? 'wait' : 'pointer' }}
+      >
+        {body}
+      </button>
     );
   }
 
