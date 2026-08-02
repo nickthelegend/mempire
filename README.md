@@ -42,7 +42,7 @@ app/    Vite + React + TS + React Three Fiber + Zustand
         └─ src/state    collection · deck · match · economy (gems, chests) · sync
         └─ public/art   logo, 12 coin logos, 6 crests, 4 tab icons, 4 chests
         └─ public/sfx   10 SFX + menu and battle music loops
-        └─ public/models 5 meshopt-compressed chibi units (1.4MB total)
+        └─ public/models 5 rigged chibi units, meshopt-compressed (1.7MB total)
 chain/  Anchor workspace — program `mempire`
         config · coin registry + mock oracle · card PDAs + stake vaults ·
         two-step unstake · match escrow + dual-sig settle + timeout claims
@@ -118,7 +118,7 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] MongoDB persistence, model compression (46MB → 1.7MB), loading screen
 - [x] Rigged animated units, Clash-grade arena, daily Shop, practice mode
 - [ ] Wire app stores to the deployed program
-- [ ] Daily Shop, tournaments, coin sponsorship (see `ROADMAP.md`)
+- [ ] Tournaments, coin sponsorship, season pass (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
 - [ ] Bubblegum cNFT mint layer over card PDAs
 - [ ] Fusion, battle pass, cosmetics, 2v2
