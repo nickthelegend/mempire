@@ -27,6 +27,36 @@ const app = express();
 app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
 app.use(express.json({ limit: '256kb' }));
 
+/**
+ * Token-bucket rate limit per IP on mutating routes. Hand-rolled because the
+ * need is fifteen lines, not a dependency. 300 writes/min per IP: far above a
+ * real player (the save loop is debounced to ~1/s at its busiest) and above
+ * the ops scripts (seed-clans bursts ~200 writes), but a wall for a loop.
+ */
+const RATE = { capacity: 80, refillPerSec: 5 };
+const buckets = new Map();
+setInterval(() => {
+  // drop buckets idle for 10+ minutes so the map cannot grow unbounded
+  const cutoff = Date.now() - 600_000;
+  for (const [k, b] of buckets) if (b.at < cutoff) buckets.delete(k);
+}, 120_000).unref();
+
+app.use((req, res, next) => {
+  if (req.method === 'GET' || req.method === 'OPTIONS') return next();
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const b = buckets.get(key) ?? { tokens: RATE.capacity, at: now };
+  b.tokens = Math.min(RATE.capacity, b.tokens + ((now - b.at) / 1000) * RATE.refillPerSec);
+  b.at = now;
+  if (b.tokens < 1) {
+    buckets.set(key, b);
+    return res.status(429).json({ error: 'slow down' });
+  }
+  b.tokens -= 1;
+  buckets.set(key, b);
+  next();
+});
+
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, Solana pubkey shape
 const badAddress = (a) => !a || !ADDRESS.test(a);
 
@@ -51,11 +81,27 @@ app.get('/api/player/:address', async (req, res) => {
   }
 });
 
-/** Upsert the whole saved slice. Client sends it debounced after changes. */
+/**
+ * Upsert the whole saved slice. Client sends it debounced after changes.
+ *
+ * Values are clamped, not trusted: this API stores game state for a client
+ * that already owns the simulation, so nothing here is authoritative — but a
+ * hostile PUT must not be able to poison a document with Infinity, negative
+ * gems, or a megabyte of "chests" that every later load chokes on.
+ */
+const num = (v, lo, hi, fallback = 0) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, lo), hi);
+};
+
 app.put('/api/player/:address', async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
-  const { cards, deck, tier, sol, history, nextId } = req.body ?? {};
+  const {
+    cards, deck, tier, sol, history, nextId,
+    slots, slot, gems, chests, nextChestId, gemsSpent, solSpentOnGems, shop,
+  } = req.body ?? {};
   if (!Array.isArray(cards) || !Array.isArray(deck)) {
     return res.status(400).json({ error: 'cards and deck are required arrays' });
   }
@@ -70,10 +116,24 @@ app.put('/api/player/:address', async (req, res) => {
         $set: {
           cards,
           deck,
-          tier: Number(tier) || 0,
-          sol: Number(sol) || 0,
-          nextId: Number(nextId) || 1,
+          tier: num(tier, 0, 3),
+          sol: num(sol, 0, 1_000_000),
+          nextId: num(nextId, 1, 1_000_000, 1),
           history: Array.isArray(history) ? history.slice(0, 50) : [],
+          slots: Array.isArray(slots) ? slots.slice(0, 3).map((s) => (Array.isArray(s) ? s.slice(0, 8) : [])) : [],
+          slot: num(slot, 0, 2),
+          gems: num(gems, 0, 10_000_000),
+          chests: Array.isArray(chests) ? chests.slice(0, 4) : [],
+          nextChestId: num(nextChestId, 1, 10_000_000, 1),
+          gemsSpent: num(gemsSpent, 0, 100_000_000),
+          solSpentOnGems: num(solSpentOnGems, 0, 1_000_000),
+          shop: shop && typeof shop === 'object'
+            ? {
+              offers: Array.isArray(shop.offers) ? shop.offers.slice(0, 8) : [],
+              day: num(shop.day, 0, 1_000_000),
+              rerollsUsed: num(shop.rerollsUsed, 0, 1_000),
+            }
+            : null,
           updatedAt: now,
         },
         $setOnInsert: { createdAt: now },

@@ -80,6 +80,13 @@ let pending = new Map<number, InputEvent[]>();
 let hashes: number[] = [];
 /** Human matches step against the wall clock so two clients stay in lockstep. */
 let humanStartAt = 0;
+/**
+ * SOL escrowed for a human match that has not settled yet. Every abnormal exit
+ * between escrow and settlement — opponent vanishing before the start, the sim
+ * failing to build, a desync — must pass through here exactly once, or the
+ * stake either leaks (player loses money to a bug) or duplicates (free money).
+ */
+let humanEscrowSol = 0;
 const TICK_MS = 50;
 /**
  * Own inputs schedule this far ahead in a human match — 400ms of slack for the
@@ -112,14 +119,23 @@ function pvpWaitMs(): number {
   return 8000;
 }
 
-function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } {
+/**
+ * Returns null when the deck references cards or coins that no longer exist —
+ * stale ids after a migration, a coin retired from the registry. The old `!`
+ * assertions here crashed the Battle button for exactly the returning players
+ * a migration touches; a null is turned into a sentence by startQueue instead.
+ */
+function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } | null {
   const { cards } = useCollection.getState();
   const { active } = useDeck.getState();
-  const player = active.map((id) => {
-    const c = cards.find((x) => x.id === id)!;
-    const coin = COINS.find((k) => k.mint === c.mint)!;
-    return { coinId: c.mint, name: coin.ticker, archetype: c.archetype, level: c.level };
-  });
+  const player: MatchCard[] = [];
+  for (const id of active) {
+    const c = cards.find((x) => x.id === id);
+    const coin = c && COINS.find((k) => k.mint === c.mint);
+    if (!c || !coin) return null;
+    player.push({ coinId: c.mint, name: coin.ticker, archetype: c.archetype, level: c.level });
+  }
+  if (player.length !== 8) return null;
   // bot mirrors the player's power so brackets feel honest
   const levels = player.map((p) => p.level);
   const bot = COINS.slice(0, 10).filter((c) => c.liquidityUsd >= 25000).slice(0, 8).map((c, i) => ({
@@ -149,6 +165,12 @@ export const useMatch = create<MatchStore>((set, get) => ({
 
   startQueue: (opts) => {
     const practice = opts?.practice ?? false;
+    // A second tap while a match is forming would tear down a formed human
+    // match — escrow and all — and start over. One match at a time.
+    const current = get().status;
+    if (current === 'queuing' || current === 'found' || current === 'battle') {
+      return null; // already on the way to the arena; the tap is a no-op
+    }
     const deck = useDeck.getState();
     const wallet = useWallet.getState();
     if (!wallet.connected) return 'connect your wallet first';
@@ -156,7 +178,9 @@ export const useMatch = create<MatchStore>((set, get) => ({
     const tier = TIERS[deck.tier];
     if (!practice && wallet.sol < tier.stakeSol) return `need ${tier.stakeSol} SOL to enter`;
 
-    const { player, bot } = buildDecks();
+    const decks = buildDecks();
+    if (!decks) return 'your deck has retired cards — rebuild it on the Deck tab';
+    const { player, bot } = decks;
     clearTimers();
     pvpClose();
     set({
@@ -193,7 +217,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
     pvpConnect({
       onMatched: (m) => {
         if (fellBack) return;
-        beginHumanBattle(m, player, tier.stakeSol);
+        beginHumanBattle(m, player, tier.stakeSol, deck.tier);
       },
       onUnavailable: fallBack,
       onInput: (ev) => queueRemoteInput(ev),
@@ -207,6 +231,25 @@ export const useMatch = create<MatchStore>((set, get) => ({
           clearTimers();
           settle();
         } else if (s.status !== 'settled') {
+          // Vanished between matched and the start: the stake was already
+          // escrowed at matched, and the bot flow escrows again — refund
+          // first or the fallback double-charges.
+          refundEscrow();
+          fallBack();
+        }
+      },
+      onSocketLost: () => {
+        // My own connection died mid-match. The server has already handed the
+        // opponent a forfeit win, so pretending otherwise here would let one
+        // pot pay out twice. Settle the mirror image: a loss.
+        const s = get();
+        if (s.status === 'battle' && s.sim && s.sim.phase !== 'ended') {
+          s.sim.phase = 'ended';
+          s.sim.winner = (1 - s.perspective) as 0 | 1;
+          clearTimers();
+          settle();
+        } else if (s.status === 'queuing' || s.status === 'found') {
+          refundEscrow();
           fallBack();
         }
       },
@@ -224,7 +267,12 @@ export const useMatch = create<MatchStore>((set, get) => ({
   },
 
   cancelQueue: () => {
-    if (get().status !== 'queuing' && get().status !== 'found') return;
+    const { status, mode } = get();
+    if (status !== 'queuing' && status !== 'found') return;
+    // Once a human match has formed the die is cast: the stake is escrowed and
+    // a real opponent is committed. Backing out here is a forfeit, not a
+    // cancel, and the UI stops offering Cancel at 'found' for the same reason.
+    if (status === 'found' && mode === 'human') return;
     clearTimers();
     pvpCancel();
     pvpClose();
@@ -271,7 +319,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
   },
 }));
 
-/** The bot's original cadence: decide, then advance one tick per interval. */
+/** One bot-match tick: the bot decides, then the sim advances. */
 function tickOnce(difficulty: BotDifficulty): void {
   const sim = useMatch.getState().sim;
   if (!sim) return;
@@ -283,6 +331,27 @@ function tickOnce(difficulty: BotDifficulty): void {
     pending.set(botEv.tick, list);
   }
   stepOne(sim);
+}
+
+/**
+ * Bot matches pace against the wall clock exactly like human ones. A plain
+ * per-interval step froze the whole match when the tab was hidden — browsers
+ * throttle background timers — so switching apps mid-battle left a stake
+ * suspended in a stopped clock forever. Now the match continues at real time
+ * and a returning player fast-forwards to the present, same as PvP.
+ */
+let botStartAt = 0;
+
+function tickBot(difficulty: BotDifficulty): void {
+  const sim = useMatch.getState().sim;
+  if (!sim || sim.phase === 'ended') return;
+  const target = Math.floor((Date.now() - botStartAt) / TICK_MS);
+  let steps = 0;
+  while (sim.tick < target && steps < 6) {
+    tickOnce(difficulty);
+    steps += 1;
+    if ((sim.phase as SimState['phase']) === 'ended') break;
+  }
 }
 
 /**
@@ -379,16 +448,26 @@ function beginBotFlow(
       useMatch.setState({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });
       startMusic();
       const difficulty: BotDifficulty = tierIdx <= 0 ? 'easy' : tierIdx === 1 ? 'normal' : 'hard';
-      loop = setInterval(() => tickOnce(difficulty), 50);
+      botStartAt = Date.now();
+      loop = setInterval(() => tickBot(difficulty), TICK_MS / 2);
     }, 900));
   }, queueMs));
+}
+
+/** Refund a tracked human-match escrow exactly once. */
+function refundEscrow(): void {
+  if (humanEscrowSol <= 0) return;
+  useWallet.getState().receive(humanEscrowSol);
+  humanEscrowSol = 0;
 }
 
 /**
  * A real opponent. Seat 0's deck is seat 0's deck on both machines — the sim
  * is one shared timeline and `perspective` only changes who the camera loves.
  */
-function beginHumanBattle(m: MatchedPayload, myDeck: MatchCard[], stakeSol: number): void {
+function beginHumanBattle(
+  m: MatchedPayload, myDeck: MatchCard[], stakeSol: number, tierIdx: number,
+): void {
   clearTimers(); // the bot fallback timer must not fire mid-handshake
   const store = useMatch.getState();
   if (store.status !== 'queuing' && store.status !== 'found') return;
@@ -398,12 +477,27 @@ function beginHumanBattle(m: MatchedPayload, myDeck: MatchCard[], stakeSol: numb
     useMatch.setState({ status: 'idle' });
     return;
   }
+  humanEscrowSol = stakeSol;
   play('coin');
 
   const decks: [MatchCard[], MatchCard[]] = m.role === 0
     ? [myDeck, m.opponent.deck]
     : [m.opponent.deck, myDeck];
-  const sim = createMatch(m.seed, decks);
+
+  let sim: SimState;
+  try {
+    sim = createMatch(m.seed, decks);
+  } catch {
+    // A malformed opponent deck must not strand this player at 'found' with
+    // their stake gone. Refund, drop the socket, and let the bot step in.
+    refundEscrow();
+    pvpClose();
+    useMatch.setState({ mode: 'bot', perspective: 0, opponentName: BOT_NAMES[tierIdx] });
+    const bot = buildDecks();
+    if (bot) beginBotFlow(false, tierIdx, bot.player, bot.bot);
+    else useMatch.setState({ status: 'idle' });
+    return;
+  }
   pending = new Map();
   hashes = [];
   humanStartAt = m.startAt;
@@ -456,6 +550,7 @@ function settleVoid(reason: string): void {
   pvpClose();
   stopMusic();
   useWallet.getState().receive(stakeSol); // the escrowed stake, returned whole
+  humanEscrowSol = 0; // consumed by the refund above — never refund twice
   const result: MatchResult = {
     won: false,
     draw: true,
@@ -487,6 +582,7 @@ function settle(): void {
   const { sim, stakeSol, status, practice, perspective, mode } = useMatch.getState();
   if (!sim || status === 'settled') return; // idempotent: never pay twice
   if (mode === 'human') pvpClose();
+  humanEscrowSol = 0; // consumed by the payout rules below
   const crowns = countCrowns(sim, perspective);
   stopMusic();
   const wallet = useWallet.getState();

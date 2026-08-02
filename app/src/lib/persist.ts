@@ -4,7 +4,9 @@
  * local-only rather than surfacing an error mid-match.
  */
 import type { MintedCard } from '../state/collection';
+import type { ChestSlot } from '../state/economy';
 import type { MatchResult } from '../state/match';
+import type { ShopOffer } from '../state/shop';
 
 const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8787';
 const SAVE_DEBOUNCE_MS = 900;
@@ -16,6 +18,17 @@ export interface SavedState {
   sol: number;
   nextId: number;
   history: MatchResult[];
+  /** Saved loadouts + which one is selected. Older saves lack these. */
+  slots?: string[][];
+  slot?: number;
+  /** Premium economy — gems, chest rail (absolute timestamps), spend ledger. */
+  gems?: number;
+  chests?: ChestSlot[];
+  nextChestId?: number;
+  gemsSpent?: number;
+  solSpentOnGems?: number;
+  /** The day's shop, so bought flags and rerolls survive a reload. */
+  shop?: { offers: ShopOffer[]; day: number; rerollsUsed: number };
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
