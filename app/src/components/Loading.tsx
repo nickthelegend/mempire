@@ -61,10 +61,13 @@ export function Loading({ label = 'Entering the arena' }: { label?: string }) {
           }}
         >
           <div style={{
-            height: '100%', width: `${pct}%`,
+            height: '100%',
             background: 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 48%, var(--btn-gold-dark))',
             boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5)',
-            transition: 'width 220ms linear',
+            // scale rather than width — animating width thrashes layout
+            transform: `scaleX(${pct / 100})`,
+            transformOrigin: 'left',
+            transition: 'transform 220ms linear',
           }}
           />
         </div>

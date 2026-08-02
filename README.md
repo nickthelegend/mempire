@@ -68,6 +68,9 @@ cd chain && anchor build
 
 # devnet seed: 12 meme coins + config + mock oracle prices
 cd chain && npx tsx scripts/seed-devnet.ts
+
+# persistence + live coin API (needs server/.env — see server/.env.example)
+cd server && npm install && npm run dev
 ```
 
 The demo runs fully on seeded/simulated devnet data — no funded wallet needed,
@@ -86,10 +89,12 @@ settlement feed in the mock build are simulated and labeled as such in-app.
 
 ## Design
 
-Solana Royale: near-black violet void, one centered 430px column (arcade-cabinet
-on desktop), Solana purple→teal gradient for interaction, royal gold **only**
-when SOL moves, chunky arcade lettering (Lilita One) over Hanken Grotesk, money
-in Martian Mono. Full authority in `DESIGN.md`; product truth in `PRODUCT.md`.
+**Royale Arcade** — Clash Royale's chrome carrying Mempire's content: a quilted
+royal-blue field, carved wood panels, fat buttons that depress into their own
+base edge, chunky outlined display type (Lilita One). Royal gold means exactly
+one thing: SOL is moving. One centered 430px column, arcade-cabinet on desktop.
+Full authority in `DESIGN.md`; product truth in `PRODUCT.md`; the monetization
+argument in `FEATURES.md`; the 50-item build plan in `ROADMAP.md`.
 
 Art and audio are generated through the Higgsfield CLI and committed:
 `design/gen.sh` (images), `design/gen-audio.sh` (sound), `design/slice.py`
@@ -104,8 +109,11 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Generated art + audio set wired in
 - [x] Anchor program: registry, cards, vaults, escrow, settle, timeouts
 - [x] Devnet seed script (12 coins, mock oracle, eligibility gate demo)
-- [ ] Wire app stores to the program (adapter skeleton in place)
-- [ ] Persist collection/deck/history across reloads
+- [x] Official Solana wallet adapters with real logos
+- [x] Chests, Gems, card inspector with live pump.fun market data
+- [x] MongoDB persistence, model compression (46MB → 1.4MB), loading screen
+- [ ] Wire app stores to the deployed program
+- [ ] Daily Shop, tournaments, coin sponsorship (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
 - [ ] Bubblegum cNFT mint layer over card PDAs
 - [ ] Generated chibi unit models (prompt pack ready in `design/`)

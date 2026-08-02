@@ -2,7 +2,39 @@
 
 <!-- Durable visual authority for Mempire. PRODUCT.md owns product truth. -->
 
-## World: Solana Royale
+> **Current world: Royale Arcade.** The sections below describing a near-black
+> violet "Solana Royale" are superseded — that world was replaced after the
+> reference screenshots landed. Live tokens are in `app/src/styles/tokens.css`
+> and mirrored for Three.js in `app/src/lib/palette.ts`.
+
+## World: Royale Arcade
+
+Clash Royale's chrome carrying Mempire's content. A quilted royal-blue field,
+carved wood panels, and fat buttons that physically depress into their own base
+edge. Display type is chunky, uppercase, and heavily outlined. Solana purple and
+teal survive as the energy accent; royal gold still means exactly one thing —
+SOL is moving.
+
+| Role | Token | Rule |
+|---|---|---|
+| Field | `--blue` on `.quilt` | Diamond harlequin pattern in CSS, not a texture — crisper and seam-free. |
+| Panels | `.panel` | Wood texture + `--bevel-out` + a hard base edge. All chrome is carved. |
+| Recessed content | `.well` | `--bevel-in`. Content sits *inside* panels, never floats on them. |
+| Controls | `Pill` with `tone` | gold = primary, blue = secondary, green = collect, red = destructive. |
+| Money | `.money` | Display face, gold, dark stroke, always `nowrap`. |
+| Elixir | `--elixir` | Magenta. Never gold — gold is money only. |
+
+**Legibility law.** Every glyph sits on a busy patterned field, so body copy
+carries a text shadow, `.fine` never drops below 12px, and text on wood uses
+`--dim-on-wood` rather than the blue `--dim`. Secondary text that sinks into the
+background is a bug, not a style.
+
+**Bevel law.** Nothing interactive is a flat rectangle. Raised things get a top
+highlight plus a hard base edge; pressed things translate into that edge.
+
+---
+
+## Superseded: Solana Royale
 
 A royal court built by degens. The throne room of the meme empire: near-black void, royal purple
 architecture, Solana's purple→teal energy running through it like magic, and gold that appears
