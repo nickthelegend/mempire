@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { CardFrame } from '../components/CardFrame';
 import { click } from '../lib/audio';
 import { COINS } from '../lib/coins';
@@ -9,6 +9,7 @@ import { DECK_SLOTS, useDeck } from '../state/deck';
 export function Deck() {
   const cards = useCollection((s) => s.cards);
   const deck = useDeck();
+  const benchRef = useRef<HTMLElement>(null);
 
   const inDeck = useMemo(
     () => deck.active.map((id) => cards.find((c) => c.id === id)).filter(Boolean),
@@ -28,7 +29,7 @@ export function Deck() {
         <h1 className="display" style={{ fontSize: 30 }}>Deck</h1>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <span className="label" style={{ fontSize: 12 }}>{deck.active.length}/8</span>
-          <span className="label" style={{ fontSize: 12, color: 'var(--gold-hi)' }}>power {deck.power()}</span>
+          <span className="label" style={{ fontSize: 12, color: 'var(--blue-pale)' }}>power {deck.power()}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span
               aria-hidden
@@ -59,13 +60,14 @@ export function Deck() {
                 flex: 1, minHeight: 44, borderRadius: 'var(--r-card)',
                 background: active
                   ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold))'
-                  : 'rgba(6,16,38,.5)',
+                  : 'var(--recess)',
                 border: '2.5px solid var(--ink)',
                 boxShadow: active
                   ? 'inset 0 2px 0 rgba(255,255,255,.5), 0 4px 0 var(--btn-gold-dark)'
                   : 'var(--bevel-in)',
                 fontFamily: 'var(--font-display)', fontSize: 15, color: 'var(--text)',
-                WebkitTextStroke: '2px var(--ink)', paintOrder: 'stroke fill',
+                WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+                transition: 'background 160ms var(--ease-snap)',
               }}
             >
               Deck {i + 1}
@@ -88,21 +90,24 @@ export function Deck() {
           return c ? (
             <CardFrame key={c.id} card={c} width={70} fluid selected onClick={() => deck.toggleCard(c.id)} />
           ) : (
-            <div
+            // A `+` that does nothing points at a dead target. It scrolls to the
+            // collection, which is the only place the slot can actually be filled.
+            <button
               key={`empty_${i}`}
-              role="img"
-              aria-label="Empty deck slot"
+              onClick={() => { click(); benchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              aria-label="Empty deck slot — pick a card from your collection"
+              className="btn-3d"
               style={{
                 width: '100%', aspectRatio: '3 / 4', borderRadius: 'var(--r-card)',
                 border: '2.5px dashed rgba(255,255,255,.28)',
-                background: 'rgba(6,16,38,.4)',
+                background: 'var(--recess)',
                 boxShadow: 'var(--bevel-in)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 color: 'var(--dim)', fontSize: 22,
               }}
             >
               <span aria-hidden>+</span>
-            </div>
+            </button>
           );
         })}
       </section>
@@ -112,7 +117,7 @@ export function Deck() {
         </p>
       )}
 
-      <section aria-label="collection">
+      <section aria-label="collection" ref={benchRef} style={{ scrollMarginTop: 12 }}>
         <div className="label" style={{ marginBottom: 8 }}>Collection · one card per coin</div>
         {bench.length === 0 ? (
           <div className="well" style={{ padding: 20, textAlign: 'center' }}>
@@ -137,7 +142,7 @@ export function Deck() {
                   {dupe && (
                     <span style={{
                       position: 'absolute', bottom: 6, left: 0, right: 0,
-                      fontSize: 12, textAlign: 'center', color: '#ffb3c0',
+                      fontSize: 12, textAlign: 'center', color: 'var(--red-on-wood)',
                       fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
                       textShadow: '0 1px 2px rgba(6,16,38,.9)',
                     }}

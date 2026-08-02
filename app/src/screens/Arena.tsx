@@ -31,7 +31,7 @@ function Chip({ icon, value, tone }: { icon: string; value: string; tone: 'gold'
     <div style={{
       display: 'flex', alignItems: 'center', gap: 5,
       padding: '3px 10px 3px 5px', borderRadius: 999,
-      background: 'rgba(6,16,38,.6)',
+      background: 'var(--recess)',
       border: '2px solid var(--ink)',
       boxShadow: 'var(--bevel-in)',
       minWidth: 0,
@@ -83,10 +83,11 @@ function TopHud() {
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-label="Account menu"
+        className="btn-3d"
         style={{
           display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
           padding: '4px 12px 4px 4px', borderRadius: 999, minHeight: 44,
-          background: 'rgba(6,16,38,.6)', border: '2px solid var(--ink)',
+          background: 'var(--recess)', border: '2px solid var(--ink)',
           boxShadow: 'var(--bevel-in)', minWidth: 0,
         }}
       >
@@ -100,8 +101,8 @@ function TopHud() {
         />
         <span style={{ minWidth: 0 }}>
           <span
-            className="display"
-            style={{ display: 'block', fontSize: 14, WebkitTextStroke: '2px var(--ink)' }}
+            className="display display--sm"
+            style={{ display: 'block', fontSize: 14 }}
           >
             anon_king
           </span>
@@ -131,13 +132,15 @@ function TopHud() {
           >
             <button
               onClick={() => { void navigator.clipboard?.writeText(wallet.address); setOpen(false); }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700 }}
+              className="menu-item"
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700, color: 'var(--dim-on-wood)' }}
             >
               Copy address
             </button>
             <button
               onClick={() => { wallet.disconnect(); setOpen(false); }}
-              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700, color: '#ffb3c0' }}
+              className="menu-item"
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '11px 10px', borderRadius: 8, fontSize: 13, minHeight: 44, fontWeight: 700, color: 'var(--red-on-wood)' }}
             >
               Disconnect
             </button>
@@ -178,13 +181,13 @@ export function Arena() {
   const queueing = match.status === 'queuing' || match.status === 'found';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '12px 12px 8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 16px 8px' }}>
       <TopHud />
       <Logo width={210} />
 
       {/* tier picker — carved wood rail of stake plates */}
       <section className="panel" style={{ padding: 9 }}>
-        <div className="label" style={{ marginBottom: 7, textAlign: 'center', color: '#f3dcc0' }}>
+        <div className="label" style={{ marginBottom: 7, textAlign: 'center' }}>
           Stake tier
         </div>
         <div role="radiogroup" aria-label="Stake tier" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 7 }}>
@@ -199,17 +202,18 @@ export function Arena() {
                 aria-label={`${t.name} tier, ${t.stakeSol} SOL`}
                 onClick={() => deck.setTier(i)}
                 disabled={!affordable || queueing}
+                className="btn-3d"
                 style={{
                   padding: '7px 2px 6px', minHeight: 52, borderRadius: 9, textAlign: 'center',
                   background: active
                     ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
-                    : 'rgba(6,16,38,.5)',
+                    : 'var(--recess)',
                   border: '2px solid var(--ink)',
                   boxShadow: active
                     ? 'inset 0 2px 0 rgba(255,255,255,.45), 0 3px 0 var(--btn-blue-dark)'
                     : 'var(--bevel-in)',
                   filter: affordable ? 'none' : 'saturate(.3)',
-                  transition: 'background 160ms var(--ease-snap)',
+                  transition: 'background 160ms var(--ease-snap), box-shadow 120ms var(--ease-snap)',
                 }}
               >
                 <Crowns n={t.crowns} size={11} />
@@ -217,7 +221,7 @@ export function Arena() {
                   className="money"
                   style={{
                     fontSize: 13, marginTop: 2,
-                    color: !affordable ? '#ff9db0' : 'var(--gold-hi)',
+                    color: !affordable ? 'var(--red-on-wood)' : 'var(--gold-hi)',
                   }}
                 >
                   {t.stakeSol}
@@ -253,7 +257,7 @@ export function Arena() {
                 ))}
               </span>
               <span style={{ minWidth: 0, textAlign: 'left' }}>
-                <span className="display" style={{ fontSize: 17, display: 'block' }}>
+                <span className="display display--sm" style={{ fontSize: 17, display: 'block' }}>
                   {match.status === 'found' ? 'Opponent found!' : 'Finding opponent'}
                 </span>
                 <span className="fine" style={{ color: 'var(--dim-on-wood)', fontSize: 12 }}>
@@ -285,15 +289,15 @@ export function Arena() {
           </>
         )}
         {error && (
-          <div role="alert" className="well" style={{ color: '#ffb3c0', fontSize: 13, textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>
+          <div role="alert" className="well" style={{ color: 'var(--red-on-wood)', fontSize: 13, textAlign: 'center', padding: '8px 10px', fontWeight: 700 }}>
             {error}
           </div>
         )}
 
         <div className="panel" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="label" style={{ color: '#f3dcc0' }}>Pot</span>
+          <span className="label">Pot</span>
           <span className="money" style={{ fontSize: 22 }}>{fmtSol(pot)}</span>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: '#e8cfae', textAlign: 'right', lineHeight: 1.25 }}>
+          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--dim-on-wood)', textAlign: 'right', lineHeight: 1.25 }}>
             you stake {fmtSol(tier.stakeSol)}<br />
             winner takes {100 - FEES.rakePct}%
           </span>
@@ -322,7 +326,8 @@ export function Arena() {
       <section>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
           <span className="label">Battle deck</span>
-          <span className="label" style={{ color: 'var(--gold-hi)' }}>power {deck.power()}</span>
+          {/* power is a game stat, not money — gold stays reserved for SOL */}
+          <span className="label" style={{ color: 'var(--blue-pale)' }}>power {deck.power()}</span>
         </div>
         <div
           style={{

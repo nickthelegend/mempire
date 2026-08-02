@@ -1,4 +1,4 @@
-import { MoneyRow } from '../components/ui';
+import { MoneyRow, Pill } from '../components/ui';
 import { fmtSol, shortAddr } from '../lib/format';
 import { useCollection } from '../state/collection';
 import { useMatch } from '../state/match';
@@ -6,6 +6,7 @@ import { useWallet } from '../state/wallet';
 
 export function Empire() {
   const wallet = useWallet();
+  const openPicker = useWallet((s) => s.openPicker);
   const history = useMatch((s) => s.history);
   const cards = useCollection((s) => s.cards);
 
@@ -18,14 +19,25 @@ export function Empire() {
     <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <header>
         <h1 className="display" style={{ fontSize: 30 }}>Empire</h1>
-        {wallet.connected ? (
+        {wallet.connected && (
           <p className="fine">
             {wallet.walletName} · <span className="mono">{shortAddr(wallet.address)}</span>
           </p>
-        ) : (
-          <p className="fine">connect on the Arena tab first</p>
         )}
       </header>
+
+      {/* The same state on Cards offers a button, so sending the player to
+          another tab to do the identical thing was two answers to one question. */}
+      {!wallet.connected && (
+        <div className="panel" style={{ padding: '22px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
+          <span style={{ color: 'var(--dim-on-wood)', fontSize: 14, maxWidth: 260 }}>
+            No empire yet, anon. Connect a wallet and your record starts counting.
+          </span>
+          <div style={{ width: 'min(100%, 240px)' }}>
+            <Pill onClick={openPicker}>Connect Wallet</Pill>
+          </div>
+        </div>
+      )}
 
       {wallet.connected && (
         <>
@@ -41,7 +53,7 @@ export function Empire() {
               ['House raked', fmtSol(raked)],
             ].map(([label, value]) => (
               <div key={label}>
-                <div className="display" style={{ fontSize: 18 }}>{value}</div>
+                <div className="display display--sm" style={{ fontSize: 18 }}>{value}</div>
                 <div className="label" style={{ fontSize: 12 }}>{label}</div>
               </div>
             ))}
@@ -64,7 +76,7 @@ export function Empire() {
                     }}
                   >
                     <span
-                      className="display"
+                      className="display display--sm"
                       style={{
                         fontSize: 17,
                         color: h.draw ? 'var(--dim)' : h.won ? 'var(--teal)' : 'var(--red)',
