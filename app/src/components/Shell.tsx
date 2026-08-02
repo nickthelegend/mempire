@@ -12,6 +12,7 @@ const TABS = [
   { to: '/cards', label: 'Cards', icon: '/art/tab_cards.png' },
   { to: '/deck', label: 'Deck', icon: '/art/tab_deck.png' },
   { to: '/clan', label: 'Clan', icon: '/art/clan_badge.png' },
+  { to: '/swap', label: 'Swap', icon: '/art/tab_swap.png' },
   { to: '/empire', label: 'Empire', icon: '/art/tab_empire.png' },
 ];
 

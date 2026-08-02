@@ -20,6 +20,7 @@ import { Arena } from './screens/Arena';
 import { Cards } from './screens/Cards';
 import { Clan } from './screens/Clan';
 import { Deck } from './screens/Deck';
+import { Swap } from './screens/Swap';
 import { Empire } from './screens/Empire';
 
 const Battle = lazy(() => import('./screens/Battle').then((m) => ({ default: m.Battle })));
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/deck" element={<Deck />} />
             <Route path="/clan" element={<Clan />} />
             <Route path="/empire" element={<Empire />} />
+            <Route path="/swap" element={<Swap />} />
             <Route
               path="/battle"
               element={(
