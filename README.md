@@ -69,6 +69,25 @@ transfer path**, so a delegated log can never strand a pot — escrow and payout
 stay on base layer in `mempire`, and a stalled rollup degrades to
 `claim_timeout`.
 
+**The log is private (PER).** The sim runs two ticks behind the input a player
+submits, which is what hides network latency — and that delay is only safe while
+nobody can read the log faster than the sim consumes it. An observer polling the
+rollup could otherwise see the opponent's card and placement *before* it resolves
+on screen. So the log is sealed inside a TEE-backed validator with an ER-local
+`EphemeralPermission` whose only members are the two seats. Delegation decides
+where the account lives; the permission decides who may look. There is no
+base-layer permission account — it is created, updated and closed entirely on
+the rollup, and closed before the log is undelegated.
+
+**Chests are rolled by VRF.** Chest tiers used to be `Math.random()` in the
+client, which is exactly the mechanic players are right to distrust in a game
+that also holds real SOL. They now come from the MagicBlock VRF oracle, and the
+32 bytes that produced each drop are stored on the chest so anyone can re-derive
+it. Requests go to the *delegated* queue from inside the rollup: MagicBlock
+prices ER randomness at zero and base-layer randomness at 0.0008 SOL per
+request, and a player opening four chests a session should not pay a fraction of
+a Pauper stake in oracle fees for cosmetics.
+
 Measured play latency, both stated with their conditions because they differ by
 two orders of magnitude: **7–17ms** on localnet, where the ER is on the same
 machine, and **~475ms confirmed** against the hosted devnet rollup, which is
@@ -157,6 +176,10 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Rigged animated units, Clash-grade arena, daily Shop, practice mode
 - [x] Full design audit: 21 findings closed, 12px legibility floor enforced
 - [x] MagicBlock ephemeral rollup live on devnet: card plays onchain, 23/23 e2e
+- [x] **PER** — match log sealed to its two seats inside an ER-local ephemeral
+      permission; **VRF** — provably-fair chest tiers from the oracle, with the
+      randomness stored for verification. 20/20 against devnet and the live
+      oracle (`scripts/e2e-per-vrf.ts`)
 - [x] **Program live on devnet** — deployed, seeded with 12 real SPL mints,
       proven by a 16-assertion onchain e2e (mint, gate, stake, 2-step unstake)
 - [x] Client wired: mint/stake/unstake are wallet-signed transactions with
@@ -167,7 +190,7 @@ byte-identical across every prompt, keeps the set coherent.
       (desync voids the match), disconnect forfeits — 12-assertion protocol test
 - [x] Chest drops mint real cards; deploy runbook (DEPLOY.md) + host configs
 - [ ] Tournaments, coin sponsorship, season pass (see `ROADMAP.md`)
-- [ ] MagicBlock ER delegation + session keys
+- [ ] Session keys (zero wallet popups mid-battle)
 - [ ] Bubblegum cNFT mint layer over card PDAs
 - [ ] Fusion, battle pass, cosmetics, 2v2
 

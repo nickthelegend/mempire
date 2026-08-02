@@ -250,6 +250,33 @@ async function main() {
     idl, new anchor.AnchorProvider(chestEr, wallet, { commitment: 'confirmed' }),
   );
 
+  // Reclaim any slot a previous run filled. This is also the assertion that
+  // claim_chest works: without it the rail is write-once and this suite could
+  // only ever run four times.
+  {
+    const rail: any = await chestProgram.account.playerChests.fetch(chestsPda);
+    const filled = rail.slots
+      .map((sl: any, i: number) => (sl.state === 2 ? i : -1))
+      .filter((i: number) => i >= 0);
+    let claimed = 0;
+    for (const i of filled) {
+      try {
+        await chestProgram.methods.claimChest(i)
+          .accounts({ chests: chestsPda, owner: kp.publicKey })
+          .rpc();
+        claimed += 1;
+      } catch (e: any) {
+        check(`claim_chest frees slot ${i}`, false, String(e?.msg ?? e?.message ?? e).slice(0, 110));
+      }
+    }
+    if (filled.length) {
+      const after: any = await chestProgram.account.playerChests.fetch(chestsPda);
+      const stillFilled = after.slots.filter((sl: any) => sl.state === 2).length;
+      check('claim_chest frees every filled slot', claimed === filled.length && stillFilled === 0,
+        `claimed ${claimed}/${filled.length}, ${stillFilled} still filled`);
+    }
+  }
+
   // Find a free slot to roll into.
   const railBefore: any = await chestProgram.account.playerChests.fetch(chestsPda);
   const freeSlot = railBefore.slots.findIndex((s: any) => s.state === 0);
@@ -309,6 +336,18 @@ async function main() {
         inFlight,
         inFlight ? 'guard fired on instruction 1'
           : `wrong reason: ${text.replace(/\s+/g, ' ').slice(0, 150)}`);
+    }
+
+    // An empty slot has nothing to claim.
+    try {
+      await chestProgram.methods.claimChest(freeSlot)
+        .accounts({ chests: chestsPda, owner: kp.publicKey })
+        .rpc();
+      check('claiming an empty slot is refused', false, 'it was accepted');
+    } catch (e: any) {
+      const text = `${e?.msg ?? ''} ${e?.message ?? ''} ${String(e)} ${(e?.logs ?? []).join(' ')}`;
+      check('claiming an empty slot is refused',
+        /SlotNotFilled|nothing to claim/i.test(text), 'rejected');
     }
 
     // The real request.
