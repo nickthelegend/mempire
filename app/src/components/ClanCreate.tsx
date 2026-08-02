@@ -1,0 +1,251 @@
+import { useEffect, useRef, useState } from 'react';
+import {
+  ClanCrest, CREST_EMBLEMS, CREST_SHAPES, type Crest,
+} from './ClanCrest';
+import { Pill } from './ui';
+import { click, play } from '../lib/audio';
+import {
+  CLAN_CREATE_GEM_COST, REGIONS, useClan, type JoinMode,
+} from '../state/clan';
+import { useDeck } from '../state/deck';
+import { useEconomy } from '../state/economy';
+import { useWallet } from '../state/wallet';
+
+/**
+ * Found a clan.
+ *
+ * The crest builder is the point of this sheet: the crest is four integers, so
+ * it can be previewed live at full size while you pick it, with no upload, no
+ * crop step and no moderation queue. Cycling a facet is one tap.
+ *
+ * Creation costs gems, which is the honest monetisation here — it is a cosmetic
+ * and social privilege, never power. The gems are only spent once the server has
+ * confirmed the clan exists, so a failed create cannot charge you.
+ */
+export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
+  const address = useWallet((s) => s.address);
+  const power = useDeck((s) => s.power());
+  const gems = useEconomy((s) => s.gems);
+  const spendGems = useEconomy((s) => s.spendGems);
+  const { create, busy } = useClan();
+  const sheet = useRef<HTMLDivElement>(null);
+
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [region, setRegion] = useState<string>('Global');
+  const [joinMode, setJoinMode] = useState<JoinMode>('open');
+  const [requiredPower, setRequiredPower] = useState(0);
+  const [crest, setCrest] = useState<Crest>({ shape: 0, emblem: 0, hue: 212, tone: 0 });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    sheet.current?.focus();
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const affordable = gems >= CLAN_CREATE_GEM_COST;
+  const nameOk = name.trim().length >= 3;
+
+  const cycle = (key: keyof Crest, mod: number, step = 1) => {
+    click();
+    setCrest((c) => ({ ...c, [key]: (c[key] + step + mod) % mod }));
+  };
+
+  const submit = async () => {
+    if (!nameOk) { setError('name must be at least 3 characters'); return; }
+    if (!affordable) { setError(`need ${CLAN_CREATE_GEM_COST} gems`); return; }
+    setError(null);
+
+    // Create first, charge second. If the name collides or the wallet is already
+    // in a clan, the player must not lose 500 gems to find that out.
+    const err = await create(address, {
+      name: name.trim(),
+      description: description.trim(),
+      region,
+      crest,
+      requiredPower,
+      joinMode,
+      power,
+    });
+    if (err) { setError(err); play('error'); return; }
+    spendGems(CLAN_CREATE_GEM_COST);
+    play('reward');
+    onClose();
+  };
+
+  const field: React.CSSProperties = {
+    width: '100%', minHeight: 44, padding: '0 12px', borderRadius: 9,
+    background: 'var(--recess)', border: '2px solid var(--ink)',
+    boxShadow: 'var(--bevel-in)', color: 'var(--text)',
+    fontFamily: 'var(--font-ui)', fontSize: 14, fontWeight: 700,
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 58, display: 'flex', justifyContent: 'center' }}>
+      <div aria-hidden onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'var(--scrim)' }} />
+      <div
+        ref={sheet}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Create a clan"
+        className="panel sheet"
+        style={{ maxHeight: '94dvh', overflowY: 'auto', gap: 11 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <h2 className="display" style={{ fontSize: 23 }}>Found a clan</h2>
+          <button
+            onClick={() => { click(); onClose(); }}
+            aria-label="Close"
+            className="icon-btn"
+            style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}
+          >
+            ×
+          </button>
+        </div>
+
+        {/* crest builder — live preview beside the controls that change it */}
+        <div className="well" style={{ padding: 11, display: 'flex', gap: 13, alignItems: 'center' }}>
+          <ClanCrest crest={crest} size={78} title="Your clan crest preview" />
+          <div style={{ flex: 1, minWidth: 0, display: 'grid', gap: 6 }}>
+            {([
+              ['Shield', 'shape', CREST_SHAPES],
+              ['Emblem', 'emblem', CREST_EMBLEMS],
+              ['Shade', 'tone', 3],
+            ] as const).map(([label, key, mod]) => (
+              <button
+                key={key}
+                onClick={() => cycle(key, mod)}
+                className="btn-3d"
+                aria-label={`Change ${label.toLowerCase()}`}
+                style={{
+                  minHeight: 44, borderRadius: 9, padding: '0 11px',
+                  background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
+                  border: '2px solid var(--ink)',
+                  boxShadow: 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)',
+                  fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text)',
+                  WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+                }}
+              >
+                <span>{label}</span>
+                <span aria-hidden style={{ opacity: 0.85 }}>›</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* hue is continuous, so it gets a slider rather than a cycle button */}
+        <label style={{ display: 'block' }}>
+          <span className="label" style={{ display: 'block', marginBottom: 5 }}>Colour</span>
+          <input
+            type="range"
+            min={0}
+            max={359}
+            value={crest.hue}
+            onChange={(e) => setCrest((c) => ({ ...c, hue: Number(e.target.value) }))}
+            aria-label="Crest colour"
+            style={{
+              width: '100%', minHeight: 44, accentColor: `hsl(${crest.hue} 62% 52%)`,
+            }}
+          />
+        </label>
+
+        <label style={{ display: 'block' }}>
+          <span className="label" style={{ display: 'block', marginBottom: 5 }}>Name</span>
+          <input
+            value={name}
+            onChange={(e) => { setName(e.target.value); setError(null); }}
+            placeholder="Degen Dynasty"
+            maxLength={22}
+            style={field}
+          />
+        </label>
+
+        <label style={{ display: 'block' }}>
+          <span className="label" style={{ display: 'block', marginBottom: 5 }}>Description</span>
+          <input
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="we like alpha"
+            maxLength={120}
+            style={field}
+          />
+        </label>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="label" style={{ display: 'block', marginBottom: 5 }}>Region</span>
+            <select
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              style={{ ...field, padding: '0 8px' }}
+            >
+              {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="label" style={{ display: 'block', marginBottom: 5 }}>Min power</span>
+            <input
+              type="number"
+              min={0}
+              max={9999}
+              value={requiredPower}
+              onChange={(e) => setRequiredPower(Math.max(0, Math.min(9999, Number(e.target.value) || 0)))}
+              style={field}
+            />
+          </label>
+        </div>
+
+        <div>
+          <span className="label" style={{ display: 'block', marginBottom: 5 }}>Who can join</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(['open', 'request', 'closed'] as const).map((m) => (
+              <button
+                key={m}
+                onClick={() => { click(); setJoinMode(m); }}
+                aria-pressed={joinMode === m}
+                className="btn-3d"
+                style={{
+                  flex: 1, minHeight: 44, borderRadius: 9,
+                  background: joinMode === m
+                    ? 'linear-gradient(180deg, var(--btn-green-hi), var(--btn-green))'
+                    : 'var(--recess)',
+                  border: '2px solid var(--ink)',
+                  boxShadow: joinMode === m
+                    ? 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-green-dark)'
+                    : 'var(--bevel-in)',
+                  fontFamily: 'var(--font-display)', fontSize: 13, color: 'var(--text)',
+                  WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+                  textTransform: 'capitalize',
+                }}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {error && (
+          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>
+            {error}
+          </p>
+        )}
+
+        <Pill
+          onClick={() => { void submit(); }}
+          disabled={busy || !nameOk || !affordable}
+          style={{ fontSize: 18 }}
+        >
+          {busy ? 'Founding…' : `Found clan · ${CLAN_CREATE_GEM_COST}💎`}
+        </Pill>
+
+        <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
+          You hold {gems}💎. Founding is cosmetic and social — it never buys power.
+        </p>
+      </div>
+    </div>
+  );
+}

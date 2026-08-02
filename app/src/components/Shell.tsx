@@ -11,6 +11,7 @@ const TABS = [
   { to: '/', label: 'Arena', icon: '/art/tab_arena.png' },
   { to: '/cards', label: 'Cards', icon: '/art/tab_cards.png' },
   { to: '/deck', label: 'Deck', icon: '/art/tab_deck.png' },
+  { to: '/clan', label: 'Clan', icon: '/art/clan_badge.png' },
   { to: '/empire', label: 'Empire', icon: '/art/tab_empire.png' },
 ];
 
@@ -68,7 +69,7 @@ export function Shell({ children }: { children: ReactNode }) {
             className="wood"
             style={{
               position: 'fixed', bottom: 0, width: 'min(100vw, 430px)', zIndex: 20,
-              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+              display: 'grid', gridTemplateColumns: `repeat(${TABS.length}, 1fr)`,
               borderTop: '3px solid var(--wood-edge)',
               boxShadow: '0 -6px 18px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,255,255,.16)',
               paddingBottom: 'env(safe-area-inset-bottom)',

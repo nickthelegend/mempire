@@ -7,6 +7,7 @@ import { createMatch, hashState, stepSim } from '../sim/engine';
 import {
   HASH_EVERY_TICKS, INPUT_DELAY_TICKS, type InputEvent, type MatchCard, type SimState,
 } from '../sim/types';
+import { useClan } from './clan';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
@@ -274,4 +275,11 @@ function settle(): void {
     // practice never enters the record — a padded W/L is worse than none
     history: practice ? s.history : [result, ...s.history],
   }));
+
+  // Crowns roll up to the clan ladder. Fire-and-forget by design: settlement
+  // must never wait on, or fail because of, the clan service. Practice stays
+  // out for the same reason it stays out of history — it cannot be farmed.
+  if (!practice && crowns[0] > 0) {
+    useClan.getState().reportCrowns(wallet.address, crowns[0], useDeck.getState().power());
+  }
 }

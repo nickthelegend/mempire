@@ -18,6 +18,7 @@ import { Loading } from './components/Loading';
 import { Shell } from './components/Shell';
 import { Arena } from './screens/Arena';
 import { Cards } from './screens/Cards';
+import { Clan } from './screens/Clan';
 import { Deck } from './screens/Deck';
 import { Empire } from './screens/Empire';
 
@@ -32,6 +33,7 @@ export default function App() {
             <Route path="/" element={<Arena />} />
             <Route path="/cards" element={<Cards />} />
             <Route path="/deck" element={<Deck />} />
+            <Route path="/clan" element={<Clan />} />
             <Route path="/empire" element={<Empire />} />
             <Route
               path="/battle"

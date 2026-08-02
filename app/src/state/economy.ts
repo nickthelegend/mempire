@@ -87,6 +87,7 @@ interface EconomyState {
   skipUnlock: (id: string) => boolean;
   collect: (id: string) => ChestDef | null;
   spendGems: (n: number) => boolean;
+  addGems: (n: number) => void;
 }
 
 function rollTier(roll: number): ChestTier {
@@ -171,4 +172,11 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     set((s) => ({ gems: s.gems - n, gemsSpent: s.gemsSpent + n }));
     return true;
   },
+
+  /**
+   * Gems granted for something earned — currently answering a clanmate's lend
+   * request. Deliberately not counted in `gemsSpent`, which tracks what the
+   * treasury took, not what it gave back.
+   */
+  addGems: (n) => set((s) => ({ gems: s.gems + Math.max(0, Math.floor(n)) })),
 }));
