@@ -50,7 +50,7 @@ engineering plan.
 | 25 | Deterministic sim, bot, 3D battle | ✅ | — | Verified deterministic by test. |
 | 26 | Drag-and-drop deploy | ✅ | — | Plus a tap fallback. |
 | 27 | Crowns, tower fire, spawn/death VFX | ✅ | — | Tower fire was invisible before. |
-| 28 | Real human matchmaking | 🔨 | L | Offchain matchmaker; the bot stays for demos. |
+| 28 | Real human matchmaking | ✅ | — | WS matchmaker + lockstep relay + hash referee; desync voids, disconnect forfeits. Bot steps in after 8s so solo demos never stall. |
 | 29 | 3 saved deck slots | ✅ | — | Selected slot mirrors the live deck, so edits survive switching. |
 | 30 | Spells: freeze, rage, heal | ⬜ | M | Only one spell archetype exists today. |
 | 31 | Buildings: cannon, tesla | ⬜ | M | Adds a defensive axis. |
@@ -106,7 +106,7 @@ literals. DESIGN.md records each rule with the failure that produced it.
 | # | Feature | Status | Effort | Note |
 |---|---|---|---|---|
 | 47 | MongoDB persistence | ✅ | — | Debounced, fire-and-forget, degrades to local. |
-| 48 | Deploy: Vercel (app) + Railway (API) | 🔨 | S | Plus `VITE_API_URL` wired per environment. |
+| 48 | Deploy: Vercel (app) + Railway (API) | ✅ | — | `app/vercel.json`, `server/railway.json`, env examples both sides, DEPLOY.md runbook. |
 | 49 | Rotate the leaked credentials | 🔨 | S | **Do this first.** The Mongo password and the GitHub PAT were both pasted in plaintext. |
 | 50 | Geo-blocking + ToS before mainnet | ⬜ | M | A rake on a wagered pot is real-money skill gaming. Devnet is fine; mainnet is not, without this. |
 
@@ -115,13 +115,13 @@ literals. DESIGN.md records each rule with the failure that produced it.
 ## Do these next, in this order
 
 1. **#49 rotate credentials** — everything else can wait behind this.
-2. **#28 human matchmaking** — `createMatchTx`/`joinMatchTx` and the deck
-   commitment already exist; an offchain matchmaker pairs two open matches and
-   the sim already runs lockstep. This is the biggest remaining truth gap.
+2. **PvP pots onchain** — matchmaking ships; point `createMatchTx`/
+   `joinMatchTx` at the paired match so the escrow is the program's, not the
+   simulated ledger's.
 3. **#7 coin sponsorship** — the pitch nobody else in the bracket can make, and
    the ad-slot boards in the gutters are already selling it.
 4. **#6 tournaments** — 8% of every pool, and it scales without us operating it.
-5. **#48 deploy** — Vercel + Railway, `VITE_API_URL` and `VITE_RPC_URL` per env.
+5. **Ship it** — DEPLOY.md is the runbook; both hosts are one click from here.
 
 ## Known limits, stated plainly
 
@@ -132,9 +132,10 @@ literals. DESIGN.md records each rule with the failure that produced it.
   human matchmaking (#28).
 - **Guest mode is simulated end to end** — it has an address but no keypair,
   and the badge says so.
-- **One human cannot yet play another.** The bot is a real opponent running the
-  same simulation, but #28 is unbuilt.
-- **Chest contents are not yet minted cards.** The ceremony awards gems and
-  reports card counts; real drops ride on the cNFT layer (#21).
+- **Humans play humans now** over the lockstep relay; a desync voids the match
+  (stakes back, no rake) and a disconnect forfeits. Onchain *escrow* for PvP
+  pots is the remaining step — the instructions exist in `chain/actions.ts`.
+- **Chest drops mint real cards into the collection** (unowned coins first).
+  Making those drops cNFTs rides on #21.
 - **Clan state lives in MongoDB, not onchain.** Deliberate: it is social
   standing, not custody. Anything that moves value stays in the program.

@@ -140,7 +140,9 @@ byte-identical across every prompt, keeps the set coherent.
       explorer receipts and an honest live/simulated/offline badge
 - [x] Clans: full backend (48-assertion test) + browse/found/join/lend UI
 - [x] First-run tutorial, server leaderboard, ad-slot boards in the gutters
-- [ ] Human matchmaking over the existing match escrow instructions
+- [x] Human vs human: WS matchmaker, lockstep input relay, hash referee
+      (desync voids the match), disconnect forfeits — 12-assertion protocol test
+- [x] Chest drops mint real cards; deploy runbook (DEPLOY.md) + host configs
 - [ ] Tournaments, coin sponsorship, season pass (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
 - [ ] Bubblegum cNFT mint layer over card PDAs
@@ -149,12 +151,15 @@ byte-identical across every prompt, keeps the set coherent.
 ## Known limits, stated plainly
 
 - The program is live on devnet and mint/stake/unstake are real wallet-signed
-  transactions. Bot matches still settle in the simulated ledger — onchain
-  settlement needs both players' signatures by design, and a bot has no key.
-  The match escrow instructions exist and go live with human matchmaking.
+  transactions. Match pots still settle in the simulated ledger: onchain
+  settlement needs both players' signatures by design, so it arrives when the
+  escrow instructions (already in `chain/actions.ts`) are pointed at paired
+  PvP matches. A bot has no key, so bot matches stay simulated forever.
 - Guest mode is simulated end to end, and the in-app badge says which mode
   you are in at all times.
-- One human cannot yet play another. The bot runs the same simulation.
-- Chest rewards grant gems and report card counts; real card drops ride on the
-  cNFT layer.
+- Humans play humans over a lockstep relay with hash checkpoints; a desync
+  voids the match (stakes back, no rake). The bot steps in after 8s so a solo
+  judge always gets a battle.
+- Chest drops mint real cards into the collection; making them cNFTs rides
+  on the Bubblegum layer.
 - Clans live in MongoDB, not onchain — social standing, not custody.
