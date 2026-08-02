@@ -1,5 +1,14 @@
-// xorshift32 — deterministic match RNG. Seed comes from both players' commit-reveal
-// so neither side can precompute outcomes.
+// xorshift32 — the deterministic match RNG.
+//
+// The seed is derived by the matchmaker from the match id XOR both players'
+// deck hashes, so it is order-independent and neither client picks it alone.
+//
+// It is NOT commit-reveal, and this comment used to say it was. The difference
+// matters: the server sees both deck hashes and chooses the match id, so a
+// dishonest matchmaker could grind ids for a seed it likes. Every client-facing
+// guarantee here rests on the lockstep hash check rather than on this seed —
+// a divergence voids the match and refunds both stakes — but the seed itself is
+// server-trusted until a real commit-reveal round replaces it.
 export class XorShift32 {
   private s: number;
 

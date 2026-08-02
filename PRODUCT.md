@@ -30,7 +30,7 @@ Mempire (mempire.fun) is a 3D real-time 1v1 card battler on Solana. Players mint
 
 Locked architecture (2026-07-29):
 
-- Battle model: onchain input log + deterministic lockstep client sim. Inputs {tick, card_index, x, y} commit to the ephemeral rollup; both clients sim identically; state hash every 40 ticks; mismatch voids match (refund minus 1%). Fixed-point i32 math (1/1024), 20 ticks/sec, 3 min + 60 s overtime, 2-tick input delay, commit-reveal xorshift seed.
+- Battle model: onchain input log + deterministic lockstep client sim. Inputs {tick, card_index, x, y} commit to the ephemeral rollup; both clients sim identically; state hash every 40 ticks; mismatch voids match (refund minus 1%). Fixed-point i32 math (1/1024), 20 ticks/sec, 3 min + 60 s overtime, 2-tick input delay, xorshift seed derived by the matchmaker from match id XOR both deck hashes (order-independent, but server-trusted — not yet commit-reveal).
 - Cards: compressed NFTs (Bubblegum) as ownership layer; all mutable stats in an Anchor CardState PDA keyed by asset ID.
 - Power: coin mint hash → one of 6 global archetypes (tank, swarm, ranged, splash/siege, support, spell). Staked USD (snapshotted at stake time) → 10 levels on diminishing curve `1 + 0.6·√((lvl−1)/9)`; level never changes elixir cost.
 - Eligibility gate: ≥$25k liquidity, ≥48 h old, Jupiter-priced (mocked on devnet). Kills self-minted god cards.
