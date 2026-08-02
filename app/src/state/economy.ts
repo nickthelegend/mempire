@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 import { COINS, isEligible } from '../lib/coins';
+import {
+  bytesToHex, deriveDrops, hexToBytes, localSeed, tierFromSeed,
+} from '../lib/chestDrop';
 import { useCollection } from './collection';
 
 /**
@@ -26,6 +29,9 @@ export interface ChestDef {
 /** What actually came out — the def plus the cards it minted, by ticker. */
 export interface OpenedChest extends ChestDef {
   droppedTickers: string[];
+  /** The seed these drops came from, so the reward screen can show it. */
+  seed: string;
+  source: 'vrf' | 'local';
 }
 
 export const CHESTS: Record<ChestTier, ChestDef> = {
@@ -49,6 +55,9 @@ export const CHESTS: Record<ChestTier, ChestDef> = {
 
 export const CHEST_SLOTS = 4;
 
+/** Tier index → name, matching `TIER_WEIGHTS` in the program. */
+export const TIER_ORDER: ChestTier[] = ['silver', 'golden', 'magic', 'legendary'];
+
 /** Devnet demo pacing: minutes, not hours, so a judge sees the whole loop. */
 export const DEMO_TIME_SCALE = 1 / 60;
 
@@ -71,8 +80,18 @@ export interface ChestSlot {
    * where the house picks the outcome.
    */
   source: 'vrf' | 'local';
-  /** The oracle's bytes, hex-encoded. Present only when `source` is 'vrf'. */
-  randomness?: string;
+  /**
+   * The 32 bytes this chest's contents are derived from, hex-encoded.
+   *
+   * Always present, whatever the provenance. A local seed is still a *recorded*
+   * seed, which means the drop is a published function of something written down
+   * rather than of an unrecorded `Math.random()` — the difference between "we
+   * picked fairly, trust us" and "here is the input, check it yourself".
+   *
+   * `source` says who produced it. Only `vrf` was attested by the oracle, and
+   * only `vrf` earns the fairness claim in the UI.
+   */
+  seed: string;
 }
 
 export interface GemBundle {
@@ -104,7 +123,13 @@ interface EconomyState {
   solSpentOnGems: number;
 
   buyGems: (bundle: GemBundle) => void;
-  awardChest: (roll: number, source?: 'vrf' | 'local', randomness?: string) => ChestTier | null;
+  /**
+   * Awards a chest, seeded locally.
+   *
+   * No `roll` parameter: the seed decides both tier and contents by the same
+   * rule the program uses, so one recorded input explains the whole chest.
+   */
+  awardChest: () => ChestTier | null;
   startUnlock: (id: string) => void;
   skipUnlock: (id: string) => boolean;
   collect: (id: string) => OpenedChest | null;
@@ -121,38 +146,32 @@ interface EconomyState {
 }
 
 /**
- * Mint `n` cards from eligible coins into the collection.
+ * Mint the cards a chest contains, derived from its recorded seed.
  *
- * Unowned coins first — a drop that teaches you a new card beats a duplicate —
- * then random eligible dupes. Returns the tickers for the ceremony to name.
+ * Not a roll. `deriveDrops` is a pure function of (seed, eligible list in
+ * registry order, owned set), so the contents of any chest can be re-derived
+ * and checked afterwards — which is the whole reason the oracle's bytes are
+ * stored on the chest rather than consumed and thrown away.
+ *
+ * Unowned coins are drawn first and without replacement: a drop that teaches a
+ * new card beats a duplicate. That preference is part of the published rule, not
+ * a thumb on the scale, and duplicates become possible again once the collection
+ * fills out (Clash's dupes feed upgrades; ours feed extra stake vessels for the
+ * same coin).
  */
-function dropCards(n: number): string[] {
+function dropCards(n: number, seed: Uint8Array): string[] {
   const { cards, mintCard } = useCollection.getState();
   const eligible = COINS.filter((c) => isEligible(c));
   if (!eligible.length) return [];
   const owned = new Set(cards.map((c) => c.mint));
-  const fresh = eligible.filter((c) => !owned.has(c.mint));
+  const picks = deriveDrops(seed, eligible, owned, n);
   const out: string[] = [];
-  for (let i = 0; i < n; i += 1) {
-    const pool = fresh.length ? fresh : eligible;
-    const pick = pool.splice(Math.floor(Math.random() * pool.length), 1)[0]
-      ?? eligible[Math.floor(Math.random() * eligible.length)];
+  for (const pick of picks) {
     if (mintCard(pick.mint)) out.push(pick.ticker);
   }
   return out;
 }
 
-function rollTier(roll: number): ChestTier {
-  const tiers = Object.values(CHESTS);
-  const total = tiers.reduce((s, c) => s + c.weight, 0);
-  let acc = 0;
-  const target = roll * total;
-  for (const c of tiers) {
-    acc += c.weight;
-    if (target <= acc) return c.tier;
-  }
-  return 'silver';
-}
 
 export const useEconomy = create<EconomyState>((set, get) => ({
   gems: 120, // starter grant so the loop is demonstrable immediately
@@ -168,13 +187,20 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     })),
 
   /** Called on a win. Returns null when every slot is full — that's the hook. */
-  awardChest: (roll, source = 'local', randomness) => {
+  awardChest: () => {
     if (get().chests.length >= CHEST_SLOTS) return null;
-    const tier = rollTier(roll);
+    const seed = localSeed();
+    // Same weighting the on-chain callback applies, so a locally-seeded chest
+    // has the published odds rather than merely similar ones.
+    const tier = TIER_ORDER[tierFromSeed(seed)] ?? 'silver';
+    // Seeded at birth, locally, so the contents are already fixed and recorded
+    // before the oracle has answered. If the oracle does answer, `reconcile`
+    // replaces both the tier and the seed with its attested pair — a chest is
+    // never left with a tier from one source and contents from another.
     set((s) => ({
       chests: [...s.chests, {
         id: `chest_${s.nextChestId}`, tier, readyAt: 0, unlocking: false,
-        source, randomness,
+        source: 'local', seed: bytesToHex(seed),
       }],
       nextChestId: s.nextChestId + 1,
     }));
@@ -217,17 +243,31 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       chests: s.chests.filter((c) => c.id !== id),
       gems: s.gems + def.gems,
     }));
-    // The chest's card count mints real cards, not a number on a toast.
-    // Drops favour coins the player has no card for yet; duplicates are
-    // possible on purpose once the collection fills out (Clash's dupes feed
-    // upgrades; ours feed extra stake vessels for the same coin).
-    const dropped = dropCards(def.cards);
-    return { ...def, droppedTickers: dropped };
+    // The chest's card count mints real cards, not a number on a toast — and
+    // which ones is derived from the seed the chest has been carrying since it
+    // was awarded, so the contents were fixed before the player pressed OPEN.
+    const dropped = dropCards(def.cards, hexToBytes(chest.seed));
+    return { ...def, droppedTickers: dropped, seed: chest.seed, source: chest.source };
   },
 
   reconcileNewestChest: (tier, randomness) => {
-    const order: ChestTier[] = ['silver', 'golden', 'magic', 'legendary'];
-    const resolved = order[tier] ?? 'silver';
+    const resolved = TIER_ORDER[tier] ?? 'silver';
+    // Check the oracle rather than trusting it. The tier the program wrote must
+    // be the tier its own randomness produces under the published weights; if it
+    // is not, something between the oracle and the account is wrong and this
+    // chest should keep the local roll it already has rather than adopt a number
+    // that does not follow from its bytes.
+    try {
+      const expected = tierFromSeed(hexToBytes(randomness));
+      if (expected !== tier) {
+        console.warn(
+          `chest: oracle reported tier ${tier} but its randomness derives ${expected} — keeping the local roll`,
+        );
+        return;
+      }
+    } catch {
+      return;
+    }
     set((s) => {
       if (!s.chests.length) return s;
       const chests = [...s.chests];
@@ -235,7 +275,7 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       // Only a chest still waiting to be opened can change tier. One already
       // unlocking has been shown to the player as a specific thing.
       if (chests[last].unlocking || chests[last].readyAt) return s;
-      chests[last] = { ...chests[last], tier: resolved, source: 'vrf', randomness };
+      chests[last] = { ...chests[last], tier: resolved, source: 'vrf', seed: randomness };
       return { chests };
     });
   },

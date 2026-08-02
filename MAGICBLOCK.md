@@ -107,6 +107,43 @@ rollup.
 **The randomness is stored on the chest** so the drop stays derivable by anyone,
 and `claim_chest` emits it so it survives the slot being reused.
 
+### The card drops, too
+
+The tier is only half a chest. Which cards come out is now derived from the
+*same* 32 bytes rather than rolled separately — `app/src/lib/chestDrop.ts`.
+
+The derivation is a pure function of three reconstructible inputs: the seed, the
+eligible coin list in registry order, and which of those the player already
+owned. It uses **xoshiro256\*\*** — chosen because its state is exactly 256
+bits, so every byte of the oracle's output goes into it directly — with
+rejection sampling for index selection, because `% pool.length` is biased and
+"slightly biased" has no place in a fairness claim.
+
+The tier rule is mirrored from the program byte-for-byte, including the SDK's
+reverse-scan bias avoidance. That buys two things: a locally-seeded chest has the
+**published odds** rather than merely similar ones, and the client can **verify
+the oracle** — `reconcileNewestChest` re-derives the tier from the bytes the
+program wrote and refuses the update if they disagree, rather than trusting a
+number that does not follow from its own seed.
+
+Every chest carries a seed from birth, so `Math.random()` is gone from the reward
+path entirely. A Guest chest is seeded locally — still recorded, still derivable,
+just not oracle-attested — and the UI marks the difference: 🎲 for VRF, nothing
+for local, with the seed shown on the reward screen either way.
+
+Proven, not asserted:
+
+```
+$ npx tsx app/test-chest-drop.mjs
+  (256/256 vectors identical to the on-chain implementation)
+  (64/64 distinct coins across 400 first-draws)
+12 passed, 0 failed
+```
+
+That first line runs the **real Rust SDK** through `cargo` and compares outputs,
+so a divergence between the client's odds and the chain's fails the suite instead
+of shipping.
+
 ---
 
 ## What is still not real
@@ -117,8 +154,7 @@ names them.
 | Thing | State | Where |
 |---|---|---|
 | **Guest wallet** | Simulated, and labelled everywhere it appears | `state/wallet.ts`, `WalletPicker`, `ChainBadge` reads `simulated` |
-| **Guest chest rolls** | `Math.random()` — a session with no keypair cannot reach the oracle. Marked by the **absence** of the 🎲 | `state/match.ts` |
-| **Card drops inside a chest** | `Math.random()` picks which coins drop. Only the *tier* is VRF-rolled | `state/economy.ts` |
+| **Guest chest seeds** | Generated locally with `crypto.getRandomValues` — a session with no keypair cannot reach the oracle. Still recorded and still derivable, just not attested. Marked by the **absence** of the 🎲 | `lib/chestDrop.ts` |
 | **Price / liquidity oracle** | Devnet mock — `register_coin` / `set_price`, admin-written. Jupiter/Pyth replaces it on mainnet | `chain/programs/mempire/src/lib.rs` |
 | **Match seed** | Matchmaker-derived (`fnv(matchId) ^ fnv(deckA) ^ fnv(deckB)`), order-independent but **server-trusted**. Not commit-reveal | `server/matchmaker.js` |
 | **SOL balance in Guest mode** | Simulated, stated on the Empire screen | `screens/Empire.tsx` |
@@ -149,6 +185,7 @@ BASE_RPC=https://api.devnet.solana.com npx tsx scripts/e2e-full-flow.ts
 | `server/test-ladder.mjs` | Elo, leagues, drift guard | 16/16 |
 | `app/test-battle-anim.mjs` | VFX pool, camera shake, strike cue vs. the real engine | 10/10 |
 | `cargo test -p mempire-rollup` | chest odds partition the roll exactly 62/26/9/3 | 4/4 |
+| `app/test-chest-drop.mjs` | the TS tier rule matches the Rust SDK on 256 vectors; drops are reproducible and unbiased | 12/12 |
 
 `e2e-full-flow.ts` prints every transaction signature it produced. They open in
 any devnet explorer.

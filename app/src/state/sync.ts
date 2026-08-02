@@ -10,6 +10,7 @@ import { coinByMint } from '../lib/coins';
 import { loadPlayer, savePlayer, type SavedState } from '../lib/persist';
 import { useCollection, type MintedCard } from './collection';
 import { useDeck, DECK_SLOTS } from './deck';
+import { bytesToHex, localSeed } from '../lib/chestDrop';
 import { useEconomy } from './economy';
 import { useMatch } from './match';
 import { useShop } from './shop';
@@ -95,7 +96,15 @@ export function usePlayerSync(): void {
       if (typeof saved.gems === 'number' && Number.isFinite(saved.gems)) {
         useEconomy.setState({
           gems: Math.max(0, Math.floor(saved.gems)),
-          chests: Array.isArray(saved.chests) ? saved.chests : [],
+          // Chests saved before drops became seed-derived carry no seed, and
+          // opening one would throw on decode. Backfilling a local seed keeps
+          // them openable and — correctly — labels them as not oracle-rolled,
+          // which is exactly what they were.
+          chests: Array.isArray(saved.chests)
+            ? saved.chests.map((c) => (c.seed
+              ? c
+              : { ...c, seed: bytesToHex(localSeed()), source: c.source ?? 'local' }))
+            : [],
           nextChestId: saved.nextChestId || 1,
           gemsSpent: saved.gemsSpent ?? 0,
           solSpentOnGems: saved.solSpentOnGems ?? 0,

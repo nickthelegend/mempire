@@ -167,6 +167,21 @@ function OpenCeremony({
           <p className="fine" style={{ color: 'var(--dim)' }}>
             {def.droppedTickers.length ? 'minted to your collection · tap to continue' : 'tap to continue'}
           </p>
+          {/* The seed both the tier and these cards came from. Shown because a
+              derivation nobody can see the input to is not a derivation the
+              player can check — and checking it is the entire point of putting
+              the roll through an oracle. */}
+          <p
+            className="fine"
+            title={def.seed}
+            style={{
+              color: 'var(--dim)', fontFamily: 'ui-monospace, monospace',
+              fontSize: 10, opacity: 0.75, marginTop: 2, userSelect: 'all',
+            }}
+          >
+            {def.source === 'vrf' ? '🎲 VRF seed ' : 'local seed '}
+            {def.seed.slice(0, 16)}…
+          </p>
         </>
       )}
     </div>
@@ -238,7 +253,7 @@ function Slot({ chest, onOpened }: {
             a claim about fairness this build has not earned there. */}
         {chest.source === 'vrf' && (
           <span
-            title={`Rolled by MagicBlock VRF · ${chest.randomness?.slice(0, 12) ?? ''}…`}
+            title={`Rolled by MagicBlock VRF — tier and contents both derive from ${chest.seed.slice(0, 12)}…`}
             aria-label="Rolled by MagicBlock VRF — provably fair"
             style={{
               position: 'absolute', right: -4, bottom: -2,

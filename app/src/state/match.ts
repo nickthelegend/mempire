@@ -754,7 +754,7 @@ function settle(): void {
   // answers: the result screen must not wait on an async callback, and a chest
   // that silently changes tier a second later is worse than one that arrives
   // already labelled as unverified.
-  const chest = won && !practice ? useEconomy.getState().awardChest(Math.random()) : null;
+  const chest = won && !practice ? useEconomy.getState().awardChest() : null;
   if (chest) void rollChestOnchain();
   /**
    * Trophies move only on ranked matches, and only against a real opponent's
