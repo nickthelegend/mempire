@@ -7,3 +7,9 @@ chain/target/
 chain/.anchor/
 design/generated/
 .DS_Store
+
+# tooling / scratch
+.claude/
+.agents/
+skills-lock.json
+design/comps/
