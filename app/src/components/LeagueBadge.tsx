@@ -90,11 +90,15 @@ export function LeagueBadge({
               background: 'var(--recess)', boxShadow: 'var(--bevel-in)', overflow: 'hidden',
             }}
           >
+            {/* scaleX rather than width — animating width thrashes layout, and
+                the elixir bar and loading bar already use this pattern. */}
             <span
               style={{
-                display: 'block', height: '100%', width: `${Math.round(pct * 100)}%`,
+                display: 'block', height: '100%', width: '100%',
                 background: `linear-gradient(90deg, hsl(${league.hue} 70% 55%), hsl(${league.hue} 75% 68%))`,
-                transition: 'width 420ms var(--ease-snap)',
+                transform: `scaleX(${pct})`,
+                transformOrigin: 'left',
+                transition: 'transform 420ms var(--ease-snap)',
               }}
             />
           </span>
