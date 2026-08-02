@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+chain/target/
+chain/.anchor/
+design/generated/
+.DS_Store
