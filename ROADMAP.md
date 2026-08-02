@@ -36,7 +36,7 @@ engineering plan.
 | 16 | Anchor program: cards, vaults, pots | ✅ | — | Compiles; eligibility gate and timeout crank included. |
 | 17 | Deploy to devnet + seed 12 coins | ✅ | — | Live: `BnLD…FxeP`, IDL onchain, 12 real SPL mints registered, gate verified (BBWHALE/RUGPROOF rejected). |
 | 18 | Wire client stores to the program | ✅ | — | Mint/stake/two-step unstake are wallet-signed transactions; real SPL balances shown; explorer receipts; honest live/simulated/offline badge. Match escrow txs exist in `chain/actions.ts`, wired next. |
-| 19 | MagicBlock ER delegation | ⬜ | L | Sim and hash design is already ER-shaped. |
+| 19 | MagicBlock ER delegation | ✅ | — | Live on devnet (`3G4Gidvj…5g6N`). Separate rollup program with no transfer path; 23/23 e2e incl. router placement. |
 | 20 | Session keys — no popup per card | ⬜ | M | Non-negotiable for playability. |
 | 21 | Bubblegum cNFT layer over card PDAs | ⬜ | M | Makes cards tradeable, which unlocks #12. |
 | 22 | Real Jupiter/Pyth price oracle | ⬜ | M | Replaces the devnet mock. |
@@ -151,8 +151,10 @@ whether real users keep their money and progress:
 
 ## MagicBlock Ephemeral Rollups
 
-The battle loop runs on a MagicBlock ephemeral rollup, proven end to end against
-a real ephemeral validator (`chain/scripts/e2e-rollup-local.ts`, 21/21).
+The battle loop runs on a MagicBlock ephemeral rollup, **live on devnet** at
+`3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N` with its IDL published. Proven end
+to end in both environments by one script (`chain/scripts/e2e-rollup.ts`):
+23/23 on devnet including hosted router placement, 22/22 on localnet.
 
 **Two programs, and the split is the safety argument.** `mempire_rollup`
 (`3G4Gidvj…5g6N`) owns only the delegated `MatchLog` — the input log and the
@@ -165,12 +167,23 @@ Settlement deliberately does **not** ride a post-commit Magic Action: an action
 that fails can be stripped from its whole transaction strategy before the
 committor retries, and a payout must never depend on that.
 
-What the local run proves: delegation flips base ownership to the delegation
-program while the ER reports our program as owner (the delegation invariant);
-card plays land on the rollup in **7–17ms**; the rollup enforces authorization
-rather than just routing (a non-player is rejected with `NotAPlayer`, a replayed
-tick with `StaleTick`); `commit_and_undelegate` returns the log to base layer with
-its rollup state intact; and a sealed log's rent is reclaimable.
+What the run proves: the router places the log on a real rollup and returns its
+FQDN; delegation flips base ownership to the delegation program while the ER
+reports our program as owner (the delegation invariant); card plays land on the
+rollup with seats, coordinates and hashes intact; the rollup enforces
+authorization rather than just routing (a non-player is rejected with
+`NotAPlayer`, a replayed tick with `StaleTick`); `commit_and_undelegate` returns
+the log to base layer with its rollup state intact; and a sealed log's rent is
+reclaimable.
+
+**Latency, stated with its conditions.** 7–17ms on localnet, where the ER runs on
+the same machine. **~475ms confirmed** against the hosted devnet rollup — that
+figure is dominated by network round-trip and waiting for `confirmed`, not by
+execution, and the router placed us on the nearest region. Quoting the localnet
+number as the hosted experience would be a two-order-of-magnitude overstatement,
+so both appear here. The architectural win is that the input log is genuinely
+onchain rather than relayed by our own matchmaker; the latency win is real but
+co-location dependent.
 
 Three findings worth keeping, each of which cost real debugging time:
 
@@ -188,11 +201,8 @@ Three findings worth keeping, each of which cost real debugging time:
    become writable a moment later, so the first write is polled rather than
    attempted once.
 
-Not proven locally: hosted router placement across regions, which needs devnet.
-The devnet deploy of `mempire_rollup` is one command
-(`solana program deploy target/deploy/mempire_rollup.so --program-id
-target/deploy/mempire_rollup-keypair.json`) and needs ~2.31 SOL; the wallet holds
-2.07 and the public faucet refused ~50 requests over an hour.
+Still unproven: behaviour under sustained load, and multi-region failover (the
+router placed every run on the same region from here).
 
 ## Known limits, stated plainly
 

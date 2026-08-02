@@ -1,10 +1,11 @@
 /**
- * MagicBlock Ephemeral Rollup end-to-end proof, against the local `mb-stack`.
+ * MagicBlock Ephemeral Rollup end-to-end proof. Runs against either environment.
  *
- * Localnet is the right environment for this claim: it exercises real
- * delegation, a real ephemeral validator, and a real commit path, and it costs
- * no devnet SOL. What it does *not* prove is hosted router placement across
- * regions — that needs devnet, and is the one gap this run leaves open.
+ * Localnet (`npx mb-stack`) exercises real delegation, a real ephemeral
+ * validator and a real commit path at no SOL cost, but cannot prove hosted
+ * router placement. Devnet closes that gap and is detected from BASE_RPC, which
+ * also switches funding to the configured wallet and leaves
+ * `DelegateConfig::validator` unset so the router assigns placement.
  *
  * Proves, in order:
  *   1. the log delegates and base-layer ownership flips to the delegation program
@@ -14,8 +15,10 @@
  *   5. monotonic ticks — history already simulated cannot be rewritten
  *   6. commit_and_undelegate returns the log with its ER state intact
  *
- * Prereq: `npx mb-stack` running.
- * Run: npx tsx scripts/e2e-rollup-local.ts
+ * Localnet: `npx mb-stack` running, then
+ *   npx tsx scripts/e2e-rollup-local.ts
+ * Devnet:
+ *   BASE_RPC=https://api.devnet.solana.com npx tsx scripts/e2e-rollup-local.ts
  */
 import * as anchor from '@coral-xyz/anchor';
 import {
@@ -28,6 +31,37 @@ import { join } from 'path';
 
 const BASE = process.env.BASE_RPC ?? 'http://127.0.0.1:8899';
 const ER = process.env.ER_RPC ?? 'http://127.0.0.1:7799';
+
+/**
+ * Devnet mode differs in three ways that all matter, so it is detected rather
+ * than duplicated into a second script:
+ *
+ *  - funding comes from the configured keypair, because the faucet rate-limits
+ *  - `DelegateConfig::validator` must be **unset**, so the router assigns
+ *    placement; naming a validator is a localnet-only requirement
+ *  - the ER endpoint is discovered from router `getDelegationStatus`, never
+ *    hardcoded — placement is the router's to decide
+ */
+const IS_DEVNET = /devnet|api\.devnet|magicblock\.app/.test(BASE);
+const ROUTER = process.env.ROUTER_RPC ?? 'https://devnet-router.magicblock.app/';
+
+/** Router discovery: the FQDN actually holding this delegated account. */
+async function routerFqdn(account: PublicKey): Promise<string | null> {
+  try {
+    const res = await fetch(ROUTER, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'getDelegationStatus', params: [account.toBase58()],
+      }),
+    });
+    const body: any = await res.json();
+    if (body?.error) return null;
+    return body?.result?.isDelegated ? (body.result.fqdn ?? null) : null;
+  } catch {
+    return null;
+  }
+}
 
 const DELEGATION_PROGRAM_ID = new PublicKey('DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh');
 const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
@@ -89,22 +123,43 @@ function anchorErr(
 
 async function main() {
   const baseConn = new Connection(BASE, { commitment: 'confirmed' });
-  const erConn = new Connection(ER, { commitment: 'confirmed' });
+  let erConn = new Connection(ER, { commitment: 'confirmed' });
   process.on('unhandledRejection', () => { /* validator websocket noise */ });
 
   const playerA = Keypair.generate();
   const playerB = Keypair.generate();
   const stranger = Keypair.generate();
-  for (const kp of [playerA, playerB, stranger]) {
-    const sig = await baseConn.requestAirdrop(kp.publicKey, 5 * LAMPORTS_PER_SOL);
+
+  if (IS_DEVNET) {
+    // The faucet rate-limits hard, so the configured wallet funds the players.
+    // Only playerA pays for anything; B and stranger just need to exist as
+    // signers, so they get the minimum that lets them sign a transaction.
+    const funder = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(
+      readFileSync(process.env.ANCHOR_WALLET ?? `${process.env.HOME}/.config/solana/zorr.json`, 'utf8'),
+    )));
+    const tx = new anchor.web3.Transaction();
+    for (const [kp, sol] of [[playerA, 0.2], [playerB, 0.02], [stranger, 0.02]] as const) {
+      tx.add(SystemProgram.transfer({
+        fromPubkey: funder.publicKey,
+        toPubkey: kp.publicKey,
+        lamports: Math.round(sol * LAMPORTS_PER_SOL),
+      }));
+    }
+    const sig = await baseConn.sendTransaction(tx, [funder]);
     await baseConn.confirmTransaction(sig, 'confirmed');
+    console.log(`funded players from ${funder.publicKey.toBase58().slice(0, 8)}…`);
+  } else {
+    for (const kp of [playerA, playerB, stranger]) {
+      const s = await baseConn.requestAirdrop(kp.publicKey, 5 * LAMPORTS_PER_SOL);
+      await baseConn.confirmTransaction(s, 'confirmed');
+    }
   }
 
   const idl = JSON.parse(readFileSync(join(__dirname, '../target/idl/mempire_rollup.json'), 'utf8'));
   const baseProvider = new anchor.AnchorProvider(baseConn, new anchor.Wallet(playerA), { commitment: 'confirmed' });
   const baseProgram = new anchor.Program(idl, baseProvider);
   const erProvider = new anchor.AnchorProvider(erConn, new anchor.Wallet(playerA), { commitment: 'confirmed' });
-  const erProgram = new anchor.Program(idl, erProvider);
+  let erProgram = new anchor.Program(idl, erProvider);
   const pid = baseProgram.programId;
 
   const matchId = Math.floor(Number(process.env.MATCH_ID ?? `${Date.now() % 1_000_000}`));
@@ -129,11 +184,16 @@ async function main() {
   check('both seats recorded', created.players[0].equals(playerA.publicKey)
     && created.players[1].equals(playerB.publicKey));
 
-  // The validator must be named explicitly on localnet: an unassigned delegation
-  // is refused by a specific ER even though base ownership looks correct.
+  // On localnet the validator must be named explicitly: an unassigned delegation
+  // is refused by a specific ER even though base ownership looks correct. On
+  // devnet the router assigns placement, so it is deliberately left unset.
   await baseProgram.methods
     .delegateLog(new anchor.BN(matchId))
-    .accounts({ payer: playerA.publicKey, log, validator: LOCALNET_VALIDATOR })
+    .accounts({
+      payer: playerA.publicKey,
+      log,
+      validator: IS_DEVNET ? null : LOCALNET_VALIDATOR,
+    })
     .rpc();
 
   let baseOwner: PublicKey | null = null;
@@ -147,6 +207,28 @@ async function main() {
 
   // ── 2. the delegation invariant ───────────────────────────────────────────
   console.log('\n2. the delegation invariant (base=delegation program, ER=us)');
+
+  // Router discovery is the whole point of the devnet run: the endpoint holding
+  // this account is the router's decision, and a hardcoded FQDN is how an
+  // integration ends up talking to a validator that no longer holds the account.
+  if (IS_DEVNET) {
+    let fqdn: string | null = null;
+    for (let i = 0; i < 30; i += 1) {
+      fqdn = await routerFqdn(log);
+      if (fqdn) break;
+      await sleep(1000);
+    }
+    check('router placed the log on a rollup', Boolean(fqdn), fqdn ?? 'router reported no placement');
+    if (fqdn) {
+      erConn = new Connection(fqdn, { commitment: 'confirmed' });
+      erProgram = new anchor.Program(
+        idl,
+        new anchor.AnchorProvider(erConn, new anchor.Wallet(playerA), { commitment: 'confirmed' }),
+      );
+      console.log(`   router → ${fqdn}`);
+    }
+  }
+
   let erOwner: PublicKey | null = null;
   for (let i = 0; i < 25; i += 1) {
     erOwner = (await erConn.getAccountInfo(log))?.owner ?? null;
@@ -190,10 +272,17 @@ async function main() {
   }
 
   // Seat 1 plays too — both players write to the same delegated log.
+  //
+  // Timed separately from the first play, because that one includes the
+  // mutability-sync poll and would overstate per-play cost by an order of
+  // magnitude. This is the number that describes what a card play actually costs.
   const erProviderB = new anchor.AnchorProvider(erConn, new anchor.Wallet(playerB), { commitment: 'confirmed' });
   const erProgramB = new anchor.Program(idl, erProviderB);
+  const t1 = Date.now();
   await erProgramB.methods.playCard(24, 3, -512, 4096)
     .accounts({ log, player: playerB.publicKey }).rpc();
+  const steady = Date.now() - t1;
+  check('steady-state play is fast', steady < 1500, `${steady}ms (confirmed)`);
 
   await erProgram.methods.checkpoint(40, new anchor.BN('1234567890'))
     .accounts({ log, player: playerA.publicKey }).rpc();
@@ -282,7 +371,9 @@ async function main() {
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
   console.log('MAGICBLOCK OK: the battle loop runs on an ephemeral rollup.');
-  console.log('Not proven here: hosted router placement across regions (needs devnet).');
+  console.log(IS_DEVNET
+    ? 'Environment: devnet — hosted router placement included.'
+    : 'Environment: localnet. Not proven here: hosted router placement (run with BASE_RPC=devnet).');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
