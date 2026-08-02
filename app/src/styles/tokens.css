@@ -1,0 +1,190 @@
+/* Mempire — Royale Arcade.
+   Clash Royale's chrome (quilted blue field, carved wood panels, fat beveled
+   buttons, outlined white lettering) carrying Mempire's content. Solana purple
+   and teal stay as the energy accent; gold still means SOL is moving.
+   DESIGN.md is the authority. */
+:root {
+  /* field */
+  --blue-deep: #0d2a5c;
+  --blue: #14418f;
+  --blue-lit: #2160c4;
+  --blue-pale: #59a6f5;
+
+  /* carved wood panels */
+  --wood: #7a4a22;
+  --wood-lit: #96602e;
+  --wood-hi: #b9793c;
+  --wood-dark: #4a2a11;
+  --wood-edge: #2e1908;
+
+  /* controls */
+  --btn-gold: #f5b423;
+  --btn-gold-hi: #ffd766;
+  --btn-gold-dark: #a86e07;
+  --btn-blue: #3aa0f7;
+  --btn-blue-hi: #7cc6ff;
+  --btn-blue-dark: #17629f;
+  --btn-green: #52c41a;
+  --btn-green-hi: #8ce85a;
+  --btn-green-dark: #2c7a06;
+
+  /* meaning */
+  --purple: #9945ff;
+  --teal: #14f195;
+  --gold: #ffc422;
+  --gold-hi: #ffe38a;
+  --elixir: #d838d8;
+  --red: #ff4d6d;
+
+  /* ink */
+  --text: #ffffff;
+  --dim: #b9cdf0;
+  --ink: #10203f;
+
+  --grad-solana: linear-gradient(96deg, var(--purple), var(--teal));
+
+  --font-display: 'Lilita One', system-ui, sans-serif;
+  --font-ui: 'Hanken Grotesk', system-ui, sans-serif;
+  --font-mono: 'Martian Mono', monospace;
+
+  --r-panel: 14px;
+  --r-card: 10px;
+  --r-pill: 12px;
+
+  --scrim: rgba(6, 16, 38, 0.82);
+  --ease-snap: cubic-bezier(0.2, 0.9, 0.3, 1);
+
+  /* Carried over from the dark world so surfaces stay coherent while screens
+     migrate to .panel / .well. Recessed navy, not the old near-black. */
+  --void: var(--ink);
+  --surface: #12295a;
+  --raised: #1c3c78;
+  --border: rgba(0, 0, 0, 0.45);
+  --glow-purple: 0 0 22px rgba(153, 69, 255, 0.4);
+  --glow-teal: 0 0 18px rgba(20, 241, 149, 0.35);
+  --shadow-raise: 0 6px 16px rgba(0, 0, 0, 0.5);
+
+  /* the bevel language: every raised thing gets a top highlight + hard base */
+  --bevel-out: inset 0 2px 0 rgba(255, 255, 255, 0.4), inset 0 -3px 0 rgba(0, 0, 0, 0.28);
+  --bevel-in: inset 0 3px 8px rgba(0, 0, 0, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body, #root { height: 100%; }
+
+body {
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  background: var(--blue-deep);
+}
+
+button {
+  font-family: var(--font-ui);
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+  outline: 3px solid var(--gold-hi);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+::selection { background: rgba(153, 69, 255, 0.5); }
+
+/* ── The quilted field ───────────────────────────────────────────────────── */
+.quilt {
+  background-color: var(--blue);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.055) 25%, transparent 25%),
+    linear-gradient(225deg, rgba(255, 255, 255, 0.055) 25%, transparent 25%),
+    linear-gradient(45deg, rgba(0, 0, 0, 0.14) 25%, transparent 25%),
+    linear-gradient(315deg, rgba(0, 0, 0, 0.14) 25%, transparent 25%),
+    radial-gradient(120% 80% at 50% 0%, var(--blue-lit), var(--blue-deep) 72%);
+  background-size: 46px 46px, 46px 46px, 46px 46px, 46px 46px, 100% 100%;
+  background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
+}
+
+/* ── Type ────────────────────────────────────────────────────────────────── */
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: var(--text);
+  -webkit-text-stroke: 3px var(--ink);
+  paint-order: stroke fill;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.45);
+}
+
+.display--gold {
+  background: linear-gradient(180deg, #fff2c4 4%, var(--gold-hi) 30%, var(--gold) 60%, #c58a06 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 3px var(--ink);
+  paint-order: stroke fill;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.5));
+}
+
+.mono { font-family: var(--font-mono); font-size: 0.86em; }
+
+.money {
+  font-family: var(--font-display);
+  color: var(--gold-hi);
+  -webkit-text-stroke: 2.5px var(--ink);
+  paint-order: stroke fill;
+  letter-spacing: 0.02em;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* ── Carved surfaces ─────────────────────────────────────────────────────── */
+.panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), transparent 34%),
+    url('/art/wood_seamless.png') center / 300px repeat,
+    var(--wood);
+  border: 3px solid var(--wood-edge);
+  border-radius: var(--r-panel);
+  box-shadow: var(--bevel-out), 0 4px 0 var(--wood-edge), 0 8px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* recessed well, for content sitting inside a panel */
+.well {
+  background: rgba(9, 22, 48, 0.55);
+  border: 2px solid rgba(0, 0, 0, 0.4);
+  border-radius: var(--r-card);
+  box-shadow: var(--bevel-in);
+}
+
+/* Buttons physically depress into their own base edge. */
+.btn-3d:not(:disabled):active {
+  transform: translateY(4px);
+  box-shadow:
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.2),
+    0 1px 0 rgba(0, 0, 0, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.4) !important;
+}
+.btn-3d:not(:disabled):hover { filter: brightness(1.06); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
