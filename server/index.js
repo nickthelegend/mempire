@@ -9,6 +9,7 @@
 import cors from 'cors';
 import express from 'express';
 import { MongoClient } from 'mongodb';
+import { registerClanRoutes } from './clans.js';
 
 const { MONGODB_URI, MONGODB_DB = 'mempire', PORT = 8787 } = process.env;
 if (!MONGODB_URI) {
@@ -245,6 +246,7 @@ const server = await (async () => {
   players = db.collection('players');
   leaderboard = db.collection('leaderboard');
   await leaderboard.createIndex({ netSol: -1 });
+  registerClanRoutes(app, db);
   console.log(`mongo connected → ${MONGODB_DB}`);
   return app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
 })();
