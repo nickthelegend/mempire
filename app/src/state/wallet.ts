@@ -1,83 +1,89 @@
+import {
+  WalletAdapterNetwork, WalletReadyState, type Adapter,
+} from '@solana/wallet-adapter-base';
+import {
+  CoinbaseWalletAdapter,
+  NightlyWalletAdapter,
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+  TrustWalletAdapter,
+} from '@solana/wallet-adapter-wallets';
 import { create } from 'zustand';
 
-// Real wallet connect (Phantom/Backpack/Solflare via injected providers),
-// simulated SOL economy. On devnet the balance is simulated so judges without
-// funded wallets still play; the address and the connection are real.
+/**
+ * Wallet connection on the official Solana wallet adapters.
+ *
+ * Using the adapters directly rather than the React context provider keeps the
+ * store as the single source of truth, and gives us each wallet's own official
+ * icon (a base64 SVG the adapter ships) plus real readyState detection —
+ * including Wallet Standard wallets the browser announces at runtime.
+ *
+ * The SOL balance stays simulated on devnet so anyone can play the full game
+ * without a funded wallet; the address and the connection are real.
+ */
 
-interface InjectedProvider {
-  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey: { toString(): string } }>;
-  disconnect?: () => Promise<void>;
-  publicKey?: { toString(): string } | null;
-  isConnected?: boolean;
-  on?: (event: string, handler: (...args: unknown[]) => void) => void;
-}
-
-declare global {
-  interface Window {
-    phantom?: { solana?: InjectedProvider & { isPhantom?: boolean } };
-    solana?: InjectedProvider & { isPhantom?: boolean };
-    backpack?: InjectedProvider & { isBackpack?: boolean };
-    solflare?: InjectedProvider & { isSolflare?: boolean };
-  }
-}
-
-export type WalletId = 'phantom' | 'backpack' | 'solflare' | 'guest';
-
-export interface WalletOption {
-  id: WalletId;
-  name: string;
-  tagline: string;
-  installUrl: string;
-  detect: () => InjectedProvider | null;
-}
-
-export const WALLETS: WalletOption[] = [
-  {
-    id: 'phantom',
-    name: 'Phantom',
-    tagline: 'Most popular on Solana',
-    installUrl: 'https://phantom.app/download',
-    detect: () => window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : null),
-  },
-  {
-    id: 'backpack',
-    name: 'Backpack',
-    tagline: 'xNFT native',
-    installUrl: 'https://backpack.app/download',
-    detect: () => (window.backpack?.isBackpack ? window.backpack : null),
-  },
-  {
-    id: 'solflare',
-    name: 'Solflare',
-    tagline: 'Web & mobile',
-    installUrl: 'https://solflare.com/download',
-    detect: () => (window.solflare?.isSolflare ? window.solflare : null),
-  },
-];
-
-export const isInstalled = (w: WalletOption): boolean => {
-  try {
-    return w.detect() !== null;
-  } catch {
-    return false;
-  }
-};
-
-const GUEST_ADDRESS = 'ANoNKiNG7xR4qJ9mPvE2wYbTzC5dHgU8fLsWjkQ3VtXu';
+const NETWORK = WalletAdapterNetwork.Devnet;
 const START_BALANCE = 12.4;
+const GUEST_ADDRESS = 'ANoNKiNG7xR4qJ9mPvE2wYbTzC5dHgU8fLsWjkQ3VtXu';
+
+/**
+ * Ordered by how likely a Solana player is to have it.
+ *
+ * Backpack is absent on purpose: it ships as a Wallet Standard wallet, so it
+ * registers itself at runtime rather than needing a hardcoded adapter.
+ *
+ * Ledger is excluded deliberately — its adapter reaches for Node's Buffer at
+ * construction and hard-crashes the picker in a browser, and a hardware wallet
+ * is the wrong fit for a mobile meme-coin game anyway.
+ */
+function buildAdapters(): Adapter[] {
+  return [
+    new PhantomWalletAdapter(),
+    new SolflareWalletAdapter({ network: NETWORK }),
+    new CoinbaseWalletAdapter(),
+    new TrustWalletAdapter(),
+    new NightlyWalletAdapter(),
+  ];
+}
+
+let adapters: Adapter[] = [];
+export function getAdapters(): Adapter[] {
+  if (!adapters.length) adapters = buildAdapters();
+  return adapters;
+}
+
+export interface WalletChoice {
+  name: string;
+  icon: string; // official base64 SVG from the adapter
+  installed: boolean;
+  url: string;
+}
+
+/** Installed wallets first; everything else stays visible with an install link. */
+export function listWallets(): WalletChoice[] {
+  return getAdapters()
+    .map((a) => ({
+      name: a.name as string,
+      icon: a.icon,
+      installed: a.readyState === WalletReadyState.Installed,
+      url: a.url,
+    }))
+    .sort((x, y) => Number(y.installed) - Number(x.installed));
+}
 
 interface WalletState {
   connected: boolean;
-  connecting: WalletId | null;
+  connecting: string | null; // adapter name in flight
   error: string | null;
   address: string;
-  walletId: WalletId | null;
   walletName: string;
+  walletIcon: string | null;
   sol: number;
   pickerOpen: boolean;
   openPicker: () => void;
   closePicker: () => void;
-  connect: (id: WalletId) => Promise<void>;
+  connect: (name: string) => Promise<void>;
+  connectGuest: () => void;
   autoConnect: () => Promise<void>;
   disconnect: () => void;
   spend: (amount: number) => boolean;
@@ -89,76 +95,87 @@ export const useWallet = create<WalletState>((set, get) => ({
   connecting: null,
   error: null,
   address: '',
-  walletId: null,
   walletName: '',
+  walletIcon: null,
   sol: 0,
   pickerOpen: false,
 
   openPicker: () => set({ pickerOpen: true, error: null }),
   closePicker: () => set({ pickerOpen: false, connecting: null }),
 
-  connect: async (id) => {
+  connect: async (name) => {
     if (get().connecting) return;
-    set({ connecting: id, error: null });
-
-    if (id === 'guest') {
-      set({
-        connected: true, connecting: null, pickerOpen: false,
-        address: GUEST_ADDRESS, walletId: 'guest', walletName: 'Guest',
-        sol: START_BALANCE,
-      });
+    const adapter = getAdapters().find((a) => a.name === name);
+    if (!adapter) {
+      set({ error: `${name} is not available` });
+      return;
+    }
+    if (adapter.readyState !== WalletReadyState.Installed
+      && adapter.readyState !== WalletReadyState.Loadable) {
+      window.open(adapter.url, '_blank', 'noopener,noreferrer');
       return;
     }
 
-    const opt = WALLETS.find((w) => w.id === id);
-    const provider = opt?.detect() ?? null;
-    if (!opt || !provider) {
-      set({ connecting: null, error: `${opt?.name ?? 'That wallet'} isn't installed` });
-      return;
-    }
+    set({ connecting: name, error: null });
     try {
-      const res = await provider.connect();
+      await adapter.connect();
+      const pk = adapter.publicKey;
+      if (!pk) throw new Error('wallet returned no public key');
       set({
         connected: true, connecting: null, pickerOpen: false,
-        address: res.publicKey.toString(),
-        walletId: id, walletName: opt.name,
+        address: pk.toBase58(),
+        walletName: adapter.name as string,
+        walletIcon: adapter.icon,
         sol: START_BALANCE,
       });
-      provider.on?.('disconnect', () => get().disconnect());
+      adapter.on('disconnect', () => get().disconnect());
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Connection rejected';
-      set({ connecting: null, error: /reject|denied|cancel/i.test(msg) ? 'Connection rejected' : msg });
+      const msg = e instanceof Error ? e.message : 'Connection failed';
+      set({
+        connecting: null,
+        error: /reject|denied|cancel|user/i.test(msg) ? 'Connection rejected' : msg,
+      });
     }
   },
 
-  /** Silent reconnect for a wallet the user already trusted this browser. */
+  /** Simulated wallet so the whole game is playable with nothing installed. */
+  connectGuest: () => set({
+    connected: true, connecting: null, pickerOpen: false,
+    address: GUEST_ADDRESS, walletName: 'Guest', walletIcon: null,
+    sol: START_BALANCE,
+  }),
+
+  /** Silent reconnect for a wallet already trusted in this browser. */
   autoConnect: async () => {
     if (get().connected) return;
-    for (const w of WALLETS) {
-      const p = w.detect();
-      if (!p) continue;
+    for (const a of getAdapters()) {
+      if (a.readyState !== WalletReadyState.Installed) continue;
       try {
-        const res = await p.connect({ onlyIfTrusted: true });
+        await a.autoConnect();
+        if (!a.publicKey) continue;
         set({
-          connected: true, address: res.publicKey.toString(),
-          walletId: w.id, walletName: w.name, sol: START_BALANCE,
+          connected: true,
+          address: a.publicKey.toBase58(),
+          walletName: a.name as string,
+          walletIcon: a.icon,
+          sol: START_BALANCE,
         });
-        p.on?.('disconnect', () => get().disconnect());
+        a.on('disconnect', () => get().disconnect());
         return;
       } catch {
-        // not trusted yet — leave disconnected, the picker handles it
+        // not trusted yet — the picker handles it
       }
     }
   },
 
   disconnect: () => {
-    const id = get().walletId;
-    if (id && id !== 'guest') {
-      try {
-        WALLETS.find((w) => w.id === id)?.detect()?.disconnect?.();
-      } catch { /* provider already gone */ }
-    }
-    set({ connected: false, address: '', walletId: null, walletName: '', sol: 0, pickerOpen: false });
+    const name = get().walletName;
+    const adapter = getAdapters().find((a) => a.name === name);
+    void adapter?.disconnect().catch(() => { /* already gone */ });
+    set({
+      connected: false, address: '', walletName: '', walletIcon: null,
+      sol: 0, pickerOpen: false,
+    });
   },
 
   spend: (amount) => {

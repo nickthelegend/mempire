@@ -1,5 +1,5 @@
 import type { MintedCard } from '../state/collection';
-import { coinByMint } from '../lib/coins';
+import { coinByMint, tickerOf } from '../lib/coins';
 import { ARCHETYPES } from '../sim/archetypes';
 import { ArchetypeIcon, CoinBadge } from './ui';
 
@@ -112,7 +112,7 @@ export function CardFrame({
           overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%',
         }}
         >
-          {width >= 66 ? `${coin.ticker} ${card.level}` : `L${card.level}`}
+          {width >= 66 ? `${tickerOf(coin)} ${card.level}` : `L${card.level}`}
         </span>
       </div>
     </Tag>

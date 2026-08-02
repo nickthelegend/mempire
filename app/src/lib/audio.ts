@@ -3,7 +3,9 @@
  * cut each other off, respects a persisted mute, and never throws when the
  * browser blocks autoplay before the first gesture.
  */
-export type Sfx = 'deploy' | 'hit' | 'tower' | 'victory' | 'defeat' | 'coin';
+export type Sfx =
+  | 'deploy' | 'hit' | 'tower' | 'victory' | 'defeat' | 'coin'
+  | 'click' | 'chestOpen' | 'reward' | 'error';
 
 const FILES: Record<Sfx, string> = {
   deploy: '/sfx/sfx_deploy.mp3',
@@ -12,10 +14,15 @@ const FILES: Record<Sfx, string> = {
   victory: '/sfx/sfx_victory.mp3',
   defeat: '/sfx/sfx_defeat.mp3',
   coin: '/sfx/sfx_coin.mp3',
+  click: '/sfx/sfx_click.mp3',
+  chestOpen: '/sfx/sfx_chest.mp3',
+  reward: '/sfx/sfx_reward.mp3',
+  error: '/sfx/sfx_error.mp3',
 };
 
 const VOLUME: Record<Sfx, number> = {
   deploy: 0.5, hit: 0.28, tower: 0.6, victory: 0.65, defeat: 0.55, coin: 0.45,
+  click: 0.3, chestOpen: 0.6, reward: 0.6, error: 0.35,
 };
 
 const POOL_SIZE = 3;
@@ -69,14 +76,36 @@ export function play(name: Sfx): void {
   } catch { /* element busy — skip this hit rather than throw */ }
 }
 
-export function startMusic(src = '/sfx/music_battle.m4a', volume = 0.22): void {
+/**
+ * UI click. Separate export because it is called from dozens of handlers and
+ * reads better than play('click') at every call site. Also the gesture that
+ * unblocks autoplay, so menu music is kicked off from here.
+ */
+export function click(): void {
+  play('click');
+  if (!music && !muted) startMenuMusic();
+}
+
+let currentTrack: string | null = null;
+
+function startTrack(src: string, volume: number, loop = true): void {
+  if (currentTrack === src && music) return; // already playing this one
   stopMusic();
   const a = new Audio(src);
-  a.loop = true;
+  a.loop = loop;
   a.volume = volume;
   a.muted = muted;
   music = a;
-  void a.play().catch(() => { /* blocked until gesture; battle start supplies one */ });
+  currentTrack = src;
+  void a.play().catch(() => { /* blocked until a gesture; click() retries */ });
+}
+
+export function startMenuMusic(): void {
+  startTrack('/sfx/music_menu.m4a', 0.16);
+}
+
+export function startMusic(src = '/sfx/music_battle.m4a', volume = 0.22): void {
+  startTrack(src, volume);
 }
 
 export function stopMusic(): void {
@@ -84,4 +113,5 @@ export function stopMusic(): void {
   music.pause();
   music.currentTime = 0;
   music = null;
+  currentTrack = null;
 }

@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { click, play } from '../lib/audio';
 import {
-  CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy, type ChestSlot,
+  CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy,
+  type ChestDef, type ChestSlot,
 } from '../state/economy';
 
 /** One-second ticker, only while something is actually counting down. */
@@ -20,55 +22,143 @@ function fmtLeft(ms: number): string {
   return `${s}s`;
 }
 
-/** The chest itself — a lid, a body, a keyhole, and gold bands. */
+/** Generated chest art; bobs and glows once it is ready to open. */
 function ChestArt({ tier, size = 54, glow }: { tier: ChestSlot['tier']; size?: number; glow?: boolean }) {
-  const [hi, lo] = CHESTS[tier].colors;
+  return (
+    <>
+      <img
+        src={`/art/chest_${tier}.png`}
+        alt=""
+        aria-hidden
+        width={size}
+        height={size}
+        draggable={false}
+        style={{
+          display: 'block',
+          filter: glow
+            ? 'drop-shadow(0 0 12px rgba(255,214,102,.95)) drop-shadow(0 2px 4px rgba(0,0,0,.5))'
+            : 'drop-shadow(0 3px 5px rgba(0,0,0,.55))',
+          animation: glow ? 'chestBob 1.1s ease-in-out infinite' : undefined,
+        }}
+      />
+      <style>{'@keyframes chestBob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-5px) rotate(2deg)}}'}</style>
+    </>
+  );
+}
+
+/**
+ * The reward moment. A chest that shakes, bursts, and sprays its contents —
+ * this is the payoff the whole timer mechanic is selling, so it gets a full
+ * screen rather than a toast.
+ */
+function OpenCeremony({
+  def, onDone,
+}: { def: ChestDef; onDone: () => void }) {
+  const [phase, setPhase] = useState<'shake' | 'burst'>('shake');
+
+  useEffect(() => {
+    play('chestOpen');
+    const t1 = setTimeout(() => { setPhase('burst'); play('reward'); }, 700);
+    return () => clearTimeout(t1);
+  }, []);
+
+  const sparks = useMemo(
+    () => Array.from({ length: 22 }, (_, i) => ({
+      angle: (i / 22) * Math.PI * 2,
+      dist: 90 + ((i * 37) % 70),
+      delay: (i % 6) * 40,
+      size: 7 + ((i * 13) % 8),
+    })),
+    [],
+  );
+
   return (
     <div
-      aria-hidden
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${def.name} opened`}
+      onClick={onDone}
       style={{
-        width: size, height: size * 0.82, position: 'relative',
-        filter: glow ? 'drop-shadow(0 0 10px rgba(255,214,102,.95))' : 'drop-shadow(0 3px 4px rgba(0,0,0,.5))',
-        animation: glow ? 'chestBob 1.1s ease-in-out infinite' : undefined,
+        position: 'fixed', inset: 0, zIndex: 70,
+        background: 'radial-gradient(60% 45% at 50% 42%, rgba(255,214,102,.3), var(--scrim) 70%)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', gap: 18,
       }}
     >
-      {/* body */}
-      <div style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0, height: '58%',
-        background: `linear-gradient(180deg, ${hi}, ${lo})`,
-        border: '2.5px solid var(--ink)', borderRadius: '3px 3px 5px 5px',
-        boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45)',
-      }}
+      <style>{`
+        @keyframes chestShake{0%,100%{transform:rotate(-5deg) scale(1)}25%{transform:rotate(5deg) scale(1.04)}50%{transform:rotate(-6deg) scale(1)}75%{transform:rotate(6deg) scale(1.05)}}
+        @keyframes chestBurst{0%{transform:scale(.7);opacity:0}40%{transform:scale(1.18);opacity:1}100%{transform:scale(1);opacity:1}}
+        @keyframes sparkFly{0%{transform:translate(0,0) scale(.4);opacity:0}18%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(1);opacity:0}}
+        @keyframes rayspin{to{transform:rotate(360deg)}}
+      `}</style>
+
+      {/* light rays behind the burst */}
+      {phase === 'burst' && (
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute', width: 460, height: 460,
+            background: 'conic-gradient(from 0deg, rgba(255,226,138,.5) 0 6deg, transparent 6deg 30deg)',
+            animation: 'rayspin 9s linear infinite',
+            borderRadius: '50%', pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* sparks */}
+      {phase === 'burst' && sparks.map((s, i) => (
+        <span
+          key={i}
+          aria-hidden
+          style={{
+            position: 'absolute', width: s.size, height: s.size, borderRadius: '50%',
+            background: 'radial-gradient(circle at 34% 30%, #fff6d0, var(--gold) 62%, #b5820a)',
+            ['--dx' as string]: `${Math.cos(s.angle) * s.dist}px`,
+            ['--dy' as string]: `${Math.sin(s.angle) * s.dist}px`,
+            animation: `sparkFly 1100ms ${s.delay}ms cubic-bezier(.2,.7,.3,1) forwards`,
+          }}
+        />
+      ))}
+
+      <img
+        src={phase === 'burst' ? '/art/chest_open.png' : `/art/chest_${def.tier}.png`}
+        alt=""
+        aria-hidden
+        width={phase === 'burst' ? 210 : 150}
+        draggable={false}
+        style={{
+          animation: phase === 'shake'
+            ? 'chestShake 220ms linear infinite'
+            : 'chestBurst 520ms var(--ease-snap)',
+          filter: 'drop-shadow(0 0 26px rgba(255,214,102,.9))',
+        }}
       />
-      {/* lid */}
-      <div style={{
-        position: 'absolute', left: 0, right: 0, top: 0, height: '48%',
-        background: `linear-gradient(180deg, ${hi}, ${lo})`,
-        border: '2.5px solid var(--ink)',
-        borderRadius: `${size * 0.3}px ${size * 0.3}px 3px 3px`,
-        boxShadow: 'inset 0 3px 0 rgba(255,255,255,.55)',
-      }}
-      />
-      {/* gold band + keyhole */}
-      <div style={{
-        position: 'absolute', left: '38%', right: '38%', top: '30%', bottom: 0,
-        background: 'linear-gradient(180deg, var(--gold-hi), var(--gold))',
-        border: '2px solid var(--ink)', borderRadius: 2,
-      }}
-      />
-      <div style={{
-        position: 'absolute', left: '46%', right: '46%', top: '46%', height: '16%',
-        background: 'var(--ink)', borderRadius: 2,
-      }}
-      />
-      <style>{'@keyframes chestBob{0%,100%{transform:translateY(0) rotate(-1.5deg)}50%{transform:translateY(-4px) rotate(1.5deg)}}'}</style>
+
+      {phase === 'burst' && (
+        <>
+          <h2 className="display display--gold" style={{ fontSize: 34, textAlign: 'center' }}>
+            {def.name}
+          </h2>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <span className="well" style={{ padding: '9px 15px' }}>
+              <span className="display" style={{ fontSize: 19 }}>+{def.cards} cards</span>
+            </span>
+            <span className="well" style={{ padding: '9px 15px' }}>
+              <span className="display" style={{ fontSize: 19 }}>+{def.gems} 💎</span>
+            </span>
+          </div>
+          <p className="fine" style={{ color: 'var(--dim)' }}>tap to continue</p>
+        </>
+      )}
     </div>
   );
 }
 
-function Slot({ chest }: { chest: ChestSlot | null }) {
+function Slot({ chest, onOpened }: {
+  chest: ChestSlot | null;
+  onOpened: (def: ChestDef) => void;
+}) {
   const { startUnlock, skipUnlock, collect, gems } = useEconomy();
-  const [reward, setReward] = useState<string | null>(null);
 
   if (!chest) {
     return (
@@ -101,13 +191,12 @@ function Slot({ chest }: { chest: ChestSlot | null }) {
       }}
     >
       <ChestArt tier={chest.tier} size={44} glow={ready} />
-      {reward ? (
-        <span className="money" style={{ fontSize: 10 }}>{reward}</span>
-      ) : ready ? (
+      {ready ? (
         <button
           onClick={() => {
+            click();
             const got = collect(chest.id);
-            if (got) setReward(`+${got.cards} cards +${got.gems}💎`);
+            if (got) onOpened(got);
           }}
           style={{
             width: '100%', minHeight: 26, borderRadius: 7, fontSize: 10,
@@ -122,7 +211,7 @@ function Slot({ chest }: { chest: ChestSlot | null }) {
         </button>
       ) : chest.unlocking ? (
         <button
-          onClick={() => skipUnlock(chest.id)}
+          onClick={() => { click(); skipUnlock(chest.id); }}
           disabled={gems < cost}
           aria-label={`Skip ${fmtLeft(remaining)} for ${cost} gems`}
           style={{
@@ -136,7 +225,7 @@ function Slot({ chest }: { chest: ChestSlot | null }) {
         </button>
       ) : (
         <button
-          onClick={() => startUnlock(chest.id)}
+          onClick={() => { click(); startUnlock(chest.id); }}
           style={{
             width: '100%', minHeight: 26, borderRadius: 7, fontSize: 10,
             fontFamily: 'var(--font-display)',
@@ -156,6 +245,7 @@ function Slot({ chest }: { chest: ChestSlot | null }) {
 /** The chest rail — four slots, exactly like the games this borrows from. */
 export function ChestRail() {
   const chests = useEconomy((s) => s.chests);
+  const [opened, setOpened] = useState<ChestDef | null>(null);
   useTicker(chests.some((c) => c.unlocking && c.readyAt > Date.now()));
 
   const slots: (ChestSlot | null)[] = Array.from(
@@ -172,8 +262,11 @@ export function ChestRail() {
         </span>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 7 }}>
-        {slots.map((c, i) => <Slot key={c?.id ?? `empty_${i}`} chest={c} />)}
+        {slots.map((c, i) => (
+          <Slot key={c?.id ?? `empty_${i}`} chest={c} onOpened={setOpened} />
+        ))}
       </div>
+      {opened && <OpenCeremony def={opened} onDone={() => setOpened(null)} />}
     </section>
   );
 }
@@ -202,7 +295,7 @@ export function GemShop({ onClose }: { onClose: () => void }) {
         <div style={{ display: 'flex', alignItems: 'center' }}>
           <h2 className="display" style={{ fontSize: 24 }}>Gems</h2>
           <span className="money" style={{ marginLeft: 10, fontSize: 18 }}>{gems}💎</span>
-          <button onClick={onClose} aria-label="Close" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
+          <button onClick={() => { click(); onClose(); }} aria-label="Close" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
         </div>
         <p className="fine" style={{ color: 'var(--dim-on-wood)', marginTop: -6 }}>
           Gems skip chest timers, enter tournaments and buy cosmetics.
@@ -211,7 +304,7 @@ export function GemShop({ onClose }: { onClose: () => void }) {
         {GEM_BUNDLES.map((b) => (
           <button
             key={b.gems}
-            onClick={() => buyGems(b)}
+            onClick={() => { click(); buyGems(b); }}
             className="btn-3d"
             style={{
               display: 'flex', alignItems: 'center', gap: 10, minHeight: 52,

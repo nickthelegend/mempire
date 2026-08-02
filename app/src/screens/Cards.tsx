@@ -3,7 +3,7 @@ import { CardDetail } from '../components/CardDetail';
 import { CardFrame } from '../components/CardFrame';
 import { ChestRail, GemShop } from '../components/Chests';
 import { CoinBadge, LevelPips, Pill } from '../components/ui';
-import { COINS, ineligibleReason, type Coin } from '../lib/coins';
+import { COINS, ineligibleReason, tickerOf, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
@@ -58,13 +58,13 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={`Stake into ${coin.ticker}`}
+        aria-label={`Stake into ${tickerOf(coin)}`}
+        className="panel"
         style={{
           position: 'absolute', bottom: 0, width: 'min(100vw, 430px)',
-          background: 'var(--surface)', borderRadius: '22px 22px 0 0',
-          border: '1px solid var(--border)', borderBottom: 'none',
-          padding: '20px 18px calc(20px + env(safe-area-inset-bottom))',
-          display: 'flex', flexDirection: 'column', gap: 14, outline: 'none',
+          borderRadius: '22px 22px 0 0', borderBottom: 'none',
+          padding: '18px 16px calc(20px + env(safe-area-inset-bottom))',
+          display: 'flex', flexDirection: 'column', gap: 12, outline: 'none',
           animation: 'sheetUp 240ms var(--ease-snap)',
         }}
       >
@@ -72,27 +72,27 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <CoinBadge mint={card.mint} size={44} />
           <div>
-            <div style={{ fontWeight: 800 }}>{coin.ticker}</div>
+            <div className="display" style={{ fontSize: 19 }}>{tickerOf(coin)}</div>
             <LevelPips level={card.level} />
           </div>
           <button
             onClick={onClose}
             aria-label="Close"
-            style={{ marginLeft: 'auto', color: 'var(--dim)', fontSize: 24, width: 44, height: 44 }}
+            style={{ marginLeft: 'auto', color: 'var(--dim-on-wood)', fontSize: 26, width: 44, height: 44 }}
           >
             ×
           </button>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-          <div className="panel" style={{ padding: '10px 12px' }}>
+          <div className="well" style={{ padding: '9px 11px' }}>
             <div className="label" style={{ fontSize: 10 }}>Staked</div>
             <div className="money">{fmtUsd(card.stakedUsd)}</div>
             <div style={{ color: 'var(--dim)', fontSize: 11 }}>
-              {fmtTokens(card.stakedTokens)} {coin.ticker}
+              {fmtTokens(card.stakedTokens)} {tickerOf(coin)}
             </div>
           </div>
-          <div className="panel" style={{ padding: '10px 12px' }}>
+          <div className="well" style={{ padding: '9px 11px' }}>
             <div className="label" style={{ fontSize: 10 }}>Next level</div>
             <div style={{ fontWeight: 700 }}>
               {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
@@ -102,7 +102,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
 
         <div>
           <div className="label" style={{ marginBottom: 6 }}>
-            Stake more · <span className="money">{fmtUsd(available)}</span> of {coin.ticker} free
+            Stake more · <span className="money">{fmtUsd(available)}</span> of {tickerOf(coin)} free
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             {STAKE_CHIPS.map((v) => {
@@ -114,11 +114,19 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
                   aria-pressed={amount === v}
                   disabled={!affordable}
                   style={{
-                    flex: 1, minWidth: 0, ...TAP, borderRadius: 10, fontWeight: 700, fontSize: 13,
-                    background: amount === v ? 'var(--raised)' : 'transparent',
-                    border: amount === v ? '1px solid var(--purple)' : '1px solid var(--border)',
-                    color: !affordable ? 'var(--dim)' : amount === v ? 'var(--text)' : 'var(--dim)',
-                    opacity: affordable ? 1 : 0.45,
+                    flex: 1, minWidth: 0, ...TAP, borderRadius: 9,
+                    fontFamily: 'var(--font-display)', fontSize: 14,
+                    background: amount === v
+                      ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
+                      : 'rgba(6,16,38,.5)',
+                    border: '2px solid var(--ink)',
+                    boxShadow: amount === v
+                      ? 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)'
+                      : 'var(--bevel-in)',
+                    color: 'var(--text)',
+                    WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+                    filter: affordable ? 'none' : 'saturate(.3)',
+                    opacity: affordable ? 1 : 0.55,
                   }}
                 >
                   ${v}
@@ -142,11 +150,11 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         )}
 
         {error && (
-          <p role="alert" style={{ color: 'var(--red)', fontSize: 12.5, textAlign: 'center' }}>{error}</p>
+          <p role="alert" className="fine" style={{ color: '#ffb3c0', textAlign: 'center' }}>{error}</p>
         )}
 
         {cooling ? (
-          <p style={{ fontSize: 12, color: 'var(--dim)', textAlign: 'center' }}>
+          <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
             {fmtUsd(card.pendingUnstakeUsd)} unstaking — claimable in {remaining}s
             {' '}(72h on mainnet, {UNSTAKE_COOLDOWN_MS / 1000}s on this devnet demo)
           </p>
@@ -155,8 +163,8 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
             onClick={() => { requestUnstake(card.id, Math.min(amount, card.stakedUsd)); setError(null); }}
             disabled={card.stakedUsd === 0}
             style={{
-              ...TAP, fontSize: 13, textDecoration: 'underline',
-              color: card.stakedUsd === 0 ? 'var(--dim)' : 'var(--text)',
+              ...TAP, fontSize: 13, fontWeight: 700, textDecoration: 'underline',
+              color: card.stakedUsd === 0 ? 'var(--dim-on-wood)' : 'var(--text)',
               opacity: card.stakedUsd === 0 ? 0.5 : 1,
             }}
           >
@@ -185,7 +193,7 @@ function CoinRow({ coin }: { coin: Coin }) {
       <CoinBadge mint={coin.mint} size={40} />
       <div style={{ minWidth: 0 }}>
         <div style={{ fontWeight: 800, fontSize: 14 }}>
-          {coin.ticker}
+          {tickerOf(coin)}
           {owned > 0 && (
             <span style={{ color: 'var(--teal)', fontSize: 11, marginLeft: 6 }}>
               {owned} card{owned > 1 ? 's' : ''}

@@ -204,27 +204,57 @@ export function Units() {
       const dx = tx - lu.lastX;
       const dz = tz - lu.lastZ;
       const moving = dx * dx + dz * dz > 1e-7;
-      if (moving) lu.facing = Math.atan2(dx, dz);
+      if (moving) {
+        // turn toward travel rather than snapping, so corners read as a pivot
+        const want = Math.atan2(dx, dz);
+        let delta = want - lu.facing;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        lu.facing += delta * Math.min(1, dt * 12);
+      }
       lu.group.rotation.y = lu.facing;
       lu.lastX = tx; lu.lastZ = tz;
 
-      // march bob + sway while advancing; settle when holding position
-      lu.phase += dt * (moving ? 11 : 3.2);
-      const bob = moving ? Math.abs(Math.sin(lu.phase)) * 0.11 : Math.sin(lu.phase) * 0.02;
-      lu.body.position.y = bob;
-      lu.body.rotation.z = moving ? Math.sin(lu.phase * 0.5) * 0.09 : 0;
+      /*
+       * These meshes have no skeleton, so all life comes from here. A hop-march
+       * (rise, tilt into the step, squash on landing) reads as walking far
+       * better than a gentle bob does — the silhouette actually changes shape,
+       * which is what the eye reads as motion at this camera height.
+       */
+      const speed = moving ? 13 : 2.6;
+      lu.phase += dt * speed;
 
-      // attack: a forward lunge that retracts, retriggered each swing
+      if (moving) {
+        const hop = Math.abs(Math.sin(lu.phase));      // 0..1, two beats per cycle
+        const landing = Math.max(0, -Math.cos(lu.phase * 2)); // peaks at footfall
+        lu.body.position.y = hop * 0.19;
+        // squash on landing, stretch at the top of the hop
+        lu.body.scale.set(
+          1 + landing * 0.11 - hop * 0.04,
+          1 - landing * 0.13 + hop * 0.07,
+          1 + landing * 0.11 - hop * 0.04,
+        );
+        lu.body.rotation.z = Math.sin(lu.phase) * 0.15;   // rock side to side
+        lu.body.rotation.x = -0.09 - hop * 0.06;          // lean into the march
+      } else {
+        // idle breathing, so a waiting unit is never a statue
+        const breathe = Math.sin(lu.phase) * 0.5 + 0.5;
+        lu.body.position.y = breathe * 0.035;
+        lu.body.scale.set(1 + breathe * 0.018, 1 - breathe * 0.022, 1 + breathe * 0.018);
+        lu.body.rotation.z *= 0.85;
+        lu.body.rotation.x *= 0.85;
+      }
+
+      // attack: wind back, then snap forward and recoil
       if (u.state === 'attack' && lu.swing <= 0) lu.swing = SWING_TIME;
       if (lu.swing > 0) {
         lu.swing = Math.max(0, lu.swing - dt);
         const t = 1 - lu.swing / SWING_TIME;
-        const punch = Math.sin(t * Math.PI);
-        lu.body.position.z = punch * 0.34;
-        lu.body.rotation.x = -punch * 0.3;
-      } else {
-        lu.body.position.z *= 0.8;
-        lu.body.rotation.x *= 0.8;
+        // -1 winding up through 0 to +1 at full extension
+        const strike = t < 0.3 ? -(t / 0.3) * 0.4 : Math.sin(((t - 0.3) / 0.7) * Math.PI);
+        lu.body.position.z = strike * 0.42;
+        lu.body.rotation.x = -strike * 0.42;
+        lu.group.rotation.y = lu.facing + strike * 0.16; // shoulder into the blow
       }
 
       // spawn pop-in with overshoot, shockwave expanding away
@@ -245,16 +275,15 @@ export function Units() {
       // damage flash + squash
       if (u.hp < lu.lastHp) lu.hitFlash = HIT_FLASH;
       lu.lastHp = u.hp;
+      // Tint only — the walk cycle owns scale, so a flash must not fight it.
       if (lu.hitFlash > 0) {
         lu.hitFlash = Math.max(0, lu.hitFlash - dt);
         const f = lu.hitFlash / HIT_FLASH;
-        lu.body.scale.set(1 + f * 0.13, 1 - f * 0.13, 1 + f * 0.13);
         lu.group.traverse((o) => {
           const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-          if (m?.emissive) m.emissive.setRGB(0.85 * f, 0.06 * f, 0.14 * f);
+          if (m?.emissive) m.emissive.setRGB(0.9 * f, 0.06 * f, 0.14 * f);
         });
-      } else {
-        lu.body.scale.setScalar(1);
+        lu.body.scale.multiplyScalar(1 + f * 0.1);
       }
 
       const sigil = lu.group.getObjectByName('sigil') as THREE.Mesh | null;

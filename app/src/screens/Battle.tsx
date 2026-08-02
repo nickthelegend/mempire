@@ -451,7 +451,7 @@ export function Battle() {
                   >
                     <ArchetypeIcon archetype={card.archetype} size={11} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {card.name}
+                      ${card.name.replace(/^\$+/, '')}
                     </span>
                   </span>
                 </div>

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { ARCHETYPE_NAMES, type Archetype } from '../sim/types';
+import { click } from '../lib/audio';
 import { coinByMint } from '../lib/coins';
 
 type Tone = 'gold' | 'blue' | 'green' | 'red';
@@ -26,7 +27,7 @@ export function Pill({
   const flat = ghost || disabled;
   return (
     <button
-      onClick={onClick}
+      onClick={onClick ? () => { click(); onClick(); } : undefined}
       disabled={disabled}
       className="btn-3d"
       style={{

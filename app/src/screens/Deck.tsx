@@ -25,18 +25,19 @@ export function Deck() {
     <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <h1 className="display" style={{ fontSize: 30 }}>Deck</h1>
-        <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--dim)', alignItems: 'center' }}>
-          <span>{deck.active.length}/8</span>
-          <span className="mono">power {deck.power()}</span>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span className="label" style={{ fontSize: 11 }}>{deck.active.length}/8</span>
+          <span className="label" style={{ fontSize: 11, color: 'var(--gold-hi)' }}>power {deck.power()}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             <span
               aria-hidden
               style={{
                 width: 9, height: 9, borderRadius: '50%',
-                background: 'var(--grad-solana)', display: 'inline-block',
+                background: 'radial-gradient(circle at 34% 30%, #ff9cf5, var(--elixir))',
+                border: '1.5px solid var(--ink)', display: 'inline-block',
               }}
             />
-            avg {avgElixir}
+            <span className="label" style={{ fontSize: 11 }}>avg {avgElixir}</span>
           </span>
         </div>
       </header>
@@ -46,7 +47,7 @@ export function Deck() {
         className="panel"
         style={{
           padding: 12, display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8,
-          borderColor: deck.isComplete() ? 'rgba(20,241,149,.5)' : 'var(--border)',
+          borderColor: deck.isComplete() ? 'var(--teal)' : undefined,
         }}
       >
         {Array.from({ length: 8 }, (_, i) => {
@@ -60,9 +61,11 @@ export function Deck() {
               aria-label="Empty deck slot"
               style={{
                 width: '100%', aspectRatio: '3 / 4', borderRadius: 'var(--r-card)',
-                border: '1.5px dashed var(--border)',
+                border: '2.5px dashed rgba(255,255,255,.28)',
+                background: 'rgba(6,16,38,.4)',
+                boxShadow: 'var(--bevel-in)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: 'var(--dim)', fontSize: 20,
+                color: 'var(--dim)', fontSize: 22,
               }}
             >
               <span aria-hidden>+</span>
@@ -71,7 +74,7 @@ export function Deck() {
         })}
       </section>
       {!deck.isComplete() && (
-        <p style={{ fontSize: 12, color: 'var(--dim)', textAlign: 'center', marginTop: -10 }}>
+        <p className="fine" style={{ textAlign: 'center', marginTop: -6 }}>
           fill all 8 slots to battle — tap a card below
         </p>
       )}
@@ -79,8 +82,8 @@ export function Deck() {
       <section aria-label="collection">
         <div className="label" style={{ marginBottom: 8 }}>Collection · one card per coin</div>
         {bench.length === 0 ? (
-          <div className="panel" style={{ padding: 20, textAlign: 'center', color: 'var(--dim)', fontSize: 13 }}>
-            everything you own is already enlisted, ser
+          <div className="well" style={{ padding: 20, textAlign: 'center' }}>
+            <span className="fine">everything you own is already enlisted, ser</span>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>
@@ -101,11 +104,12 @@ export function Deck() {
                   {dupe && (
                     <span style={{
                       position: 'absolute', bottom: 6, left: 0, right: 0,
-                      fontSize: 9, textAlign: 'center', color: 'var(--red)',
-                      fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      fontSize: 9, textAlign: 'center', color: '#ffb3c0',
+                      fontWeight: 800, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      textShadow: '0 1px 2px rgba(6,16,38,.9)',
                     }}
                     >
-                      {coin?.ticker} in deck
+                      ${coin?.ticker} in deck
                     </span>
                   )}
                 </div>
