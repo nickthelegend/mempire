@@ -123,6 +123,32 @@ literals. DESIGN.md records each rule with the failure that produced it.
 4. **#6 tournaments** — 8% of every pool, and it scales without us operating it.
 5. **Ship it** — DEPLOY.md is the runbook; both hosts are one click from here.
 
+## The edge-case pass (what "production-ready" actually meant)
+
+The last hardening sweep was not features but the failure modes that decide
+whether real users keep their money and progress:
+
+- **Money lands exactly once.** Every abnormal PvP exit — opponent vanishing
+  before the start, cancel-after-matched, my own socket dying mid-battle, a
+  malformed opponent deck — now refunds or settles the escrow exactly once.
+  Before, two of those paths double-charged and one let a single pot pay out
+  on both clients.
+- **Progress survives reloads.** Gems, the chest rail (absolute timestamps, so
+  timers keep running while away), the day's shop and all three deck slots
+  persist; saves skip mid-match so a refresh can never freeze a stake out of
+  existence.
+- **Migrations cannot crash returning players.** Retired-mint cards are pruned
+  on load, decks self-repair, and a deck that still cannot fight produces a
+  sentence, not a stack trace.
+- **Background tabs don't stall matches.** Bot and human matches both pace
+  against the wall clock; a hidden tab lags and fast-forwards on return.
+- **The server assumes hostility.** Deck payloads validated at the sender's
+  door, input relay rate-capped per socket, mutating HTTP routes rate-limited
+  per IP, every stored number clamped, match rooms swept after a TTL.
+- **Boundaries don't leak.** No formatter can render NaN; a dead RPC is a
+  tappable retry, not a permanent red dot; a live badge never sits above a
+  simulated purchase without saying so.
+
 ## Known limits, stated plainly
 
 - **The program is live on devnet and mint/stake/unstake are real wallet-signed
