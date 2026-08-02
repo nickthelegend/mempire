@@ -7,6 +7,7 @@ import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
 import { COINS, ineligibleReason, tickerOf, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
+import { revealSection } from '../lib/scroll';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
 import { useEconomy } from '../state/economy';
 import { useWallet } from '../state/wallet';
@@ -209,6 +210,7 @@ function CoinRow({ coin }: { coin: Coin }) {
             style={{
               display: 'inline-block', padding: '5px 8px', fontSize: 12,
               fontWeight: 700, color: 'var(--red-on-wood)', maxWidth: 116,
+              textAlign: 'center', lineHeight: 1.25,
             }}
           >
             {reason}
@@ -323,7 +325,7 @@ export function Cards() {
             </span>
             <Pill
               tone="blue"
-              onClick={() => bagsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              onClick={() => revealSection(bagsRef.current)}
               style={{ maxWidth: 220, fontSize: 15, minHeight: 46, padding: '10px 18px' }}
             >
               Show my bags

@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react';
 import { CardFrame } from '../components/CardFrame';
 import { click } from '../lib/audio';
 import { COINS } from '../lib/coins';
+import { revealSection } from '../lib/scroll';
 import { ARCHETYPES } from '../sim/archetypes';
 import { useCollection } from '../state/collection';
 import { DECK_SLOTS, useDeck } from '../state/deck';
@@ -94,7 +95,7 @@ export function Deck() {
             // collection, which is the only place the slot can actually be filled.
             <button
               key={`empty_${i}`}
-              onClick={() => { click(); benchRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+              onClick={() => { click(); revealSection(benchRef.current); }}
               aria-label="Empty deck slot — pick a card from your collection"
               className="btn-3d"
               style={{
