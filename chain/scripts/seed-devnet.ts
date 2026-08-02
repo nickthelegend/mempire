@@ -37,12 +37,61 @@ const COINS = [
 const DECIMALS = 6;
 const SUPPLY_TO_ADMIN = 10_000_000_000n * 10n ** BigInt(DECIMALS); // 10B tokens
 
+/**
+ * Whichever keypair the CLI is actually configured with — hardcoding id.json
+ * meant this script signed as an account that may not exist, let alone be funded.
+ * ANCHOR_WALLET wins so CI can point it anywhere.
+ */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Four transactions per coin on a shared public RPC. Patience beats a 429. */
+const SEED_DELAY_MS = Number(process.env.SEED_DELAY_MS ?? 6000);
+
+/** Reads a previous partial seed so a rate-limited run can be resumed. */
+function readSeed(path: string): Record<string, unknown>[] {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    return Array.isArray(parsed.coins) ? parsed.coins : [];
+  } catch { return []; }
+}
+
+/** 429 is the expected failure here, not an exceptional one. Back off and retry. */
+async function withRetry(label: string, fn: () => Promise<void>, attempts = 5): Promise<void> {
+  for (let i = 1; i <= attempts; i += 1) {
+    try { await fn(); return; } catch (e) {
+      const msg = (e as Error).message ?? '';
+      if (i === attempts || !/429|Too many requests|timed out|blockhash/i.test(msg)) throw e;
+      const wait = 3000 * i;
+      console.warn(`${label}: ${msg.slice(0, 60)} — retry ${i}/${attempts - 1} in ${wait}ms`);
+      await sleep(wait);
+    }
+  }
+}
+
+function adminKeypairPath(): string {
+  if (process.env.ANCHOR_WALLET) return process.env.ANCHOR_WALLET;
+  const cfg = join(homedir(), '.config/solana/cli/config.yml');
+  try {
+    const m = readFileSync(cfg, 'utf8').match(/keypair_path:\s*(.+)/);
+    if (m) return m[1].trim().replace(/^~/, homedir());
+  } catch { /* fall through to the default below */ }
+  return join(homedir(), '.config/solana/id.json');
+}
+
 async function main() {
   const rpc = process.env.RPC_URL ?? 'https://api.devnet.solana.com';
-  const connection = new Connection(rpc, 'confirmed');
-  const admin = Keypair.fromSecretKey(
-    Uint8Array.from(JSON.parse(readFileSync(join(homedir(), '.config/solana/id.json'), 'utf8'))),
-  );
+  // The public devnet RPC 429s on the websocket subscription that
+  // confirmTransaction opens, and that rejection arrives outside the awaited
+  // call — so it killed the process even though the retry wrapper was in place.
+  // Long polling timeout + a top-level guard keeps a stray one from ending the run.
+  const connection = new Connection(rpc, {
+    commitment: 'confirmed',
+    confirmTransactionInitialTimeout: 120_000,
+  });
+  process.on('unhandledRejection', (e) => {
+    console.warn('ignored stray rejection:', String((e as Error)?.message ?? e).slice(0, 70));
+  });
+  const admin = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(adminKeypairPath(), 'utf8'))));
   console.log('admin:', admin.publicKey.toBase58());
 
   const balance = await connection.getBalance(admin.publicKey);
@@ -92,48 +141,66 @@ async function main() {
     console.log('config exists:', configPda.toBase58());
   }
 
-  // 2. mints + registration
-  const out: Record<string, unknown>[] = [];
+  // 2. mints + registration.
+  // The public devnet RPC rate-limits hard (429) partway through twelve coins,
+  // so this resumes from whatever the last run already wrote and flushes after
+  // every coin. Re-running until it prints "seed complete" is the intended flow.
+  const outPath = join(__dirname, '../../app/src/lib/devnet-coins.json');
+  const prior = readSeed(outPath);
+  const done = new Map(prior.map((c) => [c.ticker as string, c]));
   const now = Math.floor(Date.now() / 1000);
+
+  const flush = (coins: Record<string, unknown>[]) => {
+    writeFileSync(outPath, `${JSON.stringify({
+      cluster: 'devnet',
+      programId: program.programId.toBase58(),
+      config: configPda.toBase58(),
+      admin: admin.publicKey.toBase58(),
+      seededAt: now,
+      coins,
+    }, null, 2)}\n`);
+  };
+
   for (const c of COINS) {
-    const mint = await createMint(connection, admin, admin.publicKey, null, DECIMALS);
-    const ata = await getOrCreateAssociatedTokenAccount(connection, admin, mint, admin.publicKey);
-    await mintTo(connection, admin, mint, ata.address, admin, SUPPLY_TO_ADMIN);
+    if (done.has(c.ticker)) { console.log(`${c.ticker.padEnd(9)} (already seeded)`); continue; }
 
     const firstSeen = now - c.ageDays * 86_400;
     const priceMicro = Math.round(c.priceUsd * 1_000_000);
-    await program.methods
-      .registerCoin(
-        new anchor.BN(c.liquidityUsd),
-        new anchor.BN(priceMicro),
-        new anchor.BN(firstSeen),
-      )
-      .accounts({ mint, admin: admin.publicKey })
-      .rpc();
+    await withRetry(c.ticker, async () => {
+      const mint = await createMint(connection, admin, admin.publicKey, null, DECIMALS);
+      const ata = await getOrCreateAssociatedTokenAccount(connection, admin, mint, admin.publicKey);
+      await mintTo(connection, admin, mint, ata.address, admin, SUPPLY_TO_ADMIN);
+      await program.methods
+        .registerCoin(
+          new anchor.BN(c.liquidityUsd),
+          new anchor.BN(priceMicro),
+          new anchor.BN(firstSeen),
+        )
+        .accounts({ mint, admin: admin.publicKey })
+        .rpc();
 
-    console.log(`${c.ticker.padEnd(9)} ${mint.toBase58()}`);
-    out.push({
-      mint: mint.toBase58(),
-      ticker: c.ticker,
-      name: c.name,
-      hue: c.hue,
-      priceUsd: c.priceUsd,
-      liquidityUsd: c.liquidityUsd,
-      firstSeen,
-      decimals: DECIMALS,
+      console.log(`${c.ticker.padEnd(9)} ${mint.toBase58()}`);
+      done.set(c.ticker, {
+        mint: mint.toBase58(),
+        ticker: c.ticker,
+        name: c.name,
+        hue: c.hue,
+        priceUsd: c.priceUsd,
+        liquidityUsd: c.liquidityUsd,
+        firstSeen,
+        decimals: DECIMALS,
+      });
+      // ordered by COINS so the file is stable across resumes
+      flush(COINS.map((k) => done.get(k.ticker)).filter(Boolean) as Record<string, unknown>[]);
     });
+    await sleep(SEED_DELAY_MS); // stay under the public RPC's per-call ceiling
   }
 
-  const outPath = join(__dirname, '../../app/src/lib/devnet-coins.json');
-  writeFileSync(outPath, JSON.stringify({
-    cluster: 'devnet',
-    programId: program.programId.toBase58(),
-    config: configPda.toBase58(),
-    admin: admin.publicKey.toBase58(),
-    seededAt: now,
-    coins: out,
-  }, null, 2));
-  console.log('\nwrote', outPath);
+  flush(COINS.map((k) => done.get(k.ticker)).filter(Boolean) as Record<string, unknown>[]);
+  console.log(`\nwrote ${outPath}`);
+  console.log(done.size === COINS.length
+    ? 'seed complete.'
+    : `seed partial: ${done.size}/${COINS.length} — re-run to continue.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

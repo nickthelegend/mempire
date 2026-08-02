@@ -1,0 +1,129 @@
+{
+  "cluster": "devnet",
+  "programId": "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP",
+  "config": "E8M2mfPwxD7xoSDCujWVtNzbUt6TEKim2xUFnVMsAN4b",
+  "admin": "3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5",
+  "seededAt": 1785365133,
+  "coins": [
+    {
+      "mint": "CRtaVFmsfBG2rAQiTyoGRokjWWEabgLrT1KLcfMGJppy",
+      "ticker": "DOGGO",
+      "name": "Doggo",
+      "hue": 38,
+      "priceUsd": 0.000082,
+      "liquidityUsd": 410000,
+      "firstSeen": 1777848203,
+      "decimals": 6
+    },
+    {
+      "mint": "4y7i1wKoZxtBGnBRuTKhGcj5jTB4wqLfVxXFSHN1QRNg",
+      "ticker": "WIFHAT",
+      "name": "Dog Wif Hat",
+      "hue": 320,
+      "priceUsd": 0.0021,
+      "liquidityUsd": 890000,
+      "firstSeen": 1766357003,
+      "decimals": 6
+    },
+    {
+      "mint": "H7kH6czE6qBrejRgsnFDYWW9dsb6mnWsFKQcB8counug",
+      "ticker": "POPKAT",
+      "name": "Popkat",
+      "hue": 265,
+      "priceUsd": 0.00034,
+      "liquidityUsd": 260000,
+      "firstSeen": 1771368203,
+      "decimals": 6
+    },
+    {
+      "mint": "6vJ7XrHqAWF47V3NjVzvJ316cBvsAYnD5417WWiENfNv",
+      "ticker": "PENG",
+      "name": "Peng",
+      "hue": 205,
+      "priceUsd": 0.00095,
+      "liquidityUsd": 175000,
+      "firstSeen": 1780353803,
+      "decimals": 6
+    },
+    {
+      "mint": "9WZTEzkYzCZDhc8vGRdfcUU6GP6rUDtR4h32AyReHNSz",
+      "ticker": "FRG",
+      "name": "Frog",
+      "hue": 130,
+      "priceUsd": 0.00012,
+      "liquidityUsd": 96000,
+      "firstSeen": 1757285003,
+      "decimals": 6
+    },
+    {
+      "mint": "AhczW9y8nF3q6Mg8L4biXxfop1w5hh8sF3MNgMexFXBs",
+      "ticker": "MOONCAT",
+      "name": "Mooncat",
+      "hue": 52,
+      "priceUsd": 0.00048,
+      "liquidityUsd": 71000,
+      "firstSeen": 1782168203,
+      "decimals": 6
+    },
+    {
+      "mint": "8XhZjuxMbNsoTp7KuVpcpi1DidsTqSzpGqBB2m6JpcfM",
+      "ticker": "RKT",
+      "name": "Rocket",
+      "hue": 12,
+      "priceUsd": 0.0013,
+      "liquidityUsd": 154000,
+      "firstSeen": 1776033803,
+      "decimals": 6
+    },
+    {
+      "mint": "8J55o3Nd7nnfaW3XqBEbtY9nj4CcrXQtgSaqLXPTV8ZG",
+      "ticker": "CHAD",
+      "name": "Chad",
+      "hue": 350,
+      "priceUsd": 0.0044,
+      "liquidityUsd": 330000,
+      "firstSeen": 1768430733,
+      "decimals": 6
+    },
+    {
+      "mint": "5VYi5nkXb2Eu8sB2GknEHLRziBESRqq9sxKTjYcqKjGr",
+      "ticker": "GMI",
+      "name": "Gonna Make It",
+      "hue": 88,
+      "priceUsd": 0.00019,
+      "liquidityUsd": 59000,
+      "firstSeen": 1778539533,
+      "decimals": 6
+    },
+    {
+      "mint": "4Vq2trGxjrcs9HXGSHwTm31pAMVi2zYjvU5fncTakRo5",
+      "ticker": "SER",
+      "name": "Ser",
+      "hue": 228,
+      "priceUsd": 0.00061,
+      "liquidityUsd": 88000,
+      "firstSeen": 1774219533,
+      "decimals": 6
+    },
+    {
+      "mint": "4zrJPYu86ptpWVE3tYZSJHrhZNLH6ZcGmTsBHZFUF7fC",
+      "ticker": "BBWHALE",
+      "name": "Baby Whale",
+      "hue": 190,
+      "priceUsd": 0.0008,
+      "liquidityUsd": 140000,
+      "firstSeen": 1785365133,
+      "decimals": 6
+    },
+    {
+      "mint": "GE5uRiG1WZtZG46kiwPgMuvGWgCAfHnsDnvFWaKq2aXw",
+      "ticker": "RUGPROOF",
+      "name": "Rugproof",
+      "hue": 28,
+      "priceUsd": 0.000031,
+      "liquidityUsd": 8200,
+      "firstSeen": 1766702733,
+      "decimals": 6
+    }
+  ]
+}

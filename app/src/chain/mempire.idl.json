@@ -1,0 +1,1575 @@
+{
+  "address": "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP",
+  "metadata": {
+    "name": "mempire",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Mempire — meme coin card battler on Solana"
+  },
+  "instructions": [
+    {
+      "name": "claim_timeout",
+      "docs": [
+        "If the opponent vanishes, the present player claims after the deadline.",
+        "Permissionless once a further grace period passes, so pots never lock."
+      ],
+      "discriminator": [
+        130,
+        234,
+        45,
+        53,
+        120,
+        90,
+        86,
+        178
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "claimer",
+          "signer": true
+        },
+        {
+          "name": "winner_account",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_unstake",
+      "docs": [
+        "Two-step unstake, step 2: after the cooldown, tokens return to the",
+        "owner minus the unstake fee (fee tokens go to the treasury's ATA)."
+      ],
+      "discriminator": [
+        172,
+        113,
+        117,
+        178,
+        223,
+        245,
+        247,
+        118
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "owner_tokens",
+          "writable": true
+        },
+        {
+          "name": "treasury_tokens",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_match",
+      "docs": [
+        "Player 0 opens a match at a tier, escrowing the stake in the match PDA.",
+        "The 8 deck cards ride in `remaining_accounts` and are validated and",
+        "locked here — ownership, one card per coin, and the power score."
+      ],
+      "discriminator": [
+        107,
+        2,
+        184,
+        145,
+        70,
+        142,
+        17,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.next_match_id",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "tier",
+          "type": "u8"
+        },
+        {
+          "name": "stake_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "deck_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "init_config",
+      "discriminator": [
+        23,
+        235,
+        115,
+        232,
+        168,
+        96,
+        1,
+        231
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "treasury"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "mint_fee_lamports",
+          "type": "u64"
+        },
+        {
+          "name": "rake_bps",
+          "type": "u16"
+        },
+        {
+          "name": "tie_rake_bps",
+          "type": "u16"
+        },
+        {
+          "name": "unstake_fee_bps",
+          "type": "u16"
+        },
+        {
+          "name": "unstake_cooldown_secs",
+          "type": "i64"
+        },
+        {
+          "name": "match_timeout_secs",
+          "type": "i64"
+        },
+        {
+          "name": "min_age_secs",
+          "type": "i64"
+        },
+        {
+          "name": "power_band",
+          "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "join_match",
+      "docs": [
+        "Player 1 joins: same stake, deck validated + locked, bracket checked."
+      ],
+      "discriminator": [
+        244,
+        8,
+        47,
+        130,
+        192,
+        59,
+        179,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "deck_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "mint_card",
+      "docs": [
+        "Mint a card from a coin the player holds. The eligibility gate lives",
+        "here: liquidity floor + coin age. Fee goes to the treasury."
+      ],
+      "discriminator": [
+        58,
+        198,
+        225,
+        36,
+        193,
+        210,
+        202,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin_info",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin_info.mint",
+                "account": "CoinInfo"
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.next_card_id",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_tokens"
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "register_coin",
+      "docs": [
+        "Devnet mock oracle: the admin registers a coin with its liquidity and",
+        "price. Mainnet replaces this with Jupiter/Pyth-fed data."
+      ],
+      "discriminator": [
+        79,
+        37,
+        188,
+        46,
+        209,
+        104,
+        90,
+        10
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "liquidity_usd",
+          "type": "u64"
+        },
+        {
+          "name": "price_micro_usd",
+          "type": "u64"
+        },
+        {
+          "name": "first_seen_ts",
+          "type": "i64"
+        }
+      ]
+    },
+    {
+      "name": "request_unstake",
+      "docs": [
+        "Two-step unstake, step 1: lock the amount and start the cooldown.",
+        "Level drops immediately — no battling on power you're withdrawing."
+      ],
+      "discriminator": [
+        44,
+        154,
+        110,
+        253,
+        160,
+        202,
+        54,
+        34
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "card"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_tokens",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "set_price",
+      "discriminator": [
+        16,
+        19,
+        182,
+        8,
+        149,
+        83,
+        72,
+        181
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "coin_info",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin_info.mint",
+                "account": "CoinInfo"
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "liquidity_usd",
+          "type": "u64"
+        },
+        {
+          "name": "price_micro_usd",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "settle",
+      "docs": [
+        "Settlement: both players sign the same final state hash (the lockstep",
+        "sim's last checkpoint). Winner takes pot minus rake; a draw splits it.",
+        "The ER-delegated input log is the next hardening step; dual signatures",
+        "already prevent either side from settling unilaterally."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player_a",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "player_b",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "final_hash",
+          "type": "u64"
+        },
+        {
+          "name": "winner",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "stake",
+      "docs": [
+        "Stake coin tokens into the card's vault. USD value snapshots at the",
+        "current oracle price — levels never flicker with the market."
+      ],
+      "discriminator": [
+        206,
+        176,
+        202,
+        18,
+        200,
+        209,
+        179,
+        108
+      ],
+      "accounts": [
+        {
+          "name": "coin_info",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  105,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "coin_info.mint",
+                "account": "CoinInfo"
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "vault_authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "owner_tokens",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_tokens",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Card",
+      "discriminator": [
+        166,
+        250,
+        46,
+        230,
+        152,
+        63,
+        140,
+        182
+      ]
+    },
+    {
+      "name": "CoinInfo",
+      "discriminator": [
+        3,
+        10,
+        26,
+        42,
+        242,
+        14,
+        186,
+        231
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "MatchAccount",
+      "discriminator": [
+        235,
+        36,
+        243,
+        39,
+        81,
+        16,
+        144,
+        87
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "CardMinted",
+      "discriminator": [
+        239,
+        123,
+        46,
+        17,
+        150,
+        74,
+        63,
+        30
+      ]
+    },
+    {
+      "name": "MatchCreated",
+      "discriminator": [
+        151,
+        176,
+        11,
+        24,
+        34,
+        225,
+        227,
+        16
+      ]
+    },
+    {
+      "name": "MatchSettled",
+      "discriminator": [
+        243,
+        201,
+        134,
+        151,
+        193,
+        131,
+        223,
+        150
+      ]
+    },
+    {
+      "name": "Staked",
+      "discriminator": [
+        11,
+        146,
+        45,
+        205,
+        230,
+        58,
+        213,
+        240
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "FeeTooHigh",
+      "msg": "fee exceeds allowed maximum"
+    },
+    {
+      "code": 6001,
+      "name": "CoinNotEligible",
+      "msg": "coin does not meet the liquidity floor"
+    },
+    {
+      "code": 6002,
+      "name": "CoinTooYoung",
+      "msg": "coin is younger than the minimum age"
+    },
+    {
+      "code": 6003,
+      "name": "NoHoldings",
+      "msg": "wallet holds none of this coin"
+    },
+    {
+      "code": 6004,
+      "name": "ZeroAmount",
+      "msg": "amount must be greater than zero"
+    },
+    {
+      "code": 6005,
+      "name": "CardLocked",
+      "msg": "card is locked in a match or cooldown"
+    },
+    {
+      "code": 6006,
+      "name": "UnstakePending",
+      "msg": "an unstake is already pending"
+    },
+    {
+      "code": 6007,
+      "name": "NothingToClaim",
+      "msg": "nothing to claim"
+    },
+    {
+      "code": 6008,
+      "name": "CooldownActive",
+      "msg": "unstake cooldown still active"
+    },
+    {
+      "code": 6009,
+      "name": "BadDeck",
+      "msg": "deck must be exactly 8 owned, unlocked cards"
+    },
+    {
+      "code": 6010,
+      "name": "NotCardOwner",
+      "msg": "card not owned by player"
+    },
+    {
+      "code": 6011,
+      "name": "DuplicateCoin",
+      "msg": "deck may contain each coin only once"
+    },
+    {
+      "code": 6012,
+      "name": "BadMatchState",
+      "msg": "match is not in the required state"
+    },
+    {
+      "code": 6013,
+      "name": "SelfMatch",
+      "msg": "cannot battle yourself"
+    },
+    {
+      "code": 6014,
+      "name": "PowerMismatch",
+      "msg": "deck power outside the tier band"
+    },
+    {
+      "code": 6015,
+      "name": "BadWinner",
+      "msg": "invalid winner value"
+    },
+    {
+      "code": 6016,
+      "name": "NotAPlayer",
+      "msg": "signer is not a match player"
+    },
+    {
+      "code": 6017,
+      "name": "TooEarly",
+      "msg": "deadline has not passed"
+    }
+  ],
+  "types": [
+    {
+      "name": "Card",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "coin_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "archetype",
+            "type": "u8"
+          },
+          {
+            "name": "staked_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "staked_micro_usd",
+            "type": "u64"
+          },
+          {
+            "name": "level",
+            "type": "u8"
+          },
+          {
+            "name": "pending_unstake_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "unstake_ready_at",
+            "type": "i64"
+          },
+          {
+            "name": "in_match",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CardMinted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "card",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "archetype",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CoinInfo",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "liquidity_usd",
+            "type": "u64"
+          },
+          {
+            "name": "price_micro_usd",
+            "type": "u64"
+          },
+          {
+            "name": "first_seen_ts",
+            "type": "i64"
+          },
+          {
+            "name": "decimals",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "rake_bps",
+            "type": "u16"
+          },
+          {
+            "name": "tie_rake_bps",
+            "type": "u16"
+          },
+          {
+            "name": "unstake_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "unstake_cooldown_secs",
+            "type": "i64"
+          },
+          {
+            "name": "match_timeout_secs",
+            "type": "i64"
+          },
+          {
+            "name": "min_age_secs",
+            "type": "i64"
+          },
+          {
+            "name": "power_band",
+            "type": "u32"
+          },
+          {
+            "name": "next_card_id",
+            "type": "u64"
+          },
+          {
+            "name": "next_match_id",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "deck_hash",
+            "type": {
+              "array": [
+                {
+                  "array": [
+                    "u8",
+                    32
+                  ]
+                },
+                2
+              ]
+            }
+          },
+          {
+            "name": "power",
+            "type": {
+              "array": [
+                "u32",
+                2
+              ]
+            }
+          },
+          {
+            "name": "state",
+            "type": "u8"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "deadline",
+            "type": "i64"
+          },
+          {
+            "name": "winner",
+            "type": "u8"
+          },
+          {
+            "name": "final_hash",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "winner",
+            "type": "u8"
+          },
+          {
+            "name": "final_hash",
+            "type": "u64"
+          },
+          {
+            "name": "rake",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Staked",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "card",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount_tokens",
+            "type": "u64"
+          },
+          {
+            "name": "staked_micro_usd",
+            "type": "u64"
+          },
+          {
+            "name": "level",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}
