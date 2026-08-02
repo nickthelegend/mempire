@@ -35,9 +35,9 @@ app/    Vite + React + TS + React Three Fiber + Zustand
         └─ src/sim      deterministic lockstep engine: fixed-point i32 (1/1024),
                         20 ticks/s, 3min + 60s OT, xorshift RNG, FNV-1a state
                         hash every 40 ticks, 2-tick input delay, bot opponent
-        └─ src/three    3D arena + generated chibi units driven by procedural
-                        motion (hop-march, idle breath, attack lunge), tower
-                        projectiles, spawn shockwaves, damage flashes
+        └─ src/three    Clash-style arena (checkered grass, wood frame, river,
+                        scenery) + rigged chibi units with real skeletal
+                        animation, stone towers with tracking cannons
         └─ src/screens  Arena / Cards / Deck / Empire / Battle (mobile column)
         └─ src/state    collection · deck · match · economy (gems, chests) · sync
         └─ public/art   logo, 12 coin logos, 6 crests, 4 tab icons, 4 chests
@@ -115,18 +115,16 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Devnet seed script (12 coins, mock oracle, eligibility gate demo)
 - [x] Official Solana wallet adapters with real logos
 - [x] Chests, Gems, card inspector with live pump.fun market data
-- [x] MongoDB persistence, model compression (46MB → 1.4MB), loading screen
+- [x] MongoDB persistence, model compression (46MB → 1.7MB), loading screen
+- [x] Rigged animated units, Clash-grade arena, daily Shop, practice mode
 - [ ] Wire app stores to the deployed program
 - [ ] Daily Shop, tournaments, coin sponsorship (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
 - [ ] Bubblegum cNFT mint layer over card PDAs
-- [ ] Skeletal unit animation (meshes are static; motion is procedural)
 - [ ] Fusion, battle pass, cosmetics, 2v2
 
 ## Known limits, stated plainly
 
-- Units move convincingly but nothing articulates — the auto-rigger is
-  humanoid-only and fails on animal silhouettes. See `ROADMAP.md` #41.
 - The economy is simulated on devnet. The program that would make it real exists
   and compiles, but is undeployed (needs ~3.5 devnet SOL).
 - One human cannot yet play another. The bot runs the same simulation.

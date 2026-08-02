@@ -24,10 +24,14 @@ SOL is moving.
 | Money | `.money` | Display face, gold, dark stroke, always `nowrap`. |
 | Elixir | `--elixir` | Magenta. Never gold — gold is money only. |
 
-**Legibility law.** Every glyph sits on a busy patterned field, so body copy
-carries a text shadow, `.fine` never drops below 12px, and text on wood uses
-`--dim-on-wood` rather than the blue `--dim`. Secondary text that sinks into the
-background is a bug, not a style.
+**Legibility law.** **12px is the floor for every readable string**, enforced in
+`tokens.css` rather than left to each call site. On a patterned field, smaller is
+not "small text" — it is invisible text. Body copy carries a shadow, text on wood
+uses `--dim-on-wood` rather than the blue `--dim`, and `.mono` keeps its parent's
+size (tighter tracking instead of a smaller size, because shrinking it dragged
+nested strings under the floor). Card frames derive type size from card width, so
+those minimums are floored too. Only purely decorative glyphs may go smaller, and
+only when an `aria-label` carries the meaning instead.
 
 **Bevel law.** Nothing interactive is a flat rectangle. Raised things get a top
 highlight plus a hard base edge; pressed things translate into that edge.
@@ -141,5 +145,11 @@ autoplay rejection. Music starts on match start and stops on settle or dismiss.
   teal when legal, red on the enemy half. A tap arms the card as a keyboard/fallback path.
 - A felled tower plays a crown, a sound, and a screen shock. The shock is driven by
   `element.animate()` on a ref — never by remounting, which would drop the WebGL context.
-- Units pop in with a scale overshoot and an expanding shockwave; they flash red on damage
-  and shrink out on death. Per-unit cloned materials are disposed on death and unmount.
+- Units are **rigged** (KayKit CC0 chibi) and driven by a real AnimationMixer:
+  Idle, Walk, Attack, Hit and Death, cross-faded on state change. A genuine rig
+  beats prettier static geometry here — the eye reads limbs moving.
+- Units are scaled well above their collision footprint on purpose. At this
+  camera height a physically honest unit is a dot, and knowing who is on the
+  field matters more.
+- Per-unit cloned materials are disposed on death and unmount. Shared geometries
+  are never disposed in an effect cleanup — StrictMode double-invokes it in dev.
