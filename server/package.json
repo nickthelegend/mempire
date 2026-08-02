@@ -1,0 +1,14 @@
+{
+  "name": "mempire-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=.env index.js",
+    "start": "node --env-file=.env index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "mongodb": "^6.13.0"
+  }
+}
