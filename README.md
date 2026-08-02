@@ -135,7 +135,8 @@ one thing: SOL is moving. One centered 430px column, arcade-cabinet on desktop.
 Verified at 320/375/430px: no readable string under 12px, no touch target under
 44px, no horizontal overflow.
 Full authority in `DESIGN.md`; product truth in `PRODUCT.md`; the monetization
-argument in `FEATURES.md`; the 50-item build plan in `ROADMAP.md`.
+argument in `FEATURES.md`; the 50-item build plan in `ROADMAP.md`; what comes
+after the deadline in `AFTER_HACKATHON.md`.
 
 Art and audio are generated through the Higgsfield CLI and committed:
 `design/gen.sh` (images), `design/gen-audio.sh` (sound), `design/slice.py`
