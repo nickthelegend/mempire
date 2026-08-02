@@ -258,9 +258,13 @@ async function main() {
 
   flush(COINS.map((k) => done.get(k.ticker)).filter(Boolean) as Record<string, unknown>[]);
   console.log(`\nwrote ${outPath}`);
-  console.log(done.size === COINS.length
-    ? 'seed complete.'
-    : `seed partial: ${done.size}/${COINS.length} — re-run to continue.`);
+  // Count what is actually in the registry, not the resume map: the map also
+  // holds tickers from earlier runs that are no longer in COINS, which made a
+  // finished seed report itself as "76/66 partial".
+  const written = COINS.filter((k) => done.has(k.ticker)).length;
+  console.log(written === COINS.length
+    ? `seed complete — ${written} assets.`
+    : `seed partial: ${written}/${COINS.length} — re-run to continue.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

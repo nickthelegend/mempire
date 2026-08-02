@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { LeagueBadge, TrophyDelta } from '../components/LeagueBadge';
 import { RollupBadge } from '../components/RollupBadge';
-import { ArchetypeIcon, CoinBadge, MoneyRow, Pill } from '../components/ui';
+import { CardArtWell } from '../components/CardFrame';
+import { ArchetypeIcon, MoneyRow, Pill } from '../components/ui';
 import { buzz, isMuted, setMuted } from '../lib/audio';
 import { fmtClock, fmtSol } from '../lib/format';
 import { EASE_SNAP, prefersReducedMotion } from '../lib/motion';
@@ -266,7 +267,12 @@ function HandCard({
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
       }}
       >
-        <CoinBadge mint={card.coinId} size={42} />
+        {/* The fighter, not a token. At hand size the portrait is the fastest
+            way to tell four cards apart under time pressure — a row of round
+            badges all read as "a coin" and forced the player onto the label. */}
+        <div style={{ position: 'relative', width: '100%', aspectRatio: '1 / 1' }}>
+          <CardArtWell mint={card.coinId} radius={6} badgeSize={34} />
+        </div>
         <span style={{
           fontFamily: 'var(--font-display)', fontSize: 12,
           WebkitTextStroke: '1.6px var(--ink)', paintOrder: 'stroke fill',
@@ -513,7 +519,9 @@ export function Battle() {
             boxShadow: 'inset 0 2px 0 rgba(255,255,255,.4), 0 10px 26px rgba(0,0,0,.6)',
           }}
           >
-            <CoinBadge mint={dragCard.coinId} size={46} />
+            <div style={{ position: 'relative', width: 46, height: 46 }}>
+              <CardArtWell mint={dragCard.coinId} radius={6} badgeSize={34} />
+            </div>
             <span style={{ fontSize: 12, fontWeight: 800 }}>{dragCard.name}</span>
           </div>
         </div>
@@ -593,7 +601,11 @@ export function Battle() {
           }}
           >
             <span className="label" style={{ fontSize: 12 }}>next</span>
-            {next && <CoinBadge mint={next.coinId} size={26} />}
+            {next && (
+              <div style={{ position: 'relative', width: 28, height: 28 }}>
+                <CardArtWell mint={next.coinId} radius={5} badgeSize={22} />
+              </div>
+            )}
           </div>
         </div>
         <p style={{

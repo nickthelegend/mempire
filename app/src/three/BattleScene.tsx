@@ -8,6 +8,7 @@ import { useMatch } from '../state/match';
 import { Arena } from './Arena';
 import { TowerMesh } from './Towers';
 import { UnitsBillboard } from './UnitsBillboard';
+import { vfx } from './vfx';
 
 const W = ARENA_W / FP; // 18
 const H = 32; // ARENA_H in tiles
@@ -27,15 +28,28 @@ export function setViewSeat(seat: 0 | 1): void { viewSeat = seat; }
 function CameraRig({ seat }: { seat: 0 | 1 }) {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
+  // Where the camera sits when nothing is hitting it. The shake is an offset
+  // from this rather than an accumulation on the camera itself, so a hundred
+  // impacts over a match cannot drift the framing off the board.
+  const home = useRef(new THREE.Vector3());
+  const shake = useRef(new THREE.Vector3());
+
+  useFrame((_, dt) => {
+    vfx.shakeOffset(Math.min(dt, 0.05), shake.current);
+    camera.position.addVectors(home.current, shake.current);
+  });
+
   useEffect(() => {
     // Pulled back and raised so the wood frame encloses the whole board rather
     // than running off the bottom of a portrait screen. Seat 1 gets the exact
     // mirror about the river line, so both players fight "uphill".
     if (seat === 0) {
-      camera.position.set(W / 2, 38, -15);
+      home.current.set(W / 2, 38, -15);
+      camera.position.copy(home.current);
       camera.lookAt(W / 2, 0, 15);
     } else {
-      camera.position.set(W / 2, 38, H + 15);
+      home.current.set(W / 2, 38, H + 15);
+      camera.position.copy(home.current);
       camera.lookAt(W / 2, 0, H - 15);
     }
     camera.updateProjectionMatrix();
@@ -139,6 +153,7 @@ function TowerFire() {
   const root = useRef<THREE.Group>(null);
   const geo = useMemo(() => new THREE.SphereGeometry(0.17, 10, 8), []);
   const cooldowns = useRef<number[]>([]);
+  const hps = useRef<number[]>([]);
   const bolts = useRef<{ mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; t: number }[]>([]);
 
   useFrame((_, dtRaw) => {
@@ -148,6 +163,31 @@ function TowerFire() {
     const dt = Math.min(dtRaw, 0.05);
 
     sim.towers.forEach((t, i) => {
+      // A tower losing hit points is the only thing on this board that changes
+      // who is winning, so it is the one event allowed to move the camera.
+      const lastHp = hps.current[i];
+      hps.current[i] = t.hp;
+      if (lastHp !== undefined && t.hp < lastHp) {
+        const x = t.x / FP;
+        const z = t.y / FP;
+        const th = t.kind === 'king' ? 2.6 : 2.0;
+        if (t.hp <= 0) {
+          // A crown falling. Everything at once, and the biggest kick in the
+          // game — if any moment earns it, this is the one.
+          vfx.kick(0.42);
+          vfx.shockwave(x, z, t.owner === 0 ? PALETTE.teal : PALETTE.red, 2.6);
+          vfx.dust(x, z, 3);
+          vfx.impact(x, th, z, 0, 0, '#ffe08a', 2);
+          vfx.coins(x, th, z, 14);
+        } else {
+          // Scaled to the bite taken out of it, so chip damage from a lone
+          // swarm unit does not shake as hard as a tank connecting.
+          const bite = (lastHp - t.hp) / t.maxHp;
+          vfx.kick(Math.min(0.12, 0.02 + bite * 1.6));
+          vfx.impact(x, th, z, 0, 0, '#ffd6a0', 0.8 + bite * 6);
+        }
+      }
+
       const prev = cooldowns.current[i] ?? 0;
       cooldowns.current[i] = t.cooldown;
       // cooldown jumping back up = the tower just fired this tick

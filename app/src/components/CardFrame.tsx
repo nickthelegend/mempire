@@ -6,19 +6,23 @@ import { ARCHETYPES } from '../sim/archetypes';
 import { ArchetypeIcon, CoinBadge } from './ui';
 
 /**
- * The battle card. A thick beveled frame over a tinted portrait well, with the
- * elixir cost as a gem in the top-left and a level banner across the foot —
- * the Supercell card grammar, carrying a meme coin instead of a troop.
+ * The portrait well: character art filling a tinted, inset panel.
+ *
+ * Its own component because the battle hand, the drag ghost and the next-card
+ * preview all need exactly this and nothing else around it. They used to show
+ * the round `CoinBadge` instead, which turned every fighter in the deck into an
+ * identical coin token at the one moment the player is choosing between them.
  */
-export function CardFrame({
-  card, width = 150, selected, dimmed, disabled, fluid, onClick,
+export function CardArtWell({
+  mint, radius = 7, inset = 0, dim, badgeSize = 30,
 }: {
-  card: MintedCard; width?: number; selected?: boolean; dimmed?: boolean;
-  disabled?: boolean; fluid?: boolean; onClick?: () => void;
+  mint: string; radius?: number; inset?: number; dim?: boolean;
+  /** Size of the round-badge fallback, for coins whose art has not landed. */
+  badgeSize?: number;
 }) {
   const [artFailed, setArtFailed] = useState(false);
   const [keyed, setKeyed] = useState<string | null>(null);
-  const coin = coinByMint(card.mint);
+  const coin = coinByMint(mint);
   const art = coin?.cardArt;
 
   // Chroma-keyed art is shown as a cut-out over the card's own coloured well,
@@ -30,6 +34,59 @@ export function CardFrame({
     return () => { alive = false; };
   }, [art]);
 
+  if (!coin) return null;
+
+  return (
+    <div style={{
+      position: 'absolute', inset,
+      borderRadius: radius,
+      background: `linear-gradient(180deg, hsl(${coin.hue} 62% 42%), hsl(${coin.hue} 55% 22%))`,
+      border: '2px solid rgba(0,0,0,.45)',
+      boxShadow: 'inset 0 3px 7px rgba(0,0,0,.45)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      overflow: 'hidden',
+      filter: dim ? 'saturate(.35) brightness(.75)' : undefined,
+    }}
+    >
+      {art && !artFailed ? (
+        <img
+          src={keyed ?? art}
+          alt=""
+          aria-hidden
+          draggable={false}
+          // The art set fills in over time; a missing file falls back to the
+          // badge rather than showing a broken image.
+          onError={() => setArtFailed(true)}
+          style={{
+            width: '100%', height: '100%',
+            // A cut-out is `contain` so the whole character is visible; a
+            // full-bleed render is `cover` so it fills the well.
+            objectFit: keyed ? 'contain' : 'cover',
+            // The art is drawn head-up, so bias the crop toward the top: a
+            // centred crop on a 3:4 portrait cuts the face off in a wide slot.
+            objectPosition: '50% 18%',
+            display: 'block',
+          }}
+        />
+      ) : (
+        <CoinBadge mint={mint} size={badgeSize} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The battle card. A thick beveled frame over a tinted portrait well, with the
+ * elixir cost as a gem in the top-left and a level banner across the foot —
+ * the Supercell card grammar, carrying a meme coin instead of a troop.
+ */
+export function CardFrame({
+  card, width = 150, selected, dimmed, disabled, fluid, onClick,
+}: {
+  card: MintedCard; width?: number; selected?: boolean; dimmed?: boolean;
+  disabled?: boolean; fluid?: boolean; onClick?: () => void;
+}) {
+  const coin = coinByMint(card.mint);
   if (!coin) return null;
   const cost = ARCHETYPES[card.archetype].elixir;
   const h = Math.round((width * 4) / 3);
@@ -64,45 +121,17 @@ export function CardFrame({
         display: 'block',
       }}
     >
-      {/* Portrait well.
-          Character art fills it edge to edge (`cover`), which is what makes a
-          card read as a fighter rather than a token in a frame. Coins without
-          character art yet fall back to the round badge floating on the hue
-          wash, so the grid stays consistent while the art set fills in. */}
+      {/* Portrait well. Stops short of the foot so the level banner sits below
+          the art rather than over it. */}
       <div style={{
         position: 'absolute', inset: pad, bottom: `${Math.max(22, width * 0.24)}px`,
-        borderRadius: Math.max(5, width * 0.05),
-        background: `linear-gradient(180deg, hsl(${coin.hue} 62% 42%), hsl(${coin.hue} 55% 22%))`,
-        border: '2px solid rgba(0,0,0,.45)',
-        boxShadow: 'inset 0 3px 7px rgba(0,0,0,.45)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        overflow: 'hidden',
       }}
       >
-        {coin.cardArt && !artFailed ? (
-          <img
-            src={keyed ?? coin.cardArt}
-            alt=""
-            aria-hidden
-            draggable={false}
-            loading="lazy"
-            // The art set fills in over time; a missing file falls back to the
-            // badge rather than showing a broken image.
-            onError={() => setArtFailed(true)}
-            style={{
-              width: '100%', height: '100%',
-              // A cut-out is `contain` so the whole character is visible; a
-              // full-bleed render is `cover` so it fills the well.
-              objectFit: keyed ? 'contain' : 'cover',
-              // The art is drawn head-up, so bias the crop toward the top: a
-              // centred crop on a 3:4 portrait cuts the face off in a wide slot.
-              objectPosition: '50% 18%',
-              display: 'block',
-            }}
-          />
-        ) : (
-          <CoinBadge mint={card.mint} size={width * 0.56} />
-        )}
+        <CardArtWell
+          mint={card.mint}
+          radius={Math.max(5, width * 0.05)}
+          badgeSize={width * 0.56}
+        />
       </div>
 
       {/* elixir cost gem */}
