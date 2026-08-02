@@ -8,9 +8,10 @@ Built for **Solana Blitz V7** · [mempire.fun](https://mempire.fun)
 
 ## How it plays
 
-1. **Connect** — a wallet picker detects Phantom / Backpack / Solflare (install
-   links when missing), plus a labeled **Guest** mode so anyone can play the
-   whole game with a simulated balance. Trusted wallets reconnect silently.
+1. **Connect** — the official Solana wallet adapters (Phantom, Solflare,
+   Coinbase, Trust, Nightly) with their real logos and true install detection,
+   plus a labeled **Guest** mode so anyone can play the whole game with a
+   simulated balance. Trusted wallets reconnect silently.
 2. **Scan bags** — your SPL meme coins appear; coins need ≥$25k liquidity and ≥48h
    age to mint (kills the "mint your own coin, stake 1B supply, god card" exploit).
 3. **Mint cards** — 0.02 SOL fee. Coin → archetype is deterministic:
@@ -34,20 +35,23 @@ app/    Vite + React + TS + React Three Fiber + Zustand
         └─ src/sim      deterministic lockstep engine: fixed-point i32 (1/1024),
                         20 ticks/s, 3min + 60s OT, xorshift RNG, FNV-1a state
                         hash every 40 ticks, 2-tick input delay, bot opponent
-        └─ src/three    3D arena + KayKit CC0 rigged units (swap-ready for
-                        generated chibi models), spawn shockwaves, damage
-                        flashes, billboarded HP bars, drop markers
+        └─ src/three    3D arena + generated chibi units driven by procedural
+                        motion (hop-march, idle breath, attack lunge), tower
+                        projectiles, spawn shockwaves, damage flashes
         └─ src/screens  Arena / Cards / Deck / Empire / Battle (mobile column)
-        └─ public/art   generated logo, 12 coin logos, 6 archetype crests
-        └─ public/sfx   6 SFX + battle music loop
+        └─ src/state    collection · deck · match · economy (gems, chests) · sync
+        └─ public/art   logo, 12 coin logos, 6 crests, 4 tab icons, 4 chests
+        └─ public/sfx   10 SFX + menu and battle music loops
+        └─ public/models 5 meshopt-compressed chibi units (1.4MB total)
 chain/  Anchor workspace — program `mempire`
         config · coin registry + mock oracle · card PDAs + stake vaults ·
         two-step unstake · match escrow + dual-sig settle + timeout claims
-design/ PRODUCT.md + DESIGN.md authority, asset manifest, Higgsfield prompt pack
+server/ Express API — player persistence (MongoDB) + cached live coin feed
+design/ generation pipeline: gen.sh, gen-audio.sh, gen-3d.sh, slice.py
 ```
 
 **Battle model** (the onchain story): card plays are an input log
-`{tick, player, handIndex, x, y}`. Both clients run the identical integer-only
+`{tick, player, deckIndex, x, y}`. Both clients run the identical integer-only
 sim; state hashes commit every 40 ticks; settlement takes the final hash signed
 by both players. Next hardening step: delegate the match account to a
 [MagicBlock ephemeral rollup](https://magicblock.gg) so the input log and hash
@@ -116,5 +120,15 @@ byte-identical across every prompt, keeps the set coherent.
 - [ ] Daily Shop, tournaments, coin sponsorship (see `ROADMAP.md`)
 - [ ] MagicBlock ER delegation + session keys
 - [ ] Bubblegum cNFT mint layer over card PDAs
-- [ ] Generated chibi unit models (prompt pack ready in `design/`)
+- [ ] Skeletal unit animation (meshes are static; motion is procedural)
 - [ ] Fusion, battle pass, cosmetics, 2v2
+
+## Known limits, stated plainly
+
+- Units move convincingly but nothing articulates — the auto-rigger is
+  humanoid-only and fails on animal silhouettes. See `ROADMAP.md` #41.
+- The economy is simulated on devnet. The program that would make it real exists
+  and compiles, but is undeployed (needs ~3.5 devnet SOL).
+- One human cannot yet play another. The bot runs the same simulation.
+- Chest rewards grant gems and report card counts; minting real cards from drops
+  lands with the program wiring.
