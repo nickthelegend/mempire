@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardDetail } from '../components/CardDetail';
 import { CardFrame } from '../components/CardFrame';
+import { ChainBadge } from '../components/ChainBadge';
 import { ChestRail, GemShop } from '../components/Chests';
 import { Shop } from '../components/Shop';
 import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
-import { COINS, ineligibleReason, tickerOf, type Coin } from '../lib/coins';
+import { mintCardTx, readableChainError, stakeTx } from '../chain/actions';
+import { play } from '../lib/audio';
+import { useChain } from '../state/chain';
+import { COINS, ineligibleReason, tickerOf, toRawAmount, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { revealSection } from '../lib/scroll';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
 import { useEconomy } from '../state/economy';
-import { useWallet } from '../state/wallet';
+import { signer, useWallet } from '../state/wallet';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
 const TAP = { minHeight: 44 } as const;
@@ -28,11 +32,48 @@ function useCountdown(until: number): number {
 
 function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }) {
   const { stake, requestUnstake, claimUnstake, availableUsdFor } = useCollection();
+  const chainMode = useChain((s) => s.mode);
+  const chainCards = useChain((s) => s.cards);
+  const refresh = useChain((s) => s.refresh);
+  const noteSignature = useChain((s) => s.noteSignature);
   const [amount, setAmount] = useState(25);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
   const sheet = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(card.cooldownUntil);
   const coin = COINS.find((c) => c.mint === card.mint);
+
+  // The onchain twin of this local card, when one exists. Local cards carry a
+  // string id; chain cards a numeric PDA id — matched by mint, oldest first.
+  const chainCard = chainMode === 'onchain'
+    ? chainCards.find((c) => c.mint === card.mint)
+    : undefined;
+
+  /**
+   * Onchain staking moves real SPL tokens into the card's vault. The local
+   * store still updates afterwards so the rest of the app (deck power, level)
+   * follows immediately; the next refresh reconciles from the chain.
+   */
+  const stakeOnchain = async (usd: number) => {
+    if (!chainCard || !coin) return;
+    setPending(true);
+    setError(null);
+    try {
+      const tokens = usd / coin.priceUsd;
+      const { signature } = await stakeTx(
+        signer(), chainCard.id, coin.mint, toRawAmount(coin, tokens),
+      );
+      noteSignature(signature);
+      setError(stake(card.id, usd));
+      play('reward');
+      void refresh();
+    } catch (e) {
+      setError(readableChainError(e));
+      play('error');
+    } finally {
+      setPending(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -140,11 +181,22 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
           </Pill>
         ) : (
           <Pill
-            disabled={cooling || amount > available}
-            onClick={() => setError(stake(card.id, amount))}
+            disabled={cooling || pending || amount > available}
+            onClick={() => {
+              if (chainCard) { void stakeOnchain(amount); return; }
+              setError(stake(card.id, amount));
+            }}
           >
-            {cooling ? 'Unstake pending' : `Stake $${amount} → Lv ${afterLevel}`}
+            {pending ? 'Confirm in wallet…'
+              : cooling ? 'Unstake pending'
+                : `Stake $${amount} → Lv ${afterLevel}`}
           </Pill>
+        )}
+
+        {chainCard && (
+          <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12, marginTop: -4 }}>
+            Onchain card #{chainCard.id} — staking moves real tokens into its vault.
+          </p>
         )}
 
         {error && (
@@ -177,14 +229,48 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
 function CoinRow({ coin }: { coin: Coin }) {
   const wallet = useWallet();
   const { cards, mintCard } = useCollection();
+  const chainMode = useChain((s) => s.mode);
+  const chainBalances = useChain((s) => s.balances);
+  const chainSol = useChain((s) => s.solBalance);
+  const refresh = useChain((s) => s.refresh);
+  const noteSignature = useChain((s) => s.noteSignature);
   const [minting, setMinting] = useState(false);
+  const [chainError, setChainError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
+  const onchain = chainMode === 'onchain';
   const reason = ineligibleReason(coin);
   const owned = cards.filter((c) => c.mint === coin.mint).length;
-  const value = coin.balance * coin.priceUsd;
-  const affordable = wallet.sol >= FEES.mintSol;
+  // Onchain, the balance shown is the wallet's real SPL holding of this mint —
+  // the whole premise made literal. Simulated keeps the demo balance.
+  const balance = onchain ? (chainBalances.get(coin.mint) ?? 0) : coin.balance;
+  const value = balance * coin.priceUsd;
+  const affordable = onchain ? chainSol >= FEES.mintSol : wallet.sol >= FEES.mintSol;
+  const noHoldings = onchain && balance <= 0;
+
+  /**
+   * Onchain: one wallet-signed transaction; the program re-checks eligibility,
+   * charges the fee, and creates the Card PDA. The local card is only minted
+   * after the signature confirms, so the collection never shows a card the
+   * chain refused.
+   */
+  const mintOnchain = async () => {
+    setMinting(true);
+    setChainError(null);
+    try {
+      const { signature } = await mintCardTx(signer(), coin.mint);
+      noteSignature(signature);
+      mintCard(coin.mint);
+      play('reward');
+      void refresh();
+    } catch (e) {
+      setChainError(readableChainError(e));
+      play('error');
+    } finally {
+      setMinting(false);
+    }
+  };
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0' }}>
@@ -199,7 +285,12 @@ function CoinRow({ coin }: { coin: Coin }) {
           )}
         </div>
         <div style={{ fontSize: 12, color: 'var(--dim-on-wood)' }}>
-          {fmtTokens(coin.balance)} · {fmtUsd(value)}
+          {fmtTokens(balance)} · {fmtUsd(value)}
+          {chainError && (
+            <span role="alert" style={{ display: 'block', color: 'var(--red-on-wood)', fontWeight: 700 }}>
+              {chainError}
+            </span>
+          )}
         </div>
       </div>
       <div style={{ marginLeft: 'auto', textAlign: 'right', flexShrink: 0 }}>
@@ -215,9 +306,21 @@ function CoinRow({ coin }: { coin: Coin }) {
           >
             {reason}
           </span>
+        ) : noHoldings ? (
+          <span
+            className="well"
+            style={{
+              display: 'inline-block', padding: '5px 8px', fontSize: 12,
+              fontWeight: 700, color: 'var(--dim)', maxWidth: 116,
+              textAlign: 'center', lineHeight: 1.25,
+            }}
+          >
+            none in wallet
+          </span>
         ) : (
           <button
             onClick={() => {
+              if (onchain) { void mintOnchain(); return; }
               if (!wallet.spend(FEES.mintSol)) return;
               setMinting(true);
               timer.current = setTimeout(() => { mintCard(coin.mint); setMinting(false); }, 600);
@@ -248,6 +351,40 @@ function CoinRow({ coin }: { coin: Coin }) {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * The last confirmed transaction, linked to the explorer.
+ *
+ * This row is the difference between claiming the mint was onchain and letting
+ * the player check. It renders only in onchain mode, because a link that
+ * resolves to nothing would be worse than no link.
+ */
+function TxReceipt() {
+  const sig = useChain((s) => s.lastSignature);
+  const mode = useChain((s) => s.mode);
+  const explorer = useChain((s) => s.explorer);
+  if (!sig || mode !== 'onchain') return null;
+  return (
+    <a
+      href={explorer(sig)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="well"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginTop: 8,
+        padding: '9px 11px', minHeight: 44, textDecoration: 'none', color: 'inherit',
+      }}
+    >
+      <span aria-hidden style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--teal)', boxShadow: '0 0 7px var(--teal)', flexShrink: 0 }} />
+      <span className="fine" style={{ fontSize: 12, minWidth: 0, flex: 1 }}>
+        last tx <span className="mono">{sig.slice(0, 8)}…{sig.slice(-6)}</span>
+      </span>
+      <span className="label" style={{ fontSize: 12, color: 'var(--blue-pale)', flexShrink: 0 }}>
+        explorer ↗
+      </span>
+    </a>
   );
 }
 
@@ -341,7 +478,10 @@ export function Cards() {
       </section>
 
       <section aria-label="Your meme coins" ref={bagsRef} style={{ scrollMarginTop: 12 }}>
-        <div className="label" style={{ marginBottom: 4 }}>Your bags · mint fee {fmtSol(FEES.mintSol)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <span className="label">Your bags · mint fee {fmtSol(FEES.mintSol)}</span>
+          <ChainBadge compact />
+        </div>
         <div className="panel" style={{ padding: '4px 14px' }}>
           {COINS.map((c, i) => (
             <div key={c.mint} style={{ borderTop: i === 0 ? 'none' : '1px solid var(--border)' }}>
@@ -352,6 +492,7 @@ export function Cards() {
         <p style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>
           Eligibility: ≥$25k liquidity and ≥48h old. Price via Jupiter (mocked on devnet).
         </p>
+        <TxReceipt />
       </section>
 
       {detail && (
