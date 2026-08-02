@@ -231,7 +231,25 @@ function Slot({ chest, onOpened }: {
         borderColor: ready ? 'var(--gold)' : undefined,
       }}
     >
-      <ChestArt tier={chest.tier} size={44} glow={ready} />
+      <div style={{ position: 'relative' }}>
+        <ChestArt tier={chest.tier} size={44} glow={ready} />
+        {/* Only a chest the oracle actually rolled gets the mark. Guest play
+            rolls in the browser, and showing the same badge for both would be
+            a claim about fairness this build has not earned there. */}
+        {chest.source === 'vrf' && (
+          <span
+            title={`Rolled by MagicBlock VRF · ${chest.randomness?.slice(0, 12) ?? ''}…`}
+            aria-label="Rolled by MagicBlock VRF — provably fair"
+            style={{
+              position: 'absolute', right: -4, bottom: -2,
+              fontSize: 11, lineHeight: 1,
+              filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.7))',
+            }}
+          >
+            🎲
+          </span>
+        )}
+      </div>
       {ready ? (
         <button
           onClick={() => {

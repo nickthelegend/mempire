@@ -21,6 +21,9 @@ import { useDeck, TIERS } from './deck';
 import { deckCommitment } from '../chain/deckHash';
 import { useChain } from './chain';
 import { useErMatch } from './erMatch';
+import {
+  claimChestEr, ensureChestRail, readChestRail, requestChestEr,
+} from '../chain/erActions';
 import { signer, useWallet } from './wallet';
 
 export type MatchStatus = 'idle' | 'queuing' | 'found' | 'battle' | 'settled';
@@ -114,6 +117,42 @@ let loop: ReturnType<typeof setInterval> | null = null;
 let queueTimers: ReturnType<typeof setTimeout>[] = [];
 let pending = new Map<number, InputEvent[]>();
 let hashes: number[] = [];
+/**
+ * Puts the newest chest through the VRF oracle and reconciles its tier.
+ *
+ * Fire-and-forget by design. The request is accepted in one transaction and
+ * fulfilled by the oracle in another, so this polls; the result screen is
+ * already on screen and must never block on it. A session that cannot sign
+ * keeps its local roll, honestly labelled.
+ */
+async function rollChestOnchain(): Promise<void> {
+  const adapter = signer();
+  if (!adapter || useChain.getState().mode !== 'onchain') return;
+  try {
+    await ensureChestRail(adapter);
+    const rail = await readChestRail(adapter);
+    if (!rail) return;
+    const slot = rail.slots.findIndex((s) => s.state === 0);
+    if (slot < 0 || rail.pendingSlot !== 255) return; // rail full or busy
+
+    await requestChestEr(adapter, slot, Math.floor(Math.random() * 256));
+
+    // Acceptance is not an outcome — wait for the separate callback.
+    for (let i = 0; i < 30; i += 1) {
+      await new Promise((r) => setTimeout(r, 1200));
+      const now = await readChestRail(adapter);
+      const filled = now?.slots[slot];
+      if (filled?.state === 2) {
+        const hex = Array.from(filled.randomness)
+          .map((b) => b.toString(16).padStart(2, '0')).join('');
+        useEconomy.getState().reconcileNewestChest(filled.tier, hex);
+        void claimChestEr(adapter, slot).catch(() => { /* slot frees next run */ });
+        return;
+      }
+    }
+  } catch { /* the local roll stands, labelled as local */ }
+}
+
 /** Human matches step against the wall clock so two clients stay in lockstep. */
 let humanStartAt = 0;
 /**
@@ -705,7 +744,18 @@ function settle(): void {
   // A win earns a chest. Full slots deliberately award nothing — that pressure
   // is what makes the skip-timer purchase land. Practice earns nothing at all,
   // so it cannot be farmed for chests.
+  // A chest tier is the one outcome the house picks, so it goes through the
+  // MagicBlock VRF oracle whenever this session can sign. `Math.random()` here
+  // is the Guest path only, and the chest records which it was — a UI that
+  // showed the same badge either way would be lying about exactly the mechanic
+  // players are right to distrust.
+  //
+  // Awarded optimistically with a local roll and reconciled when the oracle
+  // answers: the result screen must not wait on an async callback, and a chest
+  // that silently changes tier a second later is worse than one that arrives
+  // already labelled as unverified.
   const chest = won && !practice ? useEconomy.getState().awardChest(Math.random()) : null;
+  if (chest) void rollChestOnchain();
   /**
    * Trophies move only on ranked matches, and only against a real opponent's
    * rating. Practice and casual are excluded by construction — a ladder that

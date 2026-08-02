@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
-  checkpointEr, closeLogTx, delegateLogTx, endLogEr, fetchLog, initLogTx,
+  checkpointEr, closeLogTx, delegateLogTx, endLogEr, fetchLog, initLogTx, sealLogEr,
+  unsealLogEr,
   matchLogPda, playCardEr, readableChainError,
 } from '../chain/erActions';
 import { createMatchTx } from '../chain/actions';
@@ -43,6 +44,13 @@ interface ErMatchState {
   writes: number;
   /** Plays the rollup refused or dropped. Surfaced, never hidden. */
   failed: number;
+  /**
+   * True when the log is behind an ephemeral permission (PER).
+   *
+   * Reported rather than assumed: a match whose seal failed still plays, and
+   * the badge must not claim a privacy property the match does not have.
+   */
+  sealed: boolean;
   lastError: string | null;
   lastSignature: string | null;
   commitSignature: string | null;
@@ -88,6 +96,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   fqdn: null,
   writes: 0,
   failed: 0,
+  sealed: false,
   lastError: null,
   lastSignature: null,
   commitSignature: null,
@@ -95,7 +104,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   begin: async (adapter, matchId, players) => {
     if (!adapter) { set({ phase: 'off' }); return; }
     set({
-      phase: 'preparing', matchId, writes: 0, failed: 0,
+      phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false,
       lastError: null, commitSignature: null,
       logAddress: matchLogPda(matchId).toBase58(),
     });
@@ -105,7 +114,21 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       // Placement is the router's call — confirm it before claiming 'live'.
       const er = await resolveEr(matchLogPda(matchId));
       if (!er) throw new Error('router did not place the log on a rollup');
-      set({ phase: 'live', fqdn: er.fqdn });
+
+      // Seal the log to its two seats (PER) before the first card can be
+      // played. Non-fatal on purpose: a rollup that will not take the
+      // permission still runs a perfectly good match, and refusing to start
+      // over privacy would trade a working game for a property nobody asked
+      // for mid-match. `sealed` is reported so the badge can say which it is
+      // rather than claiming privacy the match does not have.
+      let sealed = false;
+      try {
+        await sealLogEr(adapter, matchId);
+        sealed = true;
+      } catch (e) {
+        set({ lastError: readableChainError(e) });
+      }
+      set({ phase: 'live', fqdn: er.fqdn, sealed });
     } catch (e) {
       // The match is already playable; the rollup is the optional half.
       set({ phase: 'degraded', lastError: readableChainError(e) });
@@ -170,6 +193,13 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
     if (phase !== 'live' || matchId === null || !adapter) return false;
     set({ phase: 'committing' });
     try {
+      // Close the seal first — it is ER-local, so once the log leaves the
+      // rollup nothing can reach it. Swallowed deliberately: settlement must
+      // never fail because a permission would not close.
+      if (get().sealed) {
+        try { await unsealLogEr(adapter, matchId); } catch { /* rent stays behind */ }
+        set({ sealed: false });
+      }
       const r = await endLogEr(adapter, matchId, winner, finalHash);
       // 'committed' means the log is readable on base layer — the only state in
       // which settle_from_log can succeed.

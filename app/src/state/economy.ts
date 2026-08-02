@@ -58,6 +58,21 @@ export interface ChestSlot {
   /** 0 = not started, else the timestamp it finishes unlocking. */
   readyAt: number;
   unlocking: boolean;
+  /**
+   * Where this chest's tier came from.
+   *
+   * `vrf` means a MagicBlock oracle rolled it and `randomness` holds the bytes
+   * that produced it, so anyone can re-derive the result. `local` means this
+   * session cannot sign — Guest play — and the roll was made in the browser.
+   *
+   * Recorded rather than assumed because the difference is the whole claim: a
+   * chest is only "provably fair" if it actually went through the oracle, and
+   * a UI that shows the same badge either way is lying about the one mechanic
+   * where the house picks the outcome.
+   */
+  source: 'vrf' | 'local';
+  /** The oracle's bytes, hex-encoded. Present only when `source` is 'vrf'. */
+  randomness?: string;
 }
 
 export interface GemBundle {
@@ -89,10 +104,18 @@ interface EconomyState {
   solSpentOnGems: number;
 
   buyGems: (bundle: GemBundle) => void;
-  awardChest: (roll: number) => ChestTier | null;
+  awardChest: (roll: number, source?: 'vrf' | 'local', randomness?: string) => ChestTier | null;
   startUnlock: (id: string) => void;
   skipUnlock: (id: string) => boolean;
   collect: (id: string) => OpenedChest | null;
+  /**
+   * Upgrades the newest chest from a local roll to the oracle's answer.
+   *
+   * The result screen awards optimistically so it never waits on an async
+   * callback; this is what makes that honest. If the tier changed, the oracle
+   * wins — it is the authority — and the chest stops claiming to be local.
+   */
+  reconcileNewestChest: (tier: number, randomness: string) => void;
   spendGems: (n: number) => boolean;
   addGems: (n: number) => void;
 }
@@ -145,12 +168,13 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     })),
 
   /** Called on a win. Returns null when every slot is full — that's the hook. */
-  awardChest: (roll) => {
+  awardChest: (roll, source = 'local', randomness) => {
     if (get().chests.length >= CHEST_SLOTS) return null;
     const tier = rollTier(roll);
     set((s) => ({
       chests: [...s.chests, {
         id: `chest_${s.nextChestId}`, tier, readyAt: 0, unlocking: false,
+        source, randomness,
       }],
       nextChestId: s.nextChestId + 1,
     }));
@@ -199,6 +223,21 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     // upgrades; ours feed extra stake vessels for the same coin).
     const dropped = dropCards(def.cards);
     return { ...def, droppedTickers: dropped };
+  },
+
+  reconcileNewestChest: (tier, randomness) => {
+    const order: ChestTier[] = ['silver', 'golden', 'magic', 'legendary'];
+    const resolved = order[tier] ?? 'silver';
+    set((s) => {
+      if (!s.chests.length) return s;
+      const chests = [...s.chests];
+      const last = chests.length - 1;
+      // Only a chest still waiting to be opened can change tier. One already
+      // unlocking has been shown to the player as a specific thing.
+      if (chests[last].unlocking || chests[last].readyAt) return s;
+      chests[last] = { ...chests[last], tier: resolved, source: 'vrf', randomness };
+      return { chests };
+    });
   },
 
   spendGems: (n) => {

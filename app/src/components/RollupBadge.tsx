@@ -20,6 +20,7 @@ const LOOK: Record<ErPhase, { dot: string; text: string; title: string }> = {
 
 export function RollupBadge() {
   const phase = useErMatch((s) => s.phase);
+  const sealed = useErMatch((s) => s.sealed);
   const writes = useErMatch((s) => s.writes);
   const failed = useErMatch((s) => s.failed);
   const log = useErMatch((s) => s.logAddress);
@@ -40,6 +41,10 @@ export function RollupBadge() {
       <span className="label" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
         {look.text}
         {phase === 'live' && writes > 0 && ` · ${writes}`}
+        {/* A padlock only when the permission actually took. A match whose seal
+            failed still plays, and claiming privacy it does not have would be
+            the one lie this badge exists to prevent. */}
+        {phase === 'live' && sealed && ' 🔒'}
         {failed > 0 && ` · ${failed} lost`}
       </span>
     </>
@@ -67,5 +72,8 @@ export function RollupBadge() {
     );
   }
 
-  return <span title={look.title} style={shell}>{body}</span>;
+  const title = phase === 'live' && sealed
+    ? `${look.title}, sealed to the two players (PER)`
+    : look.title;
+  return <span title={title} style={shell}>{body}</span>;
 }
