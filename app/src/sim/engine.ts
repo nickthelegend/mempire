@@ -5,8 +5,7 @@ import {
   ARCHETYPES, AURA_SPEED_DEN, AURA_SPEED_NUM, scaleByLevel,
 } from './archetypes';
 import {
-  Archetype, DECK_SIZE, DOUBLE_ELIXIR_AT, ELIXIR_CAP_FP, ELIXIR_PER_TICK_FP,
-  HAND_SIZE, OVERTIME_TICKS, REGULATION_TICKS,
+  Archetype, DECK_SIZE, FORMATS, HAND_SIZE, type Format,
 } from './types';
 import type {
   InputEvent, MatchCard, PendingSpell, PlayerSim, SimState, Tower, Unit,
@@ -72,17 +71,22 @@ function shuffledCycle(rng: XorShift32): number[] {
   return c;
 }
 
-export function createMatch(seed: number, decks: [MatchCard[], MatchCard[]]): SimState {
+export function createMatch(
+  seed: number,
+  decks: [MatchCard[], MatchCard[]],
+  format: Format = FORMATS.standard,
+): SimState {
   if (decks[0].length !== DECK_SIZE || decks[1].length !== DECK_SIZE) {
     throw new Error('decks must have exactly 8 cards');
   }
   const rng = new XorShift32(seed);
   const players: [PlayerSim, PlayerSim] = [
-    { elixirFP: 5 * FP, deck: decks[0], cycle: shuffledCycle(rng) },
-    { elixirFP: 5 * FP, deck: decks[1], cycle: shuffledCycle(rng) },
+    { elixirFP: format.startElixirFP, deck: decks[0], cycle: shuffledCycle(rng) },
+    { elixirFP: format.startElixirFP, deck: decks[1], cycle: shuffledCycle(rng) },
   ];
   return {
     tick: 0,
+    format,
     phase: 'regulation',
     winner: -1,
     units: [],
@@ -379,7 +383,7 @@ function checkEnd(state: SimState, towersBefore: [number, number]): void {
     const b = aliveTowerCount(state, 1);
     if (a < towersBefore[0]) { state.phase = 'ended'; state.winner = 1; return; }
     if (b < towersBefore[1]) { state.phase = 'ended'; state.winner = 0; return; }
-    if (state.tick >= REGULATION_TICKS + OVERTIME_TICKS) {
+    if (state.tick >= state.format.regulationTicks + state.format.overtimeTicks) {
       const hpA = totalTowerHp(state, 0);
       const hpB = totalTowerHp(state, 1);
       state.phase = 'ended';
@@ -388,20 +392,26 @@ function checkEnd(state: SimState, towersBefore: [number, number]): void {
     return;
   }
 
-  if (state.tick >= REGULATION_TICKS) {
+  if (state.tick >= state.format.regulationTicks) {
     const a = aliveTowerCount(state, 0);
     const b = aliveTowerCount(state, 1);
     if (a !== b) {
       state.phase = 'ended';
       state.winner = a > b ? 0 : 1;
-    } else {
+    } else if (state.format.overtimeTicks > 0) {
       state.phase = 'overtime';
+    } else {
+      // Rush has no overtime: level towers at the bell is an honest draw.
+      const hpA = totalTowerHp(state, 0);
+      const hpB = totalTowerHp(state, 1);
+      state.phase = 'ended';
+      state.winner = hpA === hpB ? -2 : hpA > hpB ? 0 : 1;
     }
   }
 }
 
 function doubleElixirActive(state: SimState): boolean {
-  return state.phase === 'overtime' || state.tick >= DOUBLE_ELIXIR_AT;
+  return state.phase === 'overtime' || state.tick >= state.format.doubleElixirAt;
 }
 
 /**
@@ -414,9 +424,11 @@ export function stepSim(state: SimState, inputs: InputEvent[]): void {
   const towersBefore: [number, number] = [aliveTowerCount(state, 0), aliveTowerCount(state, 1)];
 
   // 1. elixir
-  const gain = doubleElixirActive(state) ? ELIXIR_PER_TICK_FP * 2 : ELIXIR_PER_TICK_FP;
+  const gain = doubleElixirActive(state)
+    ? state.format.elixirPerTickFP * 2
+    : state.format.elixirPerTickFP;
   for (const p of state.players) {
-    p.elixirFP = Math.min(ELIXIR_CAP_FP, p.elixirFP + gain);
+    p.elixirFP = Math.min(state.format.elixirCapFP, p.elixirFP + gain);
   }
 
   // 2. inputs (normalized order)

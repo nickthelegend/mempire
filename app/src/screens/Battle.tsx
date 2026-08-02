@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { LeagueBadge, TrophyDelta } from '../components/LeagueBadge';
 import { RollupBadge } from '../components/RollupBadge';
 import { ArchetypeIcon, CoinBadge, MoneyRow, Pill } from '../components/ui';
 import { buzz, isMuted, setMuted } from '../lib/audio';
@@ -8,9 +9,7 @@ import { EASE_SNAP, prefersReducedMotion } from '../lib/motion';
 import { ARCHETYPES } from '../sim/archetypes';
 import { FP, fp } from '../sim/fixed';
 import { BattleScene, clampDrop, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
-import {
-  DOUBLE_ELIXIR_AT, OVERTIME_TICKS, REGULATION_TICKS, type MatchCard,
-} from '../sim/types';
+import type { MatchCard } from '../sim/types';
 import { CHESTS } from '../state/economy';
 import { useMatch } from '../state/match';
 
@@ -101,6 +100,26 @@ function ResultOverlay() {
       <div style={{ display: 'flex', justifyContent: 'center', gap: 14, alignItems: 'center' }}>
         <CrownScore crowns={result.crowns} />
       </div>
+
+      {/* Ranked only. A trophy move is the other half of the result — for a
+          ladder player it often matters more than the pot. */}
+      {typeof result.trophyDelta === 'number' && (
+        <div
+          className="well"
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 12, padding: '10px 14px',
+          }}
+        >
+          <LeagueBadge trophies={result.trophiesAfter ?? 0} size={34} />
+          <TrophyDelta delta={result.trophyDelta} floored={result.trophyDelta === 0} />
+          {result.promoted && (
+            <span className="display display--sm" style={{ fontSize: 14, color: 'var(--teal)' }}>
+              {result.leagueAfter}!
+            </span>
+          )}
+        </div>
+      )}
       {result.won && !practice && (
         <div className="well" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span aria-hidden style={{ fontSize: 22 }}>🎁</span>
@@ -377,10 +396,13 @@ export function Battle() {
   const me = sim.players[match.perspective];
   const hand = me.cycle.slice(0, 4).map((deckIndex) => ({ deckIndex, card: match.playerDeck[deckIndex] }));
   const next = match.playerDeck[me.cycle[4]];
+  // Read timing off the match's own format — Rush is 30s with no overtime, so
+  // module constants would show a 3-minute clock on a 30-second match.
+  const fmt = sim.format;
   const remaining = sim.phase === 'overtime'
-    ? REGULATION_TICKS + OVERTIME_TICKS - sim.tick
-    : REGULATION_TICKS - sim.tick;
-  const doubleElixir = sim.phase === 'overtime' || sim.tick >= DOUBLE_ELIXIR_AT;
+    ? fmt.regulationTicks + fmt.overtimeTicks - sim.tick
+    : fmt.regulationTicks - sim.tick;
+  const doubleElixir = sim.phase === 'overtime' || sim.tick >= fmt.doubleElixirAt;
   const dragCard = drag ? hand[drag.handIndex]?.card : null;
 
   return (

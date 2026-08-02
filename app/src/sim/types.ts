@@ -2,6 +2,55 @@ export const TICKS_PER_SEC = 20;
 export const REGULATION_TICKS = 180 * TICKS_PER_SEC; // 3 min
 export const OVERTIME_TICKS = 60 * TICKS_PER_SEC; // +60 s
 export const DOUBLE_ELIXIR_AT = 120 * TICKS_PER_SEC; // final 60 s of regulation
+
+/**
+ * Per-format timing and economy.
+ *
+ * Carried on the sim state rather than read from module constants, because Rush
+ * changes the length *and* the elixir curve — and both clients must agree on
+ * every one of these values or the lockstep sim desyncs on tick one. Making the
+ * format part of the state means it travels with the match instead of depending
+ * on two clients having been built from the same constants.
+ */
+export interface Format {
+  id: 'standard' | 'rush';
+  regulationTicks: number;
+  overtimeTicks: number;
+  /** Tick at which elixir doubles. Set beyond the match length to disable. */
+  doubleElixirAt: number;
+  elixirPerTickFP: number;
+  elixirCapFP: number;
+  startElixirFP: number;
+}
+
+export const FORMATS: Record<Format['id'], Format> = {
+  standard: {
+    id: 'standard',
+    regulationTicks: REGULATION_TICKS,
+    overtimeTicks: OVERTIME_TICKS,
+    doubleElixirAt: DOUBLE_ELIXIR_AT,
+    elixirPerTickFP: Math.floor(1024 / (2.8 * TICKS_PER_SEC)),
+    elixirCapFP: 10 * 1024,
+    startElixirFP: 5 * 1024,
+  },
+  /**
+   * Rush: 30 seconds, no overtime, most crowns wins.
+   *
+   * The elixir curve is the whole design problem. At the standard rate you earn
+   * ~10 elixir in 30 seconds — two or three cards, which is a coin flip, not a
+   * game. Rush starts you near full and regenerates ~3x faster, so a match is
+   * roughly nine plays: fast enough to be a rush, long enough for skill to show.
+   */
+  rush: {
+    id: 'rush',
+    regulationTicks: 30 * TICKS_PER_SEC,
+    overtimeTicks: 0,
+    doubleElixirAt: Number.MAX_SAFE_INTEGER, // never — the whole match is fast
+    elixirPerTickFP: Math.floor(1024 / (0.9 * TICKS_PER_SEC)),
+    elixirCapFP: 10 * 1024,
+    startElixirFP: 7 * 1024,
+  },
+};
 export const INPUT_DELAY_TICKS = 2; // 100 ms lockstep buffer
 export const HASH_EVERY_TICKS = 40;
 export const HAND_SIZE = 4;
@@ -78,6 +127,9 @@ export type Phase = 'regulation' | 'overtime' | 'ended';
 export interface SimState {
   tick: number;
   phase: Phase;
+  /** Timing + elixir rules for this match. Travels with the state, so both
+      clients step identically even if one was built from older constants. */
+  format: Format;
   winner: 0 | 1 | -1 | -2; // -1 undecided, -2 draw
   units: Unit[];
   towers: Tower[]; // 6: [p0 L, p0 R, p0 king, p1 L, p1 R, p1 king]

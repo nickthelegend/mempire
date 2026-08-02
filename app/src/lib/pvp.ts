@@ -15,7 +15,13 @@ export interface MatchedPayload {
   role: 0 | 1;
   seed: number;
   startAt: number;
-  opponent: { address: string; name: string | null; power: number; deck: MatchCard[] };
+  opponent: {
+    address: string; name: string | null; power: number; deck: MatchCard[];
+    /** Ladder rating, so the winner can be scored without a second round trip. */
+    trophies?: number;
+  };
+  /** Agreed format. Both clients must build the sim with the same one. */
+  format?: 'standard' | 'rush';
 }
 
 export interface PvpCallbacks {
@@ -90,6 +96,12 @@ function send(msg: Record<string, unknown>): void {
 export function pvpQueue(payload: {
   address: string; name: string; tier: number; power: number;
   deck: MatchCard[]; deckHash: string;
+  /** Ladder rating, for rating-banded pairing. */
+  trophies?: number;
+  /** Ranked queues only pair with other ranked queues. */
+  ranked?: boolean;
+  /** A 30s Rush must never be seated against a 3-minute standard match. */
+  format?: 'standard' | 'rush';
 }): void {
   const go = () => send({ t: 'queue', ...payload });
   if (socket?.readyState === WebSocket.OPEN) go();

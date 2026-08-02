@@ -10,9 +10,11 @@ import { archetypeForMint } from '../sim/archetypes';
 import { decideBot, type BotDifficulty } from '../sim/bot';
 import { createMatch, hashState, stepSim } from '../sim/engine';
 import {
-  HASH_EVERY_TICKS, INPUT_DELAY_TICKS, type InputEvent, type MatchCard, type SimState,
+  FORMATS, HASH_EVERY_TICKS, INPUT_DELAY_TICKS,
+  type InputEvent, type MatchCard, type SimState,
 } from '../sim/types';
 import { useClan } from './clan';
+import { useLadder } from './ladder';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
@@ -23,6 +25,19 @@ import { signer, useWallet } from './wallet';
 
 export type MatchStatus = 'idle' | 'queuing' | 'found' | 'battle' | 'settled';
 
+/**
+ * How a match is entered.
+ *
+ * `ranked` and `practice` are mutually exclusive by construction: practice has
+ * no stake so it must not move trophies, and ranked must never be answered by a
+ * bot. `rush` selects the 30-second format.
+ */
+export interface MatchOpts {
+  practice?: boolean;
+  ranked?: boolean;
+  rush?: boolean;
+}
+
 export interface MatchResult {
   won: boolean;
   draw: boolean;
@@ -32,6 +47,12 @@ export interface MatchResult {
   hashes: number; // checkpoints committed
   crowns: [number, number]; // towers felled, [you, them]
   chest: ChestTier | null; // won a chest, unless all four slots were full
+  /** Ranked only. Absent on practice and casual matches. */
+  trophyDelta?: number;
+  trophiesAfter?: number;
+  promoted?: boolean;
+  demoted?: boolean;
+  leagueAfter?: string;
   /**
    * The sims diverged and the match was annulled: stakes returned, no rake,
    * nothing recorded. Divergence is detected by the hash checkpoints and
@@ -61,6 +82,18 @@ interface MatchStore {
   shock: Shock | null;
   /** No stake, no rake, no chest — a place to learn the controls. */
   practice: boolean;
+  /**
+   * Trophies are at stake, and the opponent is guaranteed human.
+   *
+   * Ranked never falls back to a bot. That is the whole promise — a ladder that
+   * can be climbed against a bot is not a ladder, and "no bots" has to be true
+   * where it is claimed or it is just copy.
+   */
+  ranked: boolean;
+  /** 30-second format. */
+  rush: boolean;
+  /** Set while a ranked queue is waiting on a human, for honest queue copy. */
+  waitingForHuman: boolean;
   /** 'human' when a real opponent is relaying inputs; 'bot' otherwise. */
   mode: 'bot' | 'human';
   /**
@@ -70,7 +103,7 @@ interface MatchStore {
    * it is player 0.
    */
   perspective: 0 | 1;
-  startQueue: (opts?: { practice?: boolean }) => string | null; // error string or null
+  startQueue: (opts?: MatchOpts) => string | null; // error string or null
   cancelQueue: () => void;
   playCard: (deckIndex: number, xFp: number, yFp: number) => void;
   forfeit: () => void;
@@ -91,6 +124,8 @@ let humanStartAt = 0;
  */
 let humanEscrowSol = 0;
 const TICK_MS = 50;
+/** Opponent rating for the ranked match in flight, so settle can score it. */
+let opponentTrophies = 0;
 /**
  * Own inputs schedule this far ahead in a human match — 400ms of slack for the
  * relay round-trip. The bot keeps the tight 2-tick delay; a bot has no latency.
@@ -163,11 +198,16 @@ export const useMatch = create<MatchStore>((set, get) => ({
   crowns: [0, 0],
   shock: null,
   practice: false,
+  ranked: false,
+  rush: false,
+  waitingForHuman: false,
   mode: 'bot',
   perspective: 0,
 
   startQueue: (opts) => {
     const practice = opts?.practice ?? false;
+    const ranked = !practice && (opts?.ranked ?? false);
+    const rush = opts?.rush ?? false;
     // A second tap while a match is forming would tear down a formed human
     // match — escrow and all — and start over. One match at a time.
     const current = get().status;
@@ -214,6 +254,9 @@ export const useMatch = create<MatchStore>((set, get) => ({
       botDeck: bot,
       stakeSol: practice ? 0 : tier.stakeSol,
       practice,
+      ranked,
+      rush,
+      waitingForHuman: ranked,
       mode: 'bot',
       perspective: 0,
       result: null,
@@ -232,6 +275,10 @@ export const useMatch = create<MatchStore>((set, get) => ({
     let fellBack = false;
     const fallBack = () => {
       if (fellBack || get().status === 'battle' || get().status === 'settled') return;
+      // Ranked never answers with a bot. Trophies are the promise that the
+      // opponent was real, so the queue keeps waiting instead — and the UI says
+      // so rather than quietly seating a machine.
+      if (ranked) return;
       fellBack = true;
       pvpClose();
       if (get().status === 'idle') return; // player cancelled while waiting
@@ -242,7 +289,9 @@ export const useMatch = create<MatchStore>((set, get) => ({
     pvpConnect({
       onMatched: (m) => {
         if (fellBack) return;
-        beginHumanBattle(m, player, tier.stakeSol, deck.tier);
+        opponentTrophies = Number(m.opponent.trophies) || 0;
+        set({ waitingForHuman: false });
+        beginHumanBattle(m, player, tier.stakeSol, deck.tier, rush);
       },
       onUnavailable: fallBack,
       onInput: (ev) => queueRemoteInput(ev),
@@ -286,8 +335,15 @@ export const useMatch = create<MatchStore>((set, get) => ({
       power: deck.power(),
       deck: player,
       deckHash: player.map((c) => c.coinId).join(','),
+      // The matchmaker pairs on rating within a widening band, and only pairs
+      // players who asked for the same format — a 30-second Rush cannot be
+      // seated against a 3-minute standard match.
+      trophies: useLadder.getState().trophies,
+      ranked,
+      format: rush ? 'rush' : 'standard',
     });
-    queueTimers.push(setTimeout(fallBack, pvpWaitMs()));
+    // Ranked has no bot timer at all: there is nothing to fall back to.
+    if (!ranked) queueTimers.push(setTimeout(fallBack, pvpWaitMs()));
     return null;
   },
 
@@ -478,7 +534,7 @@ function beginBotFlow(
         play('coin');
       }
       const seed = (Date.now() ^ (Math.random() * 0xffffffff)) >>> 0;
-      const sim = createMatch(seed, [player, bot]);
+      const sim = createMatch(seed, [player, bot], FORMATS[useMatch.getState().rush ? 'rush' : 'standard']);
       pending = new Map();
       hashes = [];
       useMatch.setState({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });
@@ -503,6 +559,7 @@ function refundEscrow(): void {
  */
 function beginHumanBattle(
   m: MatchedPayload, myDeck: MatchCard[], stakeSol: number, tierIdx: number,
+  rush = false,
 ): void {
   clearTimers(); // the bot fallback timer must not fire mid-handshake
   const store = useMatch.getState();
@@ -522,7 +579,7 @@ function beginHumanBattle(
 
   let sim: SimState;
   try {
-    sim = createMatch(m.seed, decks);
+    sim = createMatch(m.seed, decks, rush ? FORMATS.rush : FORMATS.standard);
   } catch {
     // A malformed opponent deck must not strand this player at 'found' with
     // their stake gone. Refund, drop the socket, and let the bot step in.
@@ -615,7 +672,7 @@ function countCrowns(sim: SimState, me: 0 | 1): [number, number] {
 }
 
 function settle(): void {
-  const { sim, stakeSol, status, practice, perspective, mode } = useMatch.getState();
+  const { sim, stakeSol, status, practice, perspective, mode, ranked } = useMatch.getState();
   if (!sim || status === 'settled') return; // idempotent: never pay twice
   if (mode === 'human') pvpClose();
   humanEscrowSol = 0; // consumed by the payout rules below
@@ -649,8 +706,26 @@ function settle(): void {
   // is what makes the skip-timer purchase land. Practice earns nothing at all,
   // so it cannot be farmed for chests.
   const chest = won && !practice ? useEconomy.getState().awardChest(Math.random()) : null;
+  /**
+   * Trophies move only on ranked matches, and only against a real opponent's
+   * rating. Practice and casual are excluded by construction — a ladder that
+   * can be climbed against a bot is not a ladder.
+   */
+  const trophyChange = ranked && !practice
+    ? useLadder.getState().record(
+      wallet.address,
+      opponentTrophies,
+      draw ? 'draw' : won ? 'win' : 'loss',
+    )
+    : null;
+
   const result: MatchResult = {
     won, draw, potSol: pot, payoutSol, rakeSol, hashes: hashes.length, crowns, chest,
+    trophyDelta: trophyChange?.delta,
+    trophiesAfter: trophyChange?.after,
+    promoted: trophyChange?.promoted,
+    demoted: trophyChange?.demoted,
+    leagueAfter: trophyChange?.leagueAfter.name,
   };
   useMatch.setState((s) => ({
     status: 'settled',

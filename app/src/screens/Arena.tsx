@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CardFrame } from '../components/CardFrame';
 import { Tutorial, resetTutorial, tutorialDone } from '../components/Tutorial';
+import { LeagueBadge } from '../components/LeagueBadge';
 import { Crowns, Pill } from '../components/ui';
 import { fmtSol, shortAddr } from '../lib/format';
 import { EASE_SNAP, usePulse } from '../lib/motion';
 import { FEES, useCollection } from '../state/collection';
 import { TIERS, useDeck } from '../state/deck';
+import { useLadder } from '../state/ladder';
 import { useMatch } from '../state/match';
 import { useWallet } from '../state/wallet';
 
@@ -91,6 +93,7 @@ function ConnectHero() {
 
 function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
   const wallet = useWallet();
+  const trophies = useLadder((s) => s.trophies);
   const history = useMatch((s) => s.history);
   const [open, setOpen] = useState(false);
   const wins = history.filter((h) => h.won).length;
@@ -136,7 +139,8 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
         </span>
       </button>
 
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <LeagueBadge trophies={trophies} size={34} />
         <Chip icon="👑" value={String(wins)} tone="blue" />
         <Chip icon="◎" value={fmtSol(wallet.sol).replace(' SOL', '')} tone="gold" />
       </div>
@@ -178,6 +182,7 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
 
 export function Arena() {
   const wallet = useWallet();
+  const trophies = useLadder((s) => s.trophies);
   const deck = useDeck();
   const cards = useCollection((s) => s.cards);
   const match = useMatch();
@@ -293,7 +298,11 @@ export function Arena() {
                 <span className="fine" style={{ color: 'var(--dim-on-wood)', fontSize: 12 }}>
                   {match.status === 'found'
                     ? `${match.opponentName} · entering arena`
-                    : `matching your deck power (${deck.power()})`}
+                    : match.ranked
+                      // Ranked never seats a bot, so the wait is open-ended and
+                      // the copy says so instead of implying a match is close.
+                      ? `humans only · matching near ${trophies} 🏆`
+                      : `matching your deck power (${deck.power()})`}
                 </span>
               </span>
               <style>{'@keyframes searchPulse{0%,100%{opacity:.28;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}'}</style>
@@ -313,7 +322,7 @@ export function Arena() {
                 the money readouts for attention. */}
             <div data-tut="battle">
               <Pill
-                onClick={() => setError(match.startQueue())}
+                onClick={() => setError(match.startQueue({ ranked: true }))}
                 tone="gold"
                 style={{
                   fontSize: 25,
@@ -321,9 +330,19 @@ export function Arena() {
                   animation: 'ctaBreathe 2.6s ease-in-out infinite',
                 }}
               >
-                Battle
+                Ranked
               </Pill>
             </div>
+            {/* Rush: 30 seconds, same stake tier, trophies still on the line.
+                Sits beside Ranked rather than under Practice because it is a
+                real match — the short format is the only difference. */}
+            <Pill
+              tone="blue"
+              onClick={() => setError(match.startQueue({ ranked: true, rush: true }))}
+              style={{ fontSize: 16, minHeight: 48, padding: '11px 18px' }}
+            >
+              Rush · 30s
+            </Pill>
             {/* No stake, no rake, no chest — somewhere to learn the controls
                 without paying tuition in SOL. */}
             <div data-tut="practice">

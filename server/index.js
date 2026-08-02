@@ -10,6 +10,7 @@ import cors from 'cors';
 import express from 'express';
 import { MongoClient } from 'mongodb';
 import { registerClanRoutes } from './clans.js';
+import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
 const { MONGODB_URI, MONGODB_DB = 'mempire', PORT = 8787 } = process.env;
@@ -21,6 +22,7 @@ if (!MONGODB_URI) {
 const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
 let players;
 let leaderboard;
+let ladder;
 
 const app = express();
 // Locked to the deployed app's origin in production; open in development.
@@ -288,6 +290,116 @@ app.get('/api/coins', async (_req, res) => {
   }
 });
 
+// ── Trophy ladder ───────────────────────────────────────────────────────────
+// The server is the authority: it is the only party that sees both sides of a
+// match. The client computes the same Elo optimistically so the result screen
+// is instant, then reconciles with whatever comes back from here.
+
+/** One player's ladder standing, plus their rank. */
+app.get('/api/ladder/:address', async (req, res) => {
+  const { address } = req.params;
+  if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
+  try {
+    const doc = await ladder.findOne({ _id: address });
+    const trophies = doc?.trophies ?? 0;
+    // Rank is derived, never stored — a stored rank is stale the moment anyone
+    // else plays a match.
+    const above = await ladder.countDocuments({ trophies: { $gt: trophies } });
+    res.json({
+      address,
+      trophies,
+      best: doc?.best ?? trophies,
+      wins: doc?.wins ?? 0,
+      losses: doc?.losses ?? 0,
+      draws: doc?.draws ?? 0,
+      streak: doc?.streak ?? 0,
+      bestStreak: doc?.bestStreak ?? 0,
+      league: leagueFor(trophies).name,
+      rank: doc ? above + 1 : null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** Apply one ranked result. Returns the new standing. */
+app.post('/api/ladder/:address', async (req, res) => {
+  const { address } = req.params;
+  if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
+  const { opponentTrophies, outcome } = req.body ?? {};
+  if (!['win', 'loss', 'draw'].includes(outcome)) {
+    return res.status(400).json({ error: 'bad outcome' });
+  }
+  try {
+    const doc = await ladder.findOne({ _id: address });
+    const before = doc?.trophies ?? 0;
+    const opp = num(opponentTrophies, 0, 100_000);
+    const { delta, after, floored } = applyMatch(before, opp, outcome);
+    const streak = outcome === 'win' ? (doc?.streak ?? 0) + 1
+      : outcome === 'loss' ? 0
+        : (doc?.streak ?? 0);
+    const now = new Date();
+
+    await ladder.updateOne(
+      { _id: address },
+      {
+        $set: {
+          trophies: after,
+          best: Math.max(doc?.best ?? 0, after),
+          streak,
+          bestStreak: Math.max(doc?.bestStreak ?? 0, streak),
+          updatedAt: now,
+        },
+        $inc: {
+          wins: outcome === 'win' ? 1 : 0,
+          losses: outcome === 'loss' ? 1 : 0,
+          draws: outcome === 'draw' ? 1 : 0,
+          matches: 1,
+        },
+        $setOnInsert: { createdAt: now },
+      },
+      { upsert: true },
+    );
+
+    const above = await ladder.countDocuments({ trophies: { $gt: after } });
+    res.json({
+      trophies: after,
+      delta,
+      floored,
+      best: Math.max(doc?.best ?? 0, after),
+      wins: (doc?.wins ?? 0) + (outcome === 'win' ? 1 : 0),
+      losses: (doc?.losses ?? 0) + (outcome === 'loss' ? 1 : 0),
+      streak,
+      league: leagueFor(after).name,
+      rank: above + 1,
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/** The ladder itself — top players by trophies. */
+app.get('/api/ladder', async (_req, res) => {
+  try {
+    const rows = await ladder.find({}).sort({ trophies: -1 }).limit(50).toArray();
+    res.json({
+      players: rows.map((r, i) => ({
+        rank: i + 1,
+        address: r._id,
+        name: r.name ?? null,
+        trophies: r.trophies ?? 0,
+        best: r.best ?? 0,
+        wins: r.wins ?? 0,
+        losses: r.losses ?? 0,
+        streak: r.streak ?? 0,
+        league: leagueFor(r.trophies ?? 0).name,
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 /** Top players by net SOL — powers the Empire leaderboard. */
 app.get('/api/leaderboard', async (_req, res) => {
   try {
@@ -307,7 +419,10 @@ const server = await (async () => {
   const db = client.db(MONGODB_DB);
   players = db.collection('players');
   leaderboard = db.collection('leaderboard');
+  ladder = db.collection('ladder');
   await leaderboard.createIndex({ netSol: -1 });
+  // Both the ladder listing and every rank lookup sort on this.
+  await ladder.createIndex({ trophies: -1 });
   registerClanRoutes(app, db);
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));

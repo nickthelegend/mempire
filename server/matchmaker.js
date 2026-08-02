@@ -19,6 +19,16 @@
 import { WebSocketServer } from 'ws';
 
 const TIERS = 4;
+
+/**
+ * How far apart two ratings may be, widening with wait time. Mirrors
+ * `ratingBand` in `app/src/lib/ranking.ts`; uncapped after a minute so the
+ * queue always drains — an empty ladder is the real failure, not an uneven match.
+ */
+function ratingBand(waitedMs) {
+  if (waitedMs >= 60_000) return Number.POSITIVE_INFINITY;
+  return 200 + Math.floor(Math.max(0, waitedMs) / 1000) * 25;
+}
 const HASH_WINDOW = 400; // remember this many recent checkpoint ticks per match
 
 /**
@@ -63,9 +73,46 @@ export function registerMatchmaker(server) {
   };
 
   function leaveQueue(ws) {
-    for (const [tier, entry] of queues) {
-      if (entry.ws === ws) queues.delete(tier);
+    for (const [key, list] of queues) {
+      const i = list.findIndex((e) => e.ws === ws);
+      if (i >= 0) list.splice(i, 1);
+      if (!list.length) queues.delete(key);
     }
+  }
+
+  /**
+   * Players only meet inside the same pool.
+   *
+   * Format is non-negotiable — a 30-second Rush seated against a 3-minute
+   * standard match would desync on the first tick, because the sim's timing
+   * lives in the format. Ranked is separate so a ladder match is never paired
+   * with a casual one, and tier keeps stakes equal.
+   */
+  const queueKey = (tier, format, ranked) => `${tier}:${format}:${ranked ? 'r' : 'c'}`;
+
+  /**
+   * Picks the closest-rated waiting opponent inside the band.
+   *
+   * The band widens with wait time (see `ratingBand`), because a perfect match
+   * nobody ever gets is worse than a slightly uneven one in twenty seconds.
+   * Closest-first rather than first-in so a crowded queue still pairs fairly.
+   */
+  function findOpponent(list, address, trophies, now) {
+    let best = -1;
+    let bestGap = Infinity;
+    for (let i = 0; i < list.length; i += 1) {
+      const e = list[i];
+      if (e.ws.readyState !== 1) continue;
+      // Same wallet in both seats is a self-match; the program refuses it
+      // onchain, so the matchmaker refuses it here too.
+      if (e.address === address) continue;
+      const gap = Math.abs((e.trophies ?? 0) - trophies);
+      // Either side having waited long enough is sufficient — the player who
+      // has been waiting is the one whose patience should widen the band.
+      if (gap > Math.max(ratingBand(now - e.since), ratingBand(0))) continue;
+      if (gap < bestGap) { bestGap = gap; best = i; }
+    }
+    return best;
   }
 
   function endMatch(id) {
@@ -95,11 +142,18 @@ export function registerMatchmaker(server) {
           if (matches.has(ws.matchId)) return;
           leaveQueue(ws); // one queue slot per socket
 
-          const waiting = queues.get(tier);
-          // Same wallet in both seats would be a self-match; the program
-          // refuses it onchain, so the matchmaker refuses it here too.
-          if (waiting && waiting.ws.readyState === 1 && waiting.address !== msg.address) {
-            queues.delete(tier);
+          const format = msg.format === 'rush' ? 'rush' : 'standard';
+          const ranked = Boolean(msg.ranked);
+          const trophies = Number.isFinite(Number(msg.trophies)) ? Number(msg.trophies) : 0;
+          const key = queueKey(tier, format, ranked);
+          const list = queues.get(key) ?? [];
+          const now = Date.now();
+
+          const idx = findOpponent(list, msg.address, trophies, now);
+          if (idx >= 0) {
+            const waiting = list[idx];
+            list.splice(idx, 1);
+            if (!list.length) queues.delete(key); else queues.set(key, list);
             const id = nextMatchId;
             nextMatchId += 1;
             // Order-independent seed: neither player benefits from being first.
@@ -117,19 +171,27 @@ export function registerMatchmaker(server) {
             ws.matchId = id;
 
             send(waiting.ws, {
-              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt,
-              opponent: { address: msg.address, name: msg.name ?? null, power: msg.power ?? 0, deck: msg.deck },
+              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, format,
+              opponent: {
+                address: msg.address, name: msg.name ?? null,
+                power: msg.power ?? 0, deck: msg.deck, trophies,
+              },
             });
             send(ws, {
-              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt,
-              opponent: { address: waiting.address, name: waiting.name ?? null, power: waiting.power ?? 0, deck: waiting.deck },
+              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, format,
+              opponent: {
+                address: waiting.address, name: waiting.name ?? null,
+                power: waiting.power ?? 0, deck: waiting.deck, trophies: waiting.trophies ?? 0,
+              },
             });
           } else {
-            queues.set(tier, {
+            list.push({
               ws, address: msg.address, name: msg.name ?? null,
               power: msg.power ?? 0, deck: msg.deck, deckHash: msg.deckHash ?? '',
+              trophies, since: now,
             });
-            send(ws, { t: 'queued' });
+            queues.set(key, list);
+            send(ws, { t: 'queued', ranked, format });
           }
           break;
         }

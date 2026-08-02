@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useChain } from './chain';
+import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
 
 /**
@@ -20,6 +21,16 @@ export function useChainSync(): void {
   const clearWallet = useChain((s) => s.clearWallet);
 
   useEffect(() => { void init(); }, [init]);
+
+  // Ladder standing is per-wallet and read-only here; the match store writes it.
+  useEffect(() => {
+    if (connected && address) {
+      void useLadder.getState().load(address);
+      void useLadder.getState().loadTop();
+    } else {
+      useLadder.getState().reset();
+    }
+  }, [connected, address]);
 
   useEffect(() => {
     if (!connected || !address) { clearWallet(); return; }
