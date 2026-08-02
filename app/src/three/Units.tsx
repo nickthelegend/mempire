@@ -2,6 +2,10 @@ import { useFrame } from '@react-three/fiber';
 import { useGLTF } from '@react-three/drei';
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import type { GLTFLoader } from 'three-stdlib';
+// Models ship meshopt-compressed (46MB of GLB became 1.4MB), so the loader
+// needs the decoder registered before it can read them.
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { ARENA, PALETTE } from '../lib/palette';
 import { SkeletonUtils } from 'three-stdlib';
 import { FP } from '../sim/fixed';
@@ -90,10 +94,17 @@ function fitToHeight(model: THREE.Object3D, target: number): void {
   model.position.set(-centre.x * s, -box.min.y * s, -centre.z * s);
 }
 
+const withMeshopt = (loader: GLTFLoader) => {
+  loader.setMeshoptDecoder(MeshoptDecoder);
+};
+
 export function Units() {
   const gltfs = [
-    useGLTF(MODEL[0]), useGLTF(MODEL[1]), useGLTF(MODEL[2]),
-    useGLTF(MODEL[3]), useGLTF(MODEL[4]),
+    useGLTF(MODEL[0], undefined, undefined, withMeshopt),
+    useGLTF(MODEL[1], undefined, undefined, withMeshopt),
+    useGLTF(MODEL[2], undefined, undefined, withMeshopt),
+    useGLTF(MODEL[3], undefined, undefined, withMeshopt),
+    useGLTF(MODEL[4], undefined, undefined, withMeshopt),
   ];
   const root = useRef<THREE.Group>(null);
   const live = useRef(new Map<number, LiveUnit>());
@@ -322,4 +333,4 @@ export function Units() {
   return <group ref={root} />;
 }
 
-Object.values(MODEL).forEach((m) => useGLTF.preload(m));
+Object.values(MODEL).forEach((m) => useGLTF.preload(m, undefined, undefined, withMeshopt));
