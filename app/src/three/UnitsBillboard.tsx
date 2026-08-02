@@ -1,6 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { keyedCanvas } from '../lib/chromaKey';
 import { coinByMint } from '../lib/coins';
 import { FP } from '../sim/fixed';
 import type { SimState, Unit } from '../sim/types';
@@ -63,9 +64,11 @@ function makeAlphaMask(): THREE.Texture {
   const g = c.getContext('2d')!;
   // Slightly taller than wide: characters are portrait, so an even circle would
   // clip heads and feet before it clipped the sides.
-  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.16, S / 2, S / 2, S * 0.52);
+  // Generous and soft: a tight mask eats heads and feet off a portrait, and a
+  // hard edge reads as a sticker cut out of the grass.
+  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.30, S / 2, S / 2, S * 0.70);
   grd.addColorStop(0, '#fff');
-  grd.addColorStop(0.72, '#fff');
+  grd.addColorStop(0.80, '#fff');
   grd.addColorStop(1, '#000');
   g.fillStyle = grd;
   g.fillRect(0, 0, S, S);
@@ -86,19 +89,33 @@ const texCache = new Map<string, THREE.Texture>();
  * object is reused either way, so the material never has to be rebuilt and a
  * unit already on the field just changes what it is showing.
  */
-function textureFor(url: string, fallback?: string): THREE.Texture {
+function textureFor(
+  url: string, fallback: string, onKeyed: (t: THREE.Texture) => void,
+): THREE.Texture {
   const hit = texCache.get(url);
   if (hit) return hit;
   const t = loader.load(url, undefined, undefined, () => {
-    if (!fallback || fallback === url) return;
-    loader.load(fallback, (fb) => {
-      t.image = fb.image;
-      t.needsUpdate = true;
-    });
+    if (fallback === url) return;
+    loader.load(fallback, (fb) => { t.image = fb.image; t.needsUpdate = true; });
   });
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
   texCache.set(url, t);
+
+  // Chroma-keyed art becomes a true cut-out, which is the difference between a
+  // character standing on the grass and a portrait in a locket. Un-keyed art
+  // (the round coin badges) returns null and keeps the soft radial mask.
+  void keyedCanvas(url).then((c) => {
+    if (!c) return;
+    // A CanvasTexture is the right carrier for a keyed cut-out; assigning a
+    // canvas onto the existing image-backed texture is not type-safe and can
+    // skip the upload, so swap the whole map instead.
+    const keyedTex = new THREE.CanvasTexture(c);
+    keyedTex.colorSpace = THREE.SRGBColorSpace;
+    keyedTex.anisotropy = 4;
+    texCache.set(url, keyedTex);
+    onKeyed(keyedTex);
+  });
   return t;
 }
 
@@ -119,6 +136,17 @@ interface LiveUnit {
   /** Accumulated stride phase — advances with distance, not wall time, so a
    *  slow unit does not moonwalk. */
   phase: number;
+  /**
+   * Low-passed speed in world units per second.
+   *
+   * The sim ticks at 20Hz while this loop runs at ~60Hz, so on two frames out of
+   * three the target has not moved at all. Reading movement per-frame therefore
+   * flickered between "walking" and "standing" 20 times a second, and every
+   * value derived from it — bob, squash, lean, the sprite's Y — snapped between
+   * two positions. That was a visible vibration. Smoothing the speed decouples
+   * the animation from the tick rate entirely.
+   */
+  speed: number;
   attackPulse: number;
   baseTint: THREE.Color;
 }
@@ -153,7 +181,12 @@ export function UnitsBillboard() {
     const tint = u.owner === me ? OWN_TINT : ENEMY_TINT;
 
     const mat = new THREE.MeshBasicMaterial({
-      map: textureFor(url, fallback),
+      map: textureFor(url, fallback, (keyedTex) => {
+        // A cut-out carries its own alpha; the radial mask would only clip it.
+        mat.map = keyedTex;
+        mat.alphaMap = null;
+        mat.needsUpdate = true;
+      }),
       alphaMap: alphaMask,
       transparent: true,
       alphaTest: 0.04,
@@ -174,7 +207,7 @@ export function UnitsBillboard() {
     const shadow = new THREE.Mesh(
       shadowGeo,
       new THREE.MeshBasicMaterial({
-        color: '#1d3a12', transparent: true, opacity: 0.3, depthWrite: false,
+        color: '#12280b', transparent: true, opacity: 0.42, depthWrite: false,
       }),
     );
     shadow.rotation.x = -Math.PI / 2;
@@ -197,7 +230,7 @@ export function UnitsBillboard() {
     return {
       group, sprite, mat, shadow, ring, ringDone: false, height: h,
       lastX: u.x / FP, lastZ: u.y / FP, lastHp: u.hp,
-      spawning: 0, hitFlash: 0, dying: 0, phase: 0, attackPulse: 0,
+      spawning: 0, hitFlash: 0, dying: 0, phase: 0, speed: 0, attackPulse: 0,
       baseTint: tint.clone(),
     };
   };
@@ -223,18 +256,25 @@ export function UnitsBillboard() {
 
       const tx = u.x / FP;
       const tz = u.y / FP;
+      const beforeX = lu.group.position.x;
+      const beforeZ = lu.group.position.z;
       const k = 1 - Math.exp(-dt * 11);
       lu.group.position.x += (tx - lu.group.position.x) * k;
       lu.group.position.z += (tz - lu.group.position.z) * k;
 
-      const dx = tx - lu.lastX;
-      const dz = tz - lu.lastZ;
-      const travelled = Math.hypot(dx, dz);
-      const moving = travelled > 1e-4;
+      // Speed comes from the SMOOTHED position, not the sim target, and is then
+      // low-passed. Both steps matter: the target only moves on a tick, and even
+      // the smoothed delta is noisy at frame level.
+      const stepped = Math.hypot(
+        lu.group.position.x - beforeX,
+        lu.group.position.z - beforeZ,
+      );
+      const instant = dt > 0 ? stepped / dt : 0;
+      lu.speed += (instant - lu.speed) * (1 - Math.exp(-dt * 6));
       lu.lastX = tx; lu.lastZ = tz;
 
-      // Stride advances with distance covered, so speed and bob stay in step.
-      if (moving) lu.phase += travelled * 5.2;
+      // Stride advances with distance covered, so a slow unit does not moonwalk.
+      lu.phase += lu.speed * dt * 4.4;
 
       // Face the camera completely, every frame. Quaternion copy rather than
       // Euler assignment: mixing an axis-by-axis yaw with the lean below fights
@@ -248,12 +288,15 @@ export function UnitsBillboard() {
 
       // ── the animation, such as it is ──────────────────────────────────────
       const h = lu.height;
-      const bob = moving ? Math.abs(Math.sin(lu.phase)) : 0;
+      // Gait blends in with speed rather than switching on — the last of the
+      // step-function behaviour that made units judder.
+      const gait = Math.min(1, lu.speed / 1.6);
+      const bob = Math.abs(Math.sin(lu.phase)) * gait;
       const breathe = Math.sin(performance.now() / 620 + lu.group.position.x) * 0.012;
       // Squash on the down-beat of the stride: the classic weight cue, and the
       // single biggest thing that stops a billboard reading as a sticker.
-      const squash = moving ? 1 - bob * 0.07 : 1 + breathe;
-      const stretch = moving ? 1 + bob * 0.09 : 1 - breathe;
+      const squash = 1 - bob * 0.07 + breathe * (1 - gait);
+      const stretch = 1 + bob * 0.09 - breathe * (1 - gait);
       const lunge = lu.attackPulse * 0.16;
 
       const pop = lu.spawning < SPAWN_POP
@@ -282,7 +325,7 @@ export function UnitsBillboard() {
       // Lean into the stride — applied AFTER the billboard quaternion, so it is
       // a roll in screen space. A static image that rocks reads as momentum,
       // which is most of what a walk cycle communicates at this size.
-      const lean = moving ? Math.min(0.16, travelled * 9) : 0;
+      const lean = gait * 0.09;
       lu.sprite.rotateZ(-lean * Math.sin(lu.phase * 0.5) - lu.attackPulse * 0.1);
 
       if (lu.hitFlash > 0) {
@@ -296,6 +339,11 @@ export function UnitsBillboard() {
       }
 
       lu.shadow.scale.setScalar(pop * (0.9 + bob * 0.16));
+
+      // Nearer units must draw last. With depthWrite off, three.js sorts these
+      // by distance but ties resolve arbitrarily and neighbours visibly swap
+      // layers; an explicit order keyed on depth makes it stable.
+      lu.group.renderOrder = 10 + Math.round(lu.group.position.z * 4);
     }
 
     // Deaths: topple, sink and fade rather than vanishing mid-field.

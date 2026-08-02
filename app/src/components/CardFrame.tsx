@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { keyedUrl } from '../lib/chromaKey';
 import type { MintedCard } from '../state/collection';
 import { coinByMint, tickerOf } from '../lib/coins';
 import { ARCHETYPES } from '../sim/archetypes';
@@ -16,7 +17,19 @@ export function CardFrame({
   disabled?: boolean; fluid?: boolean; onClick?: () => void;
 }) {
   const [artFailed, setArtFailed] = useState(false);
+  const [keyed, setKeyed] = useState<string | null>(null);
   const coin = coinByMint(card.mint);
+  const art = coin?.cardArt;
+
+  // Chroma-keyed art is shown as a cut-out over the card's own coloured well,
+  // which reads far better than a pasted rectangle. Un-keyed art is used as-is.
+  useEffect(() => {
+    if (!art) return;
+    let alive = true;
+    void keyedUrl(art).then((u) => { if (alive && u) setKeyed(u); });
+    return () => { alive = false; };
+  }, [art]);
+
   if (!coin) return null;
   const cost = ARCHETYPES[card.archetype].elixir;
   const h = Math.round((width * 4) / 3);
@@ -68,7 +81,7 @@ export function CardFrame({
       >
         {coin.cardArt && !artFailed ? (
           <img
-            src={coin.cardArt}
+            src={keyed ?? coin.cardArt}
             alt=""
             aria-hidden
             draggable={false}
@@ -77,7 +90,10 @@ export function CardFrame({
             // badge rather than showing a broken image.
             onError={() => setArtFailed(true)}
             style={{
-              width: '100%', height: '100%', objectFit: 'cover',
+              width: '100%', height: '100%',
+              // A cut-out is `contain` so the whole character is visible; a
+              // full-bleed render is `cover` so it fills the well.
+              objectFit: keyed ? 'contain' : 'cover',
               // The art is drawn head-up, so bias the crop toward the top: a
               // centred crop on a 3:4 portrait cuts the face off in a wide slot.
               objectPosition: '50% 18%',
