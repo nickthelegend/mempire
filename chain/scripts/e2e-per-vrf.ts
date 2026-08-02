@@ -191,29 +191,61 @@ async function main() {
       String(e?.message ?? e).slice(0, 120));
   }
 
-  // End the match: closes the permission, commits, undelegates.
+  // Unseal, then end. Two instructions on purpose — folding the close into
+  // `end_log` as optional accounts broke every existing caller, because Anchor
+  // substitutes the program id for an omitted optional and these were `mut`.
   try {
-    await erProgram.methods.endLog(0, new anchor.BN(1234))
+    await erProgram.methods.unsealLog()
       .accounts({
         payer: kp.publicKey,
         log: logPda,
         permission: permissionPda,
         ephemeralVault: EPHEMERAL_VAULT_ID,
         permissionProgram: PERMISSION_PROGRAM_ID,
+        magicProgram: MAGIC_PROGRAM_ID,
+      })
+      .rpc();
+    await sleep(1200);
+    const permMid = await erConn.getAccountInfo(permissionPda);
+    check('unseal_log closes the permission and refunds the log',
+      permMid === null || permMid.data.length === 0,
+      permMid ? `${permMid.data.length}B left` : 'closed');
+
+    // A second unseal is expected to fail at transaction verification — the
+    // permission account is gone, so it cannot be loaded writable. What matters
+    // is that this is harmless: settlement must still go through.
+    let secondUnsealThrew = false;
+    try {
+      await erProgram.methods.unsealLog()
+        .accounts({
+          payer: kp.publicKey,
+          log: logPda,
+          permission: permissionPda,
+          ephemeralVault: EPHEMERAL_VAULT_ID,
+          permissionProgram: PERMISSION_PROGRAM_ID,
+          magicProgram: MAGIC_PROGRAM_ID,
+        })
+        .rpc();
+    } catch { secondUnsealThrew = true; }
+    console.log(`        (second unseal ${secondUnsealThrew ? 'rejected, as expected' : 'succeeded'} — either way settlement must survive)`);
+
+    // `end_log` keeps the four accounts it always had. This is the regression
+    // guard: the app's settlement path sends exactly these.
+    await erProgram.methods.endLog(0, new anchor.BN(1234))
+      .accounts({
+        payer: kp.publicKey,
+        log: logPda,
         magicContext: MAGIC_CONTEXT_ID,
         magicProgram: MAGIC_PROGRAM_ID,
       })
       .rpc();
+    check('end_log still takes only payer/log/magic — settlement unchanged', true);
     await sleep(9000);
-    const permAfter = await erConn.getAccountInfo(permissionPda);
-    check('permission is closed when the log leaves the rollup',
-      permAfter === null || permAfter.data.length === 0,
-      permAfter ? `${permAfter.data.length}B left` : 'closed');
     const backOnBase = await baseConn.getAccountInfo(logPda);
     check('log came back to base owned by our program',
       backOnBase?.owner.equals(programId) ?? false, backOnBase?.owner.toBase58());
   } catch (e: any) {
-    check('end_log closed the permission and undelegated', false,
+    check('unseal_log then end_log undelegated cleanly', false,
       String(e?.message ?? e).slice(0, 140));
   }
 

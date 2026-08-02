@@ -25,7 +25,8 @@
 //! | `seal_log`           | ER (open the private permission) |
 //! | `play_card`          | ER    |
 //! | `checkpoint`         | ER    |
-//! | `end_log`            | ER (close permission, commit + undelegate) |
+//! | `unseal_log`         | ER (close the permission) |
+//! | `end_log`            | ER (commit + undelegate) |
 //! | `close_log`          | base (reclaim rent once settled) |
 //! | `init_chests`        | base  |
 //! | `delegate_chests`    | base  |
@@ -250,6 +251,52 @@ pub mod mempire_rollup {
         Ok(())
     }
 
+    /// Rollup. Closes the seal, refunding its rent to the log.
+    ///
+    /// Deliberately **not** folded into `end_log`.
+    ///
+    /// The first version did exactly that, with the permission accounts as
+    /// Anchor `Option`s. Anchor substitutes the program id for an omitted
+    /// optional account, and these were marked `mut`, so every existing caller
+    /// — the app's settlement path included — started failing preflight with
+    /// "loads a writable account that cannot be written". Settlement is the one
+    /// path in this program that must never acquire a new way to fail, so the
+    /// permission lifecycle stays in its own instructions and `end_log` keeps
+    /// the account list it always had.
+    ///
+    /// Safe to call on a log that was never sealed: an existing-but-empty
+    /// permission returns `Ok` without a CPI.
+    ///
+    /// It is **not** safe to assume a second call succeeds. Once the permission
+    /// is fully closed the account no longer exists, and transaction
+    /// verification rejects it as a writable account before this instruction
+    /// runs at all — the early return never gets a chance. Clients should treat
+    /// a failed unseal as non-fatal and continue straight to `end_log`, which
+    /// deliberately does not depend on the permission: the worst case is the
+    /// seal's rent staying behind on the rollup, and the pot still settles.
+    pub fn unseal_log(ctx: Context<Permission>) -> Result<()> {
+        if ctx.accounts.permission.owner != &PERMISSION_PROGRAM_ID
+            || ctx.accounts.permission.data_is_empty()
+        {
+            return Ok(());
+        }
+        let log = &ctx.accounts.log;
+        let match_id = log.match_id.to_le_bytes();
+        let seeds: &[&[u8]] = &[b"log", match_id.as_ref(), &[log.bump]];
+        CloseEphemeralPermissionCpi {
+            payer: ctx.accounts.log.to_account_info(),
+            permissioned_account: ctx.accounts.log.to_account_info(),
+            permission: ctx.accounts.permission.to_account_info(),
+            vault: ctx.accounts.ephemeral_vault.to_account_info(),
+            magic_program: ctx.accounts.magic_program.to_account_info(),
+            permission_program: ctx.accounts.permission_program.to_account_info(),
+            authority: ctx.accounts.log.to_account_info(),
+            authority_is_signer: false,
+        }
+        .invoke_signed(&[seeds])?;
+        Ok(())
+    }
+
     /// Rollup. One card play, at rollup latency instead of base-layer latency.
     ///
     /// This is what makes the input log genuinely onchain rather than relayed by
@@ -335,46 +382,6 @@ pub mod mempire_rollup {
             log.ended = true;
             log.winner = winner;
             log.last_hash = final_hash;
-        }
-
-        // Close the ephemeral permission before the log leaves the rollup.
-        //
-        // It is ER-local state: it does not travel with the account, and once
-        // the log is undelegated nothing can reach it to close it. Closing here
-        // also refunds its rent back to the log, which `close_log` then returns
-        // to the player along with the rest — so the seal costs a player
-        // nothing beyond the lamports that were parked for the duration.
-        //
-        // Optional in the account list, and skipped when absent, because a
-        // match that was never sealed (a client that failed between delegate
-        // and seal) must still be able to end and settle. Losing the pot to a
-        // missing permission would be a far worse failure than an unsealed log.
-        if let Some(permission) = ctx.accounts.permission.as_ref() {
-            if permission.owner == &PERMISSION_PROGRAM_ID && !permission.data_is_empty() {
-                let match_id = ctx.accounts.log.match_id.to_le_bytes();
-                let seeds: &[&[u8]] = &[b"log", match_id.as_ref(), &[ctx.accounts.log.bump]];
-                CloseEphemeralPermissionCpi {
-                    payer: ctx.accounts.log.to_account_info(),
-                    permissioned_account: ctx.accounts.log.to_account_info(),
-                    permission: permission.to_account_info(),
-                    vault: ctx
-                        .accounts
-                        .ephemeral_vault
-                        .as_ref()
-                        .ok_or(RollupError::PermissionAccountsMissing)?
-                        .to_account_info(),
-                    magic_program: ctx.accounts.magic_program.to_account_info(),
-                    permission_program: ctx
-                        .accounts
-                        .permission_program
-                        .as_ref()
-                        .ok_or(RollupError::PermissionAccountsMissing)?
-                        .to_account_info(),
-                    authority: ctx.accounts.log.to_account_info(),
-                    authority_is_signer: false,
-                }
-                .invoke_signed(&[seeds])?;
-            }
         }
 
         // Flush the mutations to the account *before* handing it off.
@@ -708,21 +715,6 @@ pub struct EndLog<'info> {
         bump = log.bump,
     )]
     pub log: Account<'info, MatchLog>,
-    /// CHECK: derived and checked under the permission program. Optional so an
-    /// unsealed match can still end — settlement must never depend on it.
-    #[account(
-        mut,
-        seeds = [PERMISSION_SEED, log.key().as_ref()],
-        bump,
-        seeds::program = PERMISSION_PROGRAM_ID
-    )]
-    pub permission: Option<UncheckedAccount<'info>>,
-    /// CHECK: fixed address, validated by constraint.
-    #[account(mut, address = EPHEMERAL_VAULT_ID)]
-    pub ephemeral_vault: Option<UncheckedAccount<'info>>,
-    /// CHECK: fixed address, validated by constraint.
-    #[account(address = PERMISSION_PROGRAM_ID)]
-    pub permission_program: Option<UncheckedAccount<'info>>,
 }
 
 /// Shared by `seal_log` and `reseal_log`. Rollup-only.

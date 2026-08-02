@@ -13,6 +13,137 @@
   ],
   "instructions": [
     {
+      "name": "callback_chest",
+      "docs": [
+        "Rollup. The oracle delivering randomness for exactly one request.",
+        "",
+        "`#[vrf_callback]` injects the scoped-identity signer check, which is what",
+        "stops anyone else calling this with bytes of their choosing. Everything",
+        "below is the *application* half of that: proving this delivery belongs to",
+        "the request still outstanding, and doing nothing at all if it does not."
+      ],
+      "discriminator": [
+        224,
+        246,
+        136,
+        122,
+        129,
+        120,
+        242,
+        14
+      ],
+      "accounts": [
+        {
+          "name": "vrf_program_identity",
+          "docs": [
+            "Scoped VRF identity PDA, bound to this program. Its presence as a signer proves",
+            "the callback was issued by the VRF program for this program."
+          ],
+          "signer": true
+        },
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests.owner",
+                "account": "PlayerChests"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "randomness",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "cancel_chest",
+      "docs": [
+        "Rollup. Releases a slot whose callback never arrived.",
+        "",
+        "Permissionless on purpose: the owner may be the one whose client died,",
+        "and a rail wedged forever because nobody could clear it is a worse",
+        "outcome than a stranger paying the fee to unstick it. The nonce is not",
+        "reused, so the cancelled request's callback can still turn up and will",
+        "be ignored."
+      ],
+      "discriminator": [
+        16,
+        113,
+        0,
+        191,
+        97,
+        52,
+        208,
+        171
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Anyone may pay to unstick a stale request; see `cancel_chest`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests.owner",
+                "account": "PlayerChests"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "checkpoint",
       "docs": [
         "Rollup. Records a state-hash checkpoint.",
@@ -70,6 +201,67 @@
       ]
     },
     {
+      "name": "claim_chest",
+      "docs": [
+        "Rollup. Takes a filled chest and frees its slot.",
+        "",
+        "Without this the rail is write-once: four chests fill the four slots and",
+        "the player can never roll again. The randomness is returned to the",
+        "caller in the event rather than kept, because the drop it expands into",
+        "has already been shown — what the chain needs to retain is that the slot",
+        "is free, not what used to be in it."
+      ],
+      "discriminator": [
+        62,
+        139,
+        242,
+        152,
+        244,
+        220,
+        175,
+        244
+      ],
+      "accounts": [
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests.owner",
+                "account": "PlayerChests"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "signer": true,
+          "relations": [
+            "chests"
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        }
+      ]
+    },
+    {
       "name": "close_log",
       "docs": [
         "Base layer. Reclaims the log's rent once the match is over.",
@@ -113,6 +305,264 @@
           "name": "payer",
           "writable": true,
           "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "commit_chests",
+      "docs": [
+        "Rollup. Commits the rail back to base layer and hands it back.",
+        "",
+        "Refused while a request is outstanding: undelegating mid-flight would",
+        "send the callback to an account that is no longer on the rollup, and the",
+        "player would lose the chest they were waiting on."
+      ],
+      "discriminator": [
+        108,
+        144,
+        12,
+        244,
+        167,
+        170,
+        169,
+        120
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "chests"
+          ]
+        },
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests.owner",
+                "account": "PlayerChests"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "delegate_chests",
+      "docs": [
+        "Base layer. Hands the rail to an ephemeral rollup."
+      ],
+      "discriminator": [
+        173,
+        121,
+        201,
+        130,
+        151,
+        52,
+        88,
+        67
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buffer_chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                33,
+                146,
+                200,
+                214,
+                41,
+                130,
+                153,
+                69,
+                160,
+                242,
+                61,
+                71,
+                148,
+                40,
+                85,
+                8,
+                202,
+                97,
+                24,
+                180,
+                20,
+                24,
+                29,
+                216,
+                232,
+                139,
+                252,
+                235,
+                5,
+                242,
+                26,
+                195
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "validator",
+          "optional": true
+        },
+        {
+          "name": "owner_program",
+          "address": "3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -393,6 +843,57 @@
       ]
     },
     {
+      "name": "init_chests",
+      "docs": [
+        "Base layer. Creates a player's chest rail."
+      ],
+      "discriminator": [
+        91,
+        224,
+        240,
+        129,
+        68,
+        200,
+        234,
+        52
+      ],
+      "accounts": [
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "init_log",
       "docs": [
         "Base layer. Creates the log for a match the main program already opened.",
@@ -627,6 +1128,520 @@
           }
         }
       ]
+    },
+    {
+      "name": "request_chest",
+      "docs": [
+        "Rollup. Asks the oracle for the randomness that decides one chest.",
+        "",
+        "Acceptance is not an outcome. This marks the slot pending and returns;",
+        "the tier exists only once `callback_chest` runs, which is a separate",
+        "transaction the oracle submits. The UI must show \"opening\" here, never a",
+        "result."
+      ],
+      "discriminator": [
+        251,
+        129,
+        177,
+        93,
+        241,
+        46,
+        166,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "chests",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "chests.owner",
+                "account": "PlayerChests"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "docs": [
+            "The rail's owner must authorise the roll. Delegation is routing, not",
+            "authorization — the rollup enforces the same rule base layer would."
+          ],
+          "signer": true,
+          "relations": [
+            "chests"
+          ]
+        },
+        {
+          "name": "oracle_queue",
+          "writable": true
+        },
+        {
+          "name": "program_identity",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  100,
+                  101,
+                  110,
+                  116,
+                  105,
+                  116,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vrf_program",
+          "address": "Vrf1RNUjXmQGjmQrQLvJHs9SNkvDJEsRVFPkfSQUwGz"
+        },
+        {
+          "name": "slot_hashes",
+          "address": "SysvarS1otHashes111111111111111111111111111"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "slot_index",
+          "type": "u8"
+        },
+        {
+          "name": "client_seed",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "reseal_log",
+      "docs": [
+        "Rollup. Rewrites the membership to exactly the two seats.",
+        "",
+        "An update replaces the member list wholesale rather than merging into",
+        "it, so this doubles as the repair path if a permission was ever created",
+        "with the wrong set. It cannot be used to *add* anyone: the membership is",
+        "derived from the log, which was fixed on the base layer at init."
+      ],
+      "discriminator": [
+        224,
+        149,
+        146,
+        81,
+        103,
+        85,
+        223,
+        195
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "seal_log",
+      "docs": [
+        "Rollup. Seals the log so only the two seats can read it.",
+        "",
+        "Idempotent by construction: clients retry rollup transactions freely, and",
+        "creating a permission that already exists would fail the whole match",
+        "start. An already-initialised permission account is treated as success.",
+        "",
+        "Note this runs *after* delegation and on the rollup, not on base. There",
+        "is no base-layer permission account in this model — the permission is",
+        "ER-local for its whole life, which is also why closing it is a rollup",
+        "instruction rather than part of settlement."
+      ],
+      "discriminator": [
+        238,
+        78,
+        75,
+        60,
+        102,
+        178,
+        159,
+        151
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unseal_log",
+      "docs": [
+        "Rollup. Closes the seal, refunding its rent to the log.",
+        "",
+        "Deliberately **not** folded into `end_log`.",
+        "",
+        "The first version did exactly that, with the permission accounts as",
+        "Anchor `Option`s. Anchor substitutes the program id for an omitted",
+        "optional account, and these were marked `mut`, so every existing caller",
+        "— the app's settlement path included — started failing preflight with",
+        "\"loads a writable account that cannot be written\". Settlement is the one",
+        "path in this program that must never acquire a new way to fail, so the",
+        "permission lifecycle stays in its own instructions and `end_log` keeps",
+        "the account list it always had.",
+        "",
+        "Safe to call on a log that was never sealed: an existing-but-empty",
+        "permission returns `Ok` without a CPI.",
+        "",
+        "It is **not** safe to assume a second call succeeds. Once the permission",
+        "is fully closed the account no longer exists, and transaction",
+        "verification rejects it as a writable account before this instruction",
+        "runs at all — the early return never gets a chance. Clients should treat",
+        "a failed unseal as non-fatal and continue straight to `end_log`, which",
+        "deliberately does not depend on the permission: the worst case is the",
+        "seal's rent staying behind on the rollup, and the pot still settles."
+      ],
+      "discriminator": [
+        229,
+        46,
+        109,
+        187,
+        217,
+        93,
+        174,
+        150
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "permission",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  101,
+                  114,
+                  109,
+                  105,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  58
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                136,
+                161,
+                10,
+                196,
+                33,
+                152,
+                1,
+                214,
+                246,
+                106,
+                29,
+                60,
+                6,
+                152,
+                192,
+                102,
+                169,
+                175,
+                212,
+                217,
+                180,
+                252,
+                231,
+                71,
+                151,
+                141,
+                209,
+                5,
+                168,
+                212,
+                103,
+                82
+              ]
+            }
+          }
+        },
+        {
+          "name": "ephemeral_vault",
+          "writable": true,
+          "address": "MagicVau1t999999999999999999999999999999999"
+        },
+        {
+          "name": "permission_program",
+          "address": "ACLseoPoyC3cBqoUtkbjZ4aDrkurZW86v19pXz2XQnp1"
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -641,6 +1656,34 @@
         255,
         56,
         187
+      ]
+    },
+    {
+      "name": "PlayerChests",
+      "discriminator": [
+        5,
+        208,
+        109,
+        228,
+        54,
+        203,
+        201,
+        198
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "ChestClaimed",
+      "discriminator": [
+        238,
+        184,
+        223,
+        0,
+        57,
+        176,
+        35,
+        241
       ]
     }
   ],
@@ -662,26 +1705,150 @@
     },
     {
       "code": 6003,
+      "name": "WrongQueue",
+      "msg": "oracle queue is not a delegated (ephemeral) queue"
+    },
+    {
+      "code": 6004,
+      "name": "BadSlot",
+      "msg": "chest slot index out of range"
+    },
+    {
+      "code": 6005,
+      "name": "RequestInFlight",
+      "msg": "a randomness request is already in flight"
+    },
+    {
+      "code": 6006,
+      "name": "NoRequestInFlight",
+      "msg": "no randomness request is in flight"
+    },
+    {
+      "code": 6007,
+      "name": "RequestNotStale",
+      "msg": "the in-flight request has not timed out yet"
+    },
+    {
+      "code": 6008,
+      "name": "SlotNotEmpty",
+      "msg": "chest slot is not empty"
+    },
+    {
+      "code": 6009,
+      "name": "SlotNotFilled",
+      "msg": "chest slot has nothing to claim"
+    },
+    {
+      "code": 6010,
+      "name": "PermissionAccountsMissing",
+      "msg": "permission accounts must all be supplied together"
+    },
+    {
+      "code": 6011,
       "name": "BadDeckIndex",
       "msg": "deck index out of range"
     },
     {
-      "code": 6004,
+      "code": 6012,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6005,
+      "code": 6013,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6006,
+      "code": 6014,
       "name": "BadWinner",
       "msg": "invalid winner value"
     }
   ],
   "types": [
+    {
+      "name": "Chest",
+      "docs": [
+        "One slot on the rail."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "state",
+            "type": "u8"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "The nonce of the request that filled (or is filling) this slot. Kept",
+              "after fulfilment so a support question about a specific drop can be",
+              "answered from the account alone."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "randomness",
+            "docs": [
+              "The oracle's randomness, verbatim.",
+              "",
+              "Stored rather than consumed so the *contents* stay derivable off-chain:",
+              "the client expands these bytes into card drops with a documented rule,",
+              "and any third party can repeat that expansion and get the same answer.",
+              "Putting the card list on-chain instead would cost a much larger account",
+              "and buy nothing that this does not."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ChestClaimed",
+      "docs": [
+        "Emitted when a chest is taken. Carries the randomness so a client — or",
+        "anyone auditing a drop after the fact — can re-derive exactly what it",
+        "contained from the transaction alone."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot_index",
+            "type": "u8"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          },
+          {
+            "name": "randomness",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
     {
       "name": "MatchLog",
       "docs": [
@@ -769,6 +1936,74 @@
           {
             "name": "y",
             "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayerChests",
+      "docs": [
+        "A player's chest rail. Delegated to the rollup so opens are free and fast."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "slots",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Chest"
+                  }
+                },
+                4
+              ]
+            }
+          },
+          {
+            "name": "nonce",
+            "docs": [
+              "Monotonic request counter. Never reused, so a late callback from a",
+              "cancelled request can always be told apart from the live one."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pending_slot",
+            "docs": [
+              "Slot index of the live request, or `u8::MAX` when idle."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "pending_nonce",
+            "docs": [
+              "Nonce of the live request. Meaningless while idle."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "requested_at",
+            "docs": [
+              "Rollup slot the live request was made at, for the timeout path."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "opened",
+            "docs": [
+              "Lifetime chests filled. Purely for display and reconciliation."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
