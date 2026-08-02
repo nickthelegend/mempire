@@ -1,21 +1,64 @@
-// Seeded devnet meme coins. Mints are stable strings so archetype mapping
-// (hash % 6) matches what the onchain program will derive.
+import devnet from './devnet-coins.json';
+
+/**
+ * The coin registry.
+ *
+ * Mints are the **real devnet SPL mints** written by `chain/scripts/seed-devnet.ts`
+ * and registered onchain, not placeholders. That matters for one specific reason:
+ * archetype is `fnv1a(mint_base58) % 6` in both `sim/archetypes.ts` and the Rust
+ * program, so a card's class is only consistent between client and chain if the
+ * client is hashing the same string the program hashed. Placeholder mints looked
+ * fine and would have silently disagreed the moment a card was minted for real.
+ *
+ * Presentation (ticker, name, hue, art) and the simulated-mode balance live here,
+ * keyed by ticker; the economic facts (mint, price, liquidity, age) come from the
+ * seed file so re-seeding cannot leave the UI describing a coin that no longer
+ * exists. Real balances, when a wallet is connected, come from the chain store.
+ */
 export interface Coin {
   mint: string;
   ticker: string;
   name: string;
-  hue: number; // procedural logo color until generated art lands
-  balance: number; // user's holdings (token units)
+  hue: number;
+  balance: number; // simulated-mode holdings; real balances come from chain
   priceUsd: number;
   liquidityUsd: number;
   ageHours: number;
-  logoUrl?: string; // generated art, or the coin's real pump.fun image
-  /** Live market data, present only on coins fetched from the feed. */
+  logoUrl?: string;
+  decimals: number;
+  /** Live market data, present only on coins enriched from the feed. */
   fdvUsd?: number;
   change24h?: number;
   volume24h?: number;
   pumpFun?: boolean;
-  url?: string; // DexScreener pair page
+  url?: string;
+}
+
+/** Ticker → look and demo balance. Economic facts never live here. */
+const PRESENTATION: Record<string, { name: string; hue: number; balance: number; art: string }> = {
+  DOGGO: { name: 'Doggo', hue: 38, balance: 1_250_000, art: 'coin_doggo' },
+  WIFHAT: { name: 'Dog Wif Hat', hue: 320, balance: 48_000, art: 'coin_wifhat' },
+  POPKAT: { name: 'Popkat', hue: 265, balance: 310_000, art: 'coin_popkat' },
+  PENG: { name: 'Peng', hue: 205, balance: 92_000, art: 'coin_peng' },
+  FRG: { name: 'Frog', hue: 130, balance: 660_000, art: 'coin_frg' },
+  MOONCAT: { name: 'Mooncat', hue: 52, balance: 178_000, art: 'coin_mooncat' },
+  RKT: { name: 'Rocket', hue: 12, balance: 84_500, art: 'coin_rkt' },
+  CHAD: { name: 'Chad', hue: 350, balance: 21_000, art: 'coin_chad' },
+  GMI: { name: 'Gonna Make It', hue: 88, balance: 505_000, art: 'coin_gmi' },
+  SER: { name: 'Ser', hue: 228, balance: 130_000, art: 'coin_ser' },
+  BBWHALE: { name: 'Baby Whale', hue: 190, balance: 44_000, art: 'coin_bbwhale' },
+  RUGPROOF: { name: 'Rugproof', hue: 28, balance: 900_000, art: 'coin_rugproof' },
+};
+
+interface SeededCoin {
+  mint: string;
+  ticker: string;
+  name: string;
+  hue: number;
+  priceUsd: number;
+  liquidityUsd: number;
+  firstSeen: number;
+  decimals: number;
 }
 
 /** Tickers always render with the $ the culture uses. */
@@ -32,21 +75,49 @@ export const ineligibleReason = (c: Coin): string | null => {
   return null;
 };
 
-export const COINS: Coin[] = [
-  { mint: 'DoggoMint111111111111111111111111111111111', ticker: 'DOGGO', name: 'Doggo', hue: 38, balance: 1_250_000, priceUsd: 0.000082, liquidityUsd: 410_000, ageHours: 2100, logoUrl: '/art/coin_doggo.png' },
-  { mint: 'WifhatMint11111111111111111111111111111111', ticker: 'WIFHAT', name: 'Dog Wif Hat', hue: 320, balance: 48_000, priceUsd: 0.0021, liquidityUsd: 890_000, ageHours: 5300, logoUrl: '/art/coin_wifhat.png' },
-  { mint: 'PopkatMint11111111111111111111111111111111', ticker: 'POPKAT', name: 'Popkat', hue: 265, balance: 310_000, priceUsd: 0.00034, liquidityUsd: 260_000, ageHours: 3900, logoUrl: '/art/coin_popkat.png' },
-  { mint: 'PengMint1111111111111111111111111111111111', ticker: 'PENG', name: 'Peng', hue: 205, balance: 92_000, priceUsd: 0.00095, liquidityUsd: 175_000, ageHours: 1400, logoUrl: '/art/coin_peng.png' },
-  { mint: 'FrgMint11111111111111111111111111111111111', ticker: 'FRG', name: 'Frog', hue: 130, balance: 660_000, priceUsd: 0.00012, liquidityUsd: 96_000, ageHours: 7800, logoUrl: '/art/coin_frg.png' },
-  { mint: 'MooncatMint1111111111111111111111111111111', ticker: 'MOONCAT', name: 'Mooncat', hue: 52, balance: 178_000, priceUsd: 0.00048, liquidityUsd: 71_000, ageHours: 900, logoUrl: '/art/coin_mooncat.png' },
-  { mint: 'RktMint11111111111111111111111111111111111', ticker: 'RKT', name: 'Rocket', hue: 12, balance: 84_500, priceUsd: 0.0013, liquidityUsd: 154_000, ageHours: 2600, logoUrl: '/art/coin_rkt.png' },
-  { mint: 'ChadMint111111111111111111111111111111111x', ticker: 'CHAD', name: 'Chad', hue: 350, balance: 21_000, priceUsd: 0.0044, liquidityUsd: 330_000, ageHours: 4700, logoUrl: '/art/coin_chad.png' },
-  { mint: 'GmiMint111111111111111111111111111111111xx', ticker: 'GMI', name: 'Gonna Make It', hue: 88, balance: 505_000, priceUsd: 0.00019, liquidityUsd: 59_000, ageHours: 1900, logoUrl: '/art/coin_gmi.png' },
-  { mint: 'SerMint111111111111111111111111111111111xx', ticker: 'SER', name: 'Ser', hue: 228, balance: 130_000, priceUsd: 0.00061, liquidityUsd: 88_000, ageHours: 3100, logoUrl: '/art/coin_ser.png' },
-  // the gate at work: these two can't mint
-  { mint: 'BabywhaleMint111111111111111111111111111xx', ticker: 'BBWHALE', name: 'Baby Whale', hue: 190, balance: 44_000, priceUsd: 0.0008, liquidityUsd: 140_000, ageHours: 12, logoUrl: '/art/coin_bbwhale.png' },
-  { mint: 'RugproofMint11111111111111111111111111111x', ticker: 'RUGPROOF', name: 'Rugproof', hue: 28, balance: 900_000, priceUsd: 0.000031, liquidityUsd: 8_200, ageHours: 5200, logoUrl: '/art/coin_rugproof.png' },
-];
+/** The cluster and program the mints above belong to. */
+export const DEVNET_META = {
+  cluster: devnet.cluster as string,
+  programId: devnet.programId as string,
+  config: devnet.config as string,
+};
 
-export const coinByMint = (mint: string): Coin | undefined =>
-  COINS.find((c) => c.mint === mint);
+function build(): Coin[] {
+  const nowSec = Date.now() / 1000;
+  return (devnet.coins as SeededCoin[]).map((c) => {
+    const look = PRESENTATION[c.ticker];
+    return {
+      mint: c.mint,
+      ticker: c.ticker,
+      name: look?.name ?? c.name,
+      hue: look?.hue ?? c.hue,
+      balance: look?.balance ?? 0,
+      priceUsd: c.priceUsd,
+      liquidityUsd: c.liquidityUsd,
+      // Age is derived from the seeded first-seen timestamp, so the two gated
+      // coins stay gated for the same reason the program gates them.
+      ageHours: Math.max(0, Math.round((nowSec - c.firstSeen) / 3600)),
+      decimals: c.decimals,
+      logoUrl: look ? `/art/${look.art}.png` : undefined,
+    };
+  });
+}
+
+export const COINS: Coin[] = build();
+
+const BY_MINT = new Map(COINS.map((c) => [c.mint, c]));
+const BY_TICKER = new Map(COINS.map((c) => [c.ticker, c]));
+
+export const coinByMint = (mint: string): Coin | undefined => BY_MINT.get(mint);
+export const coinByTicker = (ticker: string): Coin | undefined =>
+  BY_TICKER.get(ticker.replace(/^\$+/, '').toUpperCase());
+
+/** Token units → raw base units for a transfer. */
+export function toRawAmount(coin: Coin, uiAmount: number): bigint {
+  return BigInt(Math.round(uiAmount * 10 ** coin.decimals));
+}
+
+/** Raw base units → token units for display. */
+export function fromRawAmount(coin: Coin, raw: number | bigint): number {
+  return Number(raw) / 10 ** coin.decimals;
+}

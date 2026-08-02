@@ -71,6 +71,21 @@ export function listWallets(): WalletChoice[] {
     .sort((x, y) => Number(y.installed) - Number(x.installed));
 }
 
+/**
+ * The adapter currently connected, or null for Guest / disconnected.
+ *
+ * Held outside the store deliberately: an Adapter is a live object with event
+ * emitters, so putting it in zustand state would make every consumer re-render
+ * on identity churn and would serialise badly. `signer()` is the accessor
+ * everything onchain goes through.
+ */
+let activeAdapter: Adapter | null = null;
+
+/** The adapter that can sign, or null when this session is simulated. */
+export function signer(): Adapter | null {
+  return activeAdapter;
+}
+
 interface WalletState {
   connected: boolean;
   connecting: string | null; // adapter name in flight
@@ -79,6 +94,8 @@ interface WalletState {
   walletName: string;
   walletIcon: string | null;
   sol: number;
+  /** Guest has an address but no keypair, so it can never submit a transaction. */
+  isGuest: boolean;
   pickerOpen: boolean;
   openPicker: () => void;
   closePicker: () => void;
@@ -98,6 +115,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   walletName: '',
   walletIcon: null,
   sol: 0,
+  isGuest: false,
   pickerOpen: false,
 
   openPicker: () => set({ pickerOpen: true, error: null }),
@@ -121,12 +139,14 @@ export const useWallet = create<WalletState>((set, get) => ({
       await adapter.connect();
       const pk = adapter.publicKey;
       if (!pk) throw new Error('wallet returned no public key');
+      activeAdapter = adapter;
       set({
         connected: true, connecting: null, pickerOpen: false,
         address: pk.toBase58(),
         walletName: adapter.name as string,
         walletIcon: adapter.icon,
         sol: START_BALANCE,
+        isGuest: false,
       });
       adapter.on('disconnect', () => get().disconnect());
     } catch (e) {
@@ -139,11 +159,14 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   /** Simulated wallet so the whole game is playable with nothing installed. */
-  connectGuest: () => set({
-    connected: true, connecting: null, pickerOpen: false,
-    address: GUEST_ADDRESS, walletName: 'Guest', walletIcon: null,
-    sol: START_BALANCE,
-  }),
+  connectGuest: () => {
+    activeAdapter = null;
+    set({
+      connected: true, connecting: null, pickerOpen: false,
+      address: GUEST_ADDRESS, walletName: 'Guest', walletIcon: null,
+      sol: START_BALANCE, isGuest: true,
+    });
+  },
 
   /** Silent reconnect for a wallet already trusted in this browser. */
   autoConnect: async () => {
@@ -153,12 +176,14 @@ export const useWallet = create<WalletState>((set, get) => ({
       try {
         await a.autoConnect();
         if (!a.publicKey) continue;
+        activeAdapter = a;
         set({
           connected: true,
           address: a.publicKey.toBase58(),
           walletName: a.name as string,
           walletIcon: a.icon,
           sol: START_BALANCE,
+          isGuest: false,
         });
         a.on('disconnect', () => get().disconnect());
         return;
@@ -172,9 +197,10 @@ export const useWallet = create<WalletState>((set, get) => ({
     const name = get().walletName;
     const adapter = getAdapters().find((a) => a.name === name);
     void adapter?.disconnect().catch(() => { /* already gone */ });
+    activeAdapter = null;
     set({
       connected: false, address: '', walletName: '', walletIcon: null,
-      sol: 0, pickerOpen: false,
+      sol: 0, isGuest: false, pickerOpen: false,
     });
   },
 
