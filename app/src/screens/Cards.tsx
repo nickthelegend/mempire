@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardDetail } from '../components/CardDetail';
 import { CardFrame } from '../components/CardFrame';
 import { ChestRail, GemShop } from '../components/Chests';
+import { Shop } from '../components/Shop';
 import { CoinBadge, LevelPips, Pill } from '../components/ui';
 import { COINS, ineligibleReason, tickerOf, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
@@ -289,6 +290,8 @@ export function Cards() {
       </header>
 
       <ChestRail />
+
+      <Shop />
 
       <section aria-label="Your cards">
         {cards.length === 0 ? (
