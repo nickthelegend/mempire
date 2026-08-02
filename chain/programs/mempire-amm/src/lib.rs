@@ -565,10 +565,25 @@ pub struct LiquidityRemoved {
     pub lp_burned: u64,
 }
 
+/// Every error this program can return, in one enum.
+///
+/// One enum on purpose. Anchor numbers each `#[error_code]` from 6000
+/// independently, so a second enum silently collides with the first and only
+/// one of them lands in the IDL — which is exactly what happened here before.
 #[error_code]
 pub enum AmmError {
     #[msg("fee above the 1% ceiling")]
     FeeTooHigh,
+    #[msg("arithmetic overflow")]
+    Overflow,
+    #[msg("amount must be greater than zero")]
+    ZeroAmount,
+    #[msg("pool has no liquidity")]
+    NoLiquidity,
+    #[msg("output below the minimum you asked for")]
+    SlippageExceeded,
+    #[msg("first deposit is too small to open a pool")]
+    InsufficientInitialLiquidity,
 }
 
 /// Re-exported so clients and tests read the same constant the pool charges.

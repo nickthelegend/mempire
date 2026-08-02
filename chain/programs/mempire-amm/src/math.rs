@@ -26,19 +26,15 @@ pub const BPS_DENOM: u128 = 10_000;
 /// bottom. This is the Uniswap V2 fix and it exists because the attack is real.
 pub const MINIMUM_LIQUIDITY: u64 = 1_000;
 
-#[error_code]
-pub enum MathError {
-    #[msg("arithmetic overflow")]
-    Overflow,
-    #[msg("amount must be greater than zero")]
-    ZeroAmount,
-    #[msg("pool has no liquidity")]
-    NoLiquidity,
-    #[msg("output below the minimum you asked for")]
-    SlippageExceeded,
-    #[msg("first deposit is too small to open a pool")]
-    InsufficientInitialLiquidity,
-}
+/// The maths errors are variants of the program's single `AmmError`.
+///
+/// They used to be their own `#[error_code]` enum, which was a real bug rather
+/// than an untidiness: Anchor numbers every error enum from 6000, so
+/// `MathError::Overflow` and `AmmError::FeeTooHigh` were both 6000 and a client
+/// could not tell them apart — and only one of the two enums reached the IDL at
+/// all, leaving slippage and zero-amount failures as bare numbers in the UI.
+/// One enum, one numbering, complete IDL.
+pub use crate::AmmError as MathError;
 
 /// Integer square root, by Newton's method.
 ///
