@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CardDetail } from '../components/CardDetail';
 import { CardFrame } from '../components/CardFrame';
+import { ChestRail, GemShop } from '../components/Chests';
 import { CoinBadge, LevelPips, Pill } from '../components/ui';
 import { COINS, ineligibleReason, type Coin } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
 import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
+import { useEconomy } from '../state/economy';
 import { useWallet } from '../state/wallet';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
@@ -226,8 +229,12 @@ export function Cards() {
   const cards = useCollection((s) => s.cards);
   const connected = useWallet((s) => s.connected);
   const openPicker = useWallet((s) => s.openPicker);
+  const gems = useEconomy((s) => s.gems);
   const [openCard, setOpenCard] = useState<string | null>(null);
-  const selected = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
+  const [stakeCard, setStakeCard] = useState<string | null>(null);
+  const [gemShop, setGemShop] = useState(false);
+  const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
+  const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
   const totalStaked = cards.reduce((s, c) => s + c.stakedUsd, 0);
 
   if (!connected) {
@@ -248,12 +255,32 @@ export function Cards() {
 
   return (
     <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 22 }}>
-      <header>
-        <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
-        <p style={{ fontSize: 13, color: 'var(--dim)' }}>
-          {cards.length} minted · <span className="money">{fmtUsd(totalStaked)}</span> staked
-        </p>
+      <header style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
+        <div>
+          <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
+          <p className="fine">
+            {cards.length} minted · <span className="money" style={{ fontSize: 14 }}>{fmtUsd(totalStaked)}</span> staked
+          </p>
+        </div>
+        <button
+          onClick={() => setGemShop(true)}
+          aria-label="Buy gems"
+          className="btn-3d"
+          style={{
+            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+            minHeight: 44, padding: '0 13px', borderRadius: 999,
+            background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
+            border: '2.5px solid var(--ink)',
+            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)',
+          }}
+        >
+          <span aria-hidden style={{ fontSize: 16 }}>💎</span>
+          <span className="display" style={{ fontSize: 16 }}>{gems}</span>
+          <span className="display" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
+        </button>
       </header>
+
+      <ChestRail />
 
       <section aria-label="Your cards">
         {cards.length === 0 ? (
@@ -265,6 +292,7 @@ export function Cards() {
             {cards.map((c) => (
               <CardFrame key={c.id} card={c} width={104} fluid onClick={() => setOpenCard(c.id)} />
             ))}
+
           </div>
         )}
       </section>
@@ -283,7 +311,15 @@ export function Cards() {
         </p>
       </section>
 
-      {selected && <StakeSheet card={selected} onClose={() => setOpenCard(null)} />}
+      {detail && (
+        <CardDetail
+          card={detail}
+          onClose={() => setOpenCard(null)}
+          onStake={() => { setStakeCard(detail.id); setOpenCard(null); }}
+        />
+      )}
+      {selected && <StakeSheet card={selected} onClose={() => setStakeCard(null)} />}
+      {gemShop && <GemShop onClose={() => setGemShop(false)} />}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   HASH_EVERY_TICKS, INPUT_DELAY_TICKS, type InputEvent, type MatchCard, type SimState,
 } from '../sim/types';
 import { useCollection, FEES } from './collection';
+import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
 import { useWallet } from './wallet';
 
@@ -21,6 +22,7 @@ export interface MatchResult {
   rakeSol: number;
   hashes: number; // checkpoints committed
   crowns: [number, number]; // towers felled, [you, them]
+  chest: ChestTier | null; // won a chest, unless all four slots were full
 }
 
 /** Transient presentation signal — never read by the sim. */
@@ -251,8 +253,11 @@ function settle(): void {
     wallet.receive(payoutSol);
   }
   play(won || draw ? 'victory' : 'defeat');
+  // A win earns a chest. Full slots deliberately award nothing — that pressure
+  // is what makes the skip-timer purchase land.
+  const chest = won ? useEconomy.getState().awardChest(Math.random()) : null;
   const result: MatchResult = {
-    won, draw, potSol: pot, payoutSol, rakeSol, hashes: hashes.length, crowns,
+    won, draw, potSol: pot, payoutSol, rakeSol, hashes: hashes.length, crowns, chest,
   };
   useMatch.setState((s) => ({ status: 'settled', result, history: [result, ...s.history] }));
 }

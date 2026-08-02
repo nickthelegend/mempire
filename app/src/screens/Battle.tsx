@@ -7,6 +7,7 @@ import { ARCHETYPES } from '../sim/archetypes';
 import { FP, fp } from '../sim/fixed';
 import { BattleScene, clampDrop, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
 import { DOUBLE_ELIXIR_AT, OVERTIME_TICKS, REGULATION_TICKS } from '../sim/types';
+import { CHESTS } from '../state/economy';
 import { useMatch } from '../state/match';
 
 function GoldBurst() {
@@ -68,6 +69,19 @@ function ResultOverlay() {
       <div style={{ display: 'flex', justifyContent: 'center', gap: 14, alignItems: 'center' }}>
         <CrownScore crowns={result.crowns} />
       </div>
+      {result.won && (
+        <div className="well" style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span aria-hidden style={{ fontSize: 22 }}>🎁</span>
+          <span style={{ textAlign: 'left', minWidth: 0 }}>
+            <span className="display" style={{ fontSize: 15, display: 'block' }}>
+              {result.chest ? `${CHESTS[result.chest].name} earned` : 'Chest slots full'}
+            </span>
+            <span className="fine" style={{ fontSize: 11 }}>
+              {result.chest ? 'Open it on the Cards tab' : 'Open one to make room'}
+            </span>
+          </span>
+        </div>
+      )}
       <p style={{ fontSize: 12, color: 'var(--dim)' }}>
         {result.hashes} state hashes committed · settlement verified by final-state signature (devnet sim)
       </p>

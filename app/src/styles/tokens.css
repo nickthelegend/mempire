@@ -36,9 +36,11 @@
   --elixir: #d838d8;
   --red: #ff4d6d;
 
-  /* ink */
+  /* ink — secondary text must stay legible on the quilt, so it is a light
+     tint of the field rather than a mid grey-blue that sinks into it */
   --text: #ffffff;
-  --dim: #b9cdf0;
+  --dim: #dbe8ff;
+  --dim-on-wood: #f6e6cc;
   --ink: #10203f;
 
   --grad-solana: linear-gradient(96deg, var(--purple), var(--teal));
@@ -77,13 +79,20 @@ body {
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 15px;
+  font-weight: 600;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
   user-select: none;
   -webkit-user-select: none;
   background: var(--blue-deep);
+  /* every glyph sits on a busy patterned field — this is what keeps body copy
+     readable without resorting to opaque plates behind all of it */
+  text-shadow: 0 1px 2px rgba(6, 16, 38, 0.85);
 }
+
+/* Never let small print drop below a readable size on the quilt. */
+p, span, div, button, a, li { text-rendering: optimizeLegibility; }
 
 button {
   font-family: var(--font-ui);
@@ -147,13 +156,24 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
 }
 
 .label {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--dim);
-  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 2px rgba(6, 16, 38, 0.9);
 }
+
+/* Fine print — still must be readable, so it never goes below 12px or dim. */
+.fine {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dim);
+  line-height: 1.4;
+}
+
+/* Anything sitting on a wood panel needs the warm tint, not the blue one. */
+.panel .label, .on-wood { color: var(--dim-on-wood); }
 
 /* ── Carved surfaces ─────────────────────────────────────────────────────── */
 .panel {

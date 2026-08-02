@@ -9,8 +9,17 @@ export interface Coin {
   priceUsd: number;
   liquidityUsd: number;
   ageHours: number;
-  logoUrl?: string; // design/generated art, wired in when present
+  logoUrl?: string; // generated art, or the coin's real pump.fun image
+  /** Live market data, present only on coins fetched from the feed. */
+  fdvUsd?: number;
+  change24h?: number;
+  volume24h?: number;
+  pumpFun?: boolean;
+  url?: string; // DexScreener pair page
 }
+
+/** Tickers always render with the $ the culture uses. */
+export const tickerOf = (c: Coin): string => `$${c.ticker.replace(/^\$+/, '')}`;
 
 export const ELIGIBILITY = { minLiquidityUsd: 25_000, minAgeHours: 48 };
 
