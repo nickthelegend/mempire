@@ -23,7 +23,14 @@ custom-panic = []
 # Deliberately no anchor-spl. This program never touches a token account, and
 # omitting it is most of the reason the binary is small enough to deploy.
 anchor-lang = "0.32.1"
-ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat"] }
+# `access-control` brings the PER permission CPIs; `vrf` brings the randomness
+# request/callback macros. Both are additive to `anchor-compat`, which is the
+# feature that targets Anchor >=0.28,<1.0 (plain `anchor` targets Anchor 1.x).
+ephemeral-rollups-sdk = { version = "0.16.2", features = [
+  "anchor-compat",
+  "access-control",
+  "vrf",
+] }
 
 [lints.rust]
 # `cfg(target_os = "solana")` is set by the SBF toolchain, not by cargo's known
