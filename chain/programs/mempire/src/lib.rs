@@ -2,6 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
+use ephemeral_rollups_sdk::cpi::DelegateConfig;
+use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 
 declare_id!("BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP");
 
@@ -45,6 +48,11 @@ fn archetype_for_mint(mint: &Pubkey) -> u8 {
     (h % 6) as u8
 }
 
+/// Injects the `process_undelegation` callback the delegation program CPIs into
+/// when returning a delegated account, plus the commit/undelegate intent
+/// builders. Required on any program that delegates — without it a `MatchLog`
+/// could be delegated and never come back.
+#[ephemeral]
 #[program]
 pub mod mempire {
     use super::*;
@@ -472,6 +480,227 @@ pub mod mempire {
         };
         Ok(())
     }
+
+    // ── MagicBlock Ephemeral Rollup: the live battle loop ────────────────────
+    //
+    // Only `MatchLog` is delegated. It carries the input log and the state-hash
+    // checkpoints and holds **zero lamports**, so delegation can never strand
+    // the pot: the escrow stays in `MatchAccount` on base layer, which is never
+    // delegated. If the ER is unreachable the match degrades to the existing
+    // `claim_timeout` path rather than trapping money in a rollup.
+    //
+    // Routing (enforced by where each instruction can succeed):
+    //   init_match_log      → base layer
+    //   delegate_match_log  → base layer
+    //   play_card           → ER
+    //   checkpoint          → ER
+    //   end_match_log       → ER  (commits + undelegates)
+    //   settle_from_log     → base layer, after the log has landed
+
+    /// Creates the log for a match. Base layer, either player pays.
+    pub fn init_match_log(ctx: Context<InitMatchLog>, match_id: u64) -> Result<()> {
+        let m = &ctx.accounts.match_account;
+        require!(m.id == match_id, MempireError::BadMatchState);
+        require!(
+            m.state == MatchState::Active as u8,
+            MempireError::BadMatchState
+        );
+        require!(
+            ctx.accounts.payer.key() == m.players[0] || ctx.accounts.payer.key() == m.players[1],
+            MempireError::NotAPlayer
+        );
+
+        let log = &mut ctx.accounts.match_log;
+        log.match_id = match_id;
+        log.players = m.players;
+        log.plays = Vec::new();
+        log.last_tick = 0;
+        log.last_hash = 0;
+        log.checkpoints = 0;
+        log.ended = false;
+        log.winner = u8::MAX;
+        log.bump = ctx.bumps.match_log;
+        Ok(())
+    }
+
+    /// Hands the log to the ephemeral rollup. Base layer.
+    pub fn delegate_match_log(ctx: Context<DelegateMatchLog>, match_id: u64) -> Result<()> {
+        // Seeds must match the account definition exactly or the delegation
+        // record is derived for a different address and the ER never sees it.
+        ctx.accounts.delegate_match_log(
+            &ctx.accounts.payer,
+            &[b"log", &match_id.to_le_bytes()],
+            DelegateConfig::default(),
+        )?;
+        Ok(())
+    }
+
+    /// One card play. Runs on the ER at rollup latency, not base-layer latency.
+    ///
+    /// This is what makes the input log genuinely onchain rather than relayed by
+    /// a server we happen to run: at ~10-50ms and gasless within the sponsored
+    /// commit quota, a play per few seconds is affordable to write for real.
+    pub fn play_card(
+        ctx: Context<PlayCard>,
+        tick: u32,
+        deck_index: u8,
+        x: i32,
+        y: i32,
+    ) -> Result<()> {
+        let log = &mut ctx.accounts.match_log;
+        require!(!log.ended, MempireError::BadMatchState);
+        require!((deck_index as usize) < DECK_SIZE, MempireError::BadDeck);
+        require!(log.plays.len() < MAX_PLAYS, MempireError::LogFull);
+
+        // Delegation status is routing, never authorization: the ER must enforce
+        // the same player check the base layer would.
+        let signer = ctx.accounts.player.key();
+        let seat = if signer == log.players[0] {
+            0u8
+        } else if signer == log.players[1] {
+            1u8
+        } else {
+            return err!(MempireError::NotAPlayer);
+        };
+
+        // Ticks only move forward, so a replayed or reordered play cannot
+        // rewrite history that both sims have already simulated past.
+        require!(tick >= log.last_tick, MempireError::StaleTick);
+
+        log.plays.push(PlayEntry {
+            tick,
+            player: seat,
+            deck_index,
+            x,
+            y,
+        });
+        log.last_tick = tick;
+        Ok(())
+    }
+
+    /// Records a state-hash checkpoint. ER.
+    ///
+    /// Stores only the latest hash and a count, not the whole stream: what
+    /// settlement needs is the final hash, and a divergence is caught live by
+    /// the clients comparing checkpoints as they go.
+    pub fn checkpoint(ctx: Context<PlayCard>, tick: u32, hash: u64) -> Result<()> {
+        let signer = ctx.accounts.player.key();
+        let log = &mut ctx.accounts.match_log;
+        require!(!log.ended, MempireError::BadMatchState);
+        require!(
+            signer == log.players[0] || signer == log.players[1],
+            MempireError::NotAPlayer
+        );
+        require!(tick >= log.last_tick, MempireError::StaleTick);
+        log.last_tick = tick;
+        log.last_hash = hash;
+        log.checkpoints = log.checkpoints.saturating_add(1);
+        Ok(())
+    }
+
+    /// Seals the match on the ER and sends the log home. ER.
+    ///
+    /// `commit_and_undelegate` is deliberately used **without** a post-commit
+    /// Magic Action for the payout: an action that fails can be stripped from
+    /// the whole transaction strategy before the committor retries, and a
+    /// payout must never depend on that. Settlement is a separate base-layer
+    /// instruction that reads the committed log.
+    pub fn end_match_log(ctx: Context<EndMatchLog>, winner: u8, final_hash: u64) -> Result<()> {
+        require!(winner <= 2, MempireError::BadWinner);
+        {
+            let signer = ctx.accounts.payer.key();
+            let log = &ctx.accounts.match_log;
+            require!(!log.ended, MempireError::BadMatchState);
+            require!(
+                signer == log.players[0] || signer == log.players[1],
+                MempireError::NotAPlayer
+            );
+        }
+
+        let log = &mut ctx.accounts.match_log;
+        log.ended = true;
+        log.winner = winner;
+        log.last_hash = final_hash;
+
+        MagicIntentBundleBuilder::new(
+            ctx.accounts.payer.to_account_info(),
+            ctx.accounts.magic_context.to_account_info(),
+            ctx.accounts.magic_program.to_account_info(),
+        )
+        .commit_and_undelegate(&[ctx.accounts.match_log.to_account_info()])
+        .build_and_invoke()?;
+        Ok(())
+    }
+
+    /// Pays the pot from the committed log. Base layer, **one** signer.
+    ///
+    /// The ER log is the onchain record of who won, which is what lets this
+    /// replace the two-signature `settle`: a player whose opponent has closed
+    /// their laptop can still settle honestly instead of waiting out the
+    /// timeout. The log must be back from the ER (owned by this program again)
+    /// and sealed, so a match still in the rollup cannot be cashed early.
+    pub fn settle_from_log<'info>(
+        ctx: Context<'_, '_, 'info, 'info, SettleFromLog<'info>>,
+    ) -> Result<()> {
+        let (winner, final_hash) = {
+            let log = &ctx.accounts.match_log;
+            let m = &ctx.accounts.match_account;
+            require!(log.match_id == m.id, MempireError::BadMatchState);
+            require!(log.ended, MempireError::MatchNotEnded);
+            require!(
+                m.state == MatchState::Active as u8,
+                MempireError::BadMatchState
+            );
+            require!(
+                ctx.accounts.player_a.key() == m.players[0]
+                    && ctx.accounts.player_b.key() == m.players[1],
+                MempireError::NotAPlayer
+            );
+            require!(log.winner <= 2, MempireError::BadWinner);
+            (log.winner, log.last_hash)
+        };
+
+        let pot = ctx.accounts.match_account.stake_lamports * 2;
+        let (rake_bps, tie) = if winner == 2 {
+            (ctx.accounts.config.tie_rake_bps, true)
+        } else {
+            (ctx.accounts.config.rake_bps, false)
+        };
+        let rake = (pot as u128 * rake_bps as u128 / 10_000) as u64;
+        let payout = pot - rake;
+
+        let m_info = ctx.accounts.match_account.to_account_info();
+        **m_info.try_borrow_mut_lamports()? -= rake;
+        **ctx.accounts.treasury.try_borrow_mut_lamports()? += rake;
+        if tie {
+            let half = payout / 2;
+            **m_info.try_borrow_mut_lamports()? -= payout;
+            **ctx.accounts.player_a.try_borrow_mut_lamports()? += half;
+            **ctx.accounts.player_b.try_borrow_mut_lamports()? += payout - half;
+        } else {
+            let to = if winner == 0 {
+                ctx.accounts.player_a.to_account_info()
+            } else {
+                ctx.accounts.player_b.to_account_info()
+            };
+            **m_info.try_borrow_mut_lamports()? -= payout;
+            **to.try_borrow_mut_lamports()? += payout;
+        }
+
+        unlock_deck(ctx.remaining_accounts)?;
+
+        let m = &mut ctx.accounts.match_account;
+        m.state = MatchState::Settled as u8;
+        m.winner = winner;
+        m.final_hash = final_hash;
+        emit!(MatchSettled {
+            match_id: m.id,
+            winner,
+            final_hash,
+            rake
+        });
+        Ok(())
+    }
 }
 
 /// Deck validation over remaining_accounts: 8 Card PDAs, owned by `player`,
@@ -587,6 +816,48 @@ pub struct MatchAccount {
 }
 impl MatchAccount {
     pub const SIZE: usize = 8 + 8 + 1 + 8 + 64 + 64 + 8 + 1 + 8 + 8 + 1 + 8 + 1;
+}
+
+/// A single card play. 14 bytes, appended on the ER.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy)]
+pub struct PlayEntry {
+    pub tick: u32,
+    pub player: u8,
+    pub deck_index: u8,
+    pub x: i32,
+    pub y: i32,
+}
+impl PlayEntry {
+    pub const SIZE: usize = 4 + 1 + 1 + 4 + 4;
+}
+
+/// Generous for a 3-minute match plus overtime at ~1 play/2s per player.
+/// Fixed at creation because a delegated account must not resize on the ER.
+pub const MAX_PLAYS: usize = 128;
+
+/// The delegated half of a match.
+///
+/// Holds the input log and the newest state-hash checkpoint, and **no lamports**.
+/// That separation is the whole safety argument for putting a wagered match on a
+/// rollup: the money never leaves base layer, so an ER that stalls costs latency,
+/// not the pot.
+#[account]
+pub struct MatchLog {
+    pub match_id: u64,
+    pub players: [Pubkey; 2],
+    pub plays: Vec<PlayEntry>,
+    pub last_tick: u32,
+    pub last_hash: u64,
+    pub checkpoints: u16,
+    pub ended: bool,
+    pub winner: u8,
+    pub bump: u8,
+}
+impl MatchLog {
+    // discriminator + match_id + players + Vec len prefix + entries
+    //   + last_tick + last_hash + checkpoints + ended + winner + bump
+    pub const SIZE: usize =
+        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1;
 }
 
 // ── Contexts ─────────────────────────────────────────────────────────────────
@@ -798,6 +1069,101 @@ pub struct ClaimTimeout<'info> {
     pub treasury: UncheckedAccount<'info>,
 }
 
+// ── Ephemeral Rollup contexts ────────────────────────────────────────────────
+
+#[derive(Accounts)]
+#[instruction(match_id: u64)]
+pub struct InitMatchLog<'info> {
+    #[account(
+        seeds = [b"match", match_account.id.to_le_bytes().as_ref()],
+        bump = match_account.bump,
+    )]
+    pub match_account: Account<'info, MatchAccount>,
+    #[account(
+        init,
+        payer = payer,
+        space = MatchLog::SIZE,
+        seeds = [b"log", match_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub match_log: Account<'info, MatchLog>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+/// `#[delegate]` injects the delegation accounts. The target must be a raw
+/// `AccountInfo` with the `del` constraint — an `Account<>` here fails because
+/// delegation hands ownership to the delegation program.
+#[delegate]
+#[derive(Accounts)]
+#[instruction(match_id: u64)]
+pub struct DelegateMatchLog<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    /// CHECK: the log PDA being delegated; seeds are re-checked in the handler.
+    #[account(mut, del, seeds = [b"log", match_id.to_le_bytes().as_ref()], bump)]
+    pub match_log: AccountInfo<'info>,
+}
+
+/// Shared by `play_card` and `checkpoint`. Runs on the ER, where the log is
+/// owned by this program again and normal Anchor constraints apply.
+#[derive(Accounts)]
+pub struct PlayCard<'info> {
+    #[account(
+        mut,
+        seeds = [b"log", match_log.match_id.to_le_bytes().as_ref()],
+        bump = match_log.bump,
+    )]
+    pub match_log: Account<'info, MatchLog>,
+    pub player: Signer<'info>,
+}
+
+/// `#[commit]` injects `magic_context` and `magic_program`.
+#[commit]
+#[derive(Accounts)]
+pub struct EndMatchLog<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"log", match_log.match_id.to_le_bytes().as_ref()],
+        bump = match_log.bump,
+    )]
+    pub match_log: Account<'info, MatchLog>,
+}
+
+#[derive(Accounts)]
+pub struct SettleFromLog<'info> {
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        mut,
+        seeds = [b"match", match_account.id.to_le_bytes().as_ref()],
+        bump = match_account.bump,
+    )]
+    pub match_account: Account<'info, MatchAccount>,
+    /// Readable as `Account<MatchLog>` only once the ER has committed and
+    /// undelegated it — while delegated it is owned by the delegation program,
+    /// so this constraint is itself the "log is home" check.
+    #[account(
+        seeds = [b"log", match_log.match_id.to_le_bytes().as_ref()],
+        bump = match_log.bump,
+    )]
+    pub match_log: Account<'info, MatchLog>,
+    /// Either player may settle; the log says who won.
+    pub settler: Signer<'info>,
+    /// CHECK: validated against match_account.players[0]
+    #[account(mut, address = match_account.players[0])]
+    pub player_a: UncheckedAccount<'info>,
+    /// CHECK: validated against match_account.players[1]
+    #[account(mut, address = match_account.players[1])]
+    pub player_b: UncheckedAccount<'info>,
+    /// CHECK: validated against config.treasury
+    #[account(mut, address = config.treasury)]
+    pub treasury: UncheckedAccount<'info>,
+}
+
 // ── Events & errors ──────────────────────────────────────────────────────────
 
 #[event]
@@ -869,4 +1235,10 @@ pub enum MempireError {
     NotAPlayer,
     #[msg("deadline has not passed")]
     TooEarly,
+    #[msg("input log is full")]
+    LogFull,
+    #[msg("tick is older than the last recorded tick")]
+    StaleTick,
+    #[msg("match has not ended on the rollup yet")]
+    MatchNotEnded,
 }

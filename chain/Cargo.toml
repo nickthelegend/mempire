@@ -5,9 +5,18 @@ members = [
 resolver = "2"
 
 [profile.release]
+# overflow-checks stays ON: this program moves money, and a silent wrapping
+# subtraction on a lamport balance is exactly the bug that must panic instead.
 overflow-checks = true
 lto = "fat"
 codegen-units = 1
+# Optimise for size. The ER SDK's `anchor-compat` feature links a second copy of
+# anchor-lang, which pushed the binary past what its deploy buffer could afford.
+# `z` trades a little compute for ~40% less code; a card play is nowhere near the
+# CU ceiling, so size is the scarcer resource here.
+opt-level = "z"
+strip = true
+panic = "abort"
 [profile.release.build-override]
 opt-level = 3
 incremental = false

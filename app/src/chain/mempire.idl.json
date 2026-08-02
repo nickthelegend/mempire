@@ -6,7 +6,70 @@
     "spec": "0.1.0",
     "description": "Mempire — meme coin card battler on Solana"
   },
+  "docs": [
+    "Injects the `process_undelegation` callback the delegation program CPIs into",
+    "when returning a delegated account, plus the commit/undelegate intent",
+    "builders. Required on any program that delegates — without it a `MatchLog`",
+    "could be delegated and never come back."
+  ],
   "instructions": [
+    {
+      "name": "checkpoint",
+      "docs": [
+        "Records a state-hash checkpoint. ER.",
+        "",
+        "Stores only the latest hash and a count, not the whole stream: what",
+        "settlement needs is the final hash, and a divergence is caught live by",
+        "the clients comparing checkpoints as they go."
+      ],
+      "discriminator": [
+        213,
+        200,
+        19,
+        204,
+        240,
+        143,
+        184,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "tick",
+          "type": "u32"
+        },
+        {
+          "name": "hash",
+          "type": "u64"
+        }
+      ]
+    },
     {
       "name": "claim_timeout",
       "docs": [
@@ -277,6 +340,267 @@
       ]
     },
     {
+      "name": "delegate_match_log",
+      "docs": [
+        "Hands the log to the ephemeral rollup. Base layer."
+      ],
+      "discriminator": [
+        179,
+        156,
+        207,
+        61,
+        233,
+        161,
+        133,
+        214
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "buffer_match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                160,
+                49,
+                186,
+                11,
+                10,
+                37,
+                13,
+                69,
+                63,
+                72,
+                118,
+                178,
+                68,
+                82,
+                39,
+                35,
+                127,
+                217,
+                148,
+                142,
+                94,
+                180,
+                195,
+                204,
+                103,
+                196,
+                76,
+                207,
+                59,
+                133,
+                249,
+                36
+              ]
+            }
+          }
+        },
+        {
+          "name": "delegation_record_match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "delegation_metadata_match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  105,
+                  111,
+                  110,
+                  45,
+                  109,
+                  101,
+                  116,
+                  97,
+                  100,
+                  97,
+                  116,
+                  97
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log"
+              }
+            ],
+            "program": {
+              "kind": "account",
+              "path": "delegation_program"
+            }
+          }
+        },
+        {
+          "name": "match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_program",
+          "address": "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP"
+        },
+        {
+          "name": "delegation_program",
+          "address": "DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "end_match_log",
+      "docs": [
+        "Seals the match on the ER and sends the log home. ER.",
+        "",
+        "`commit_and_undelegate` is deliberately used **without** a post-commit",
+        "Magic Action for the payout: an action that fails can be stripped from",
+        "the whole transaction strategy before the committor retries, and a",
+        "payout must never depend on that. Settlement is a separate base-layer",
+        "instruction that reads the committed log."
+      ],
+      "discriminator": [
+        17,
+        159,
+        89,
+        187,
+        13,
+        166,
+        128,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "magic_program",
+          "address": "Magic11111111111111111111111111111111111111"
+        },
+        {
+          "name": "magic_context",
+          "writable": true,
+          "address": "MagicContext1111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "winner",
+          "type": "u8"
+        },
+        {
+          "name": "final_hash",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "init_config",
       "discriminator": [
         23,
@@ -353,6 +677,81 @@
         {
           "name": "power_band",
           "type": "u32"
+        }
+      ]
+    },
+    {
+      "name": "init_match_log",
+      "docs": [
+        "Creates the log for a match. Base layer, either player pays."
+      ],
+      "discriminator": [
+        150,
+        24,
+        154,
+        162,
+        76,
+        231,
+        202,
+        4
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "match_id",
+          "type": "u64"
         }
       ]
     },
@@ -532,6 +931,176 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "play_card",
+      "docs": [
+        "One card play. Runs on the ER at rollup latency, not base-layer latency.",
+        "",
+        "This is what makes the input log genuinely onchain rather than relayed by",
+        "a server we happen to run: at ~10-50ms and gasless within the sponsored",
+        "commit quota, a play per few seconds is affordable to write for real."
+      ],
+      "discriminator": [
+        63,
+        150,
+        161,
+        24,
+        68,
+        231,
+        108,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "match_log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "tick",
+          "type": "u32"
+        },
+        {
+          "name": "deck_index",
+          "type": "u8"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        }
+      ]
+    },
+    {
+      "name": "process_undelegation",
+      "discriminator": [
+        196,
+        28,
+        41,
+        206,
+        48,
+        37,
+        51,
+        167
+      ],
+      "accounts": [
+        {
+          "name": "base_account",
+          "writable": true
+        },
+        {
+          "name": "buffer",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  110,
+                  100,
+                  101,
+                  108,
+                  101,
+                  103,
+                  97,
+                  116,
+                  101,
+                  45,
+                  98,
+                  117,
+                  102,
+                  102,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "base_account"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                181,
+                183,
+                0,
+                225,
+                242,
+                87,
+                58,
+                192,
+                204,
+                6,
+                34,
+                1,
+                52,
+                74,
+                207,
+                151,
+                184,
+                53,
+                6,
+                235,
+                140,
+                229,
+                25,
+                152,
+                204,
+                98,
+                126,
+                24,
+                147,
+                128,
+                167,
+                62
+              ]
+            }
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "account_seeds",
+          "type": {
+            "vec": "bytes"
+          }
+        }
+      ]
     },
     {
       "name": "register_coin",
@@ -851,6 +1420,116 @@
       ]
     },
     {
+      "name": "settle_from_log",
+      "docs": [
+        "Pays the pot from the committed log. Base layer, **one** signer.",
+        "",
+        "The ER log is the onchain record of who won, which is what lets this",
+        "replace the two-signature `settle`: a player whose opponent has closed",
+        "their laptop can still settle honestly instead of waiting out the",
+        "timeout. The log must be back from the ER (owned by this program again)",
+        "and sealed, so a match still in the rollup cannot be cashed early."
+      ],
+      "discriminator": [
+        29,
+        97,
+        229,
+        137,
+        5,
+        94,
+        147,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "match_log",
+          "docs": [
+            "Readable as `Account<MatchLog>` only once the ER has committed and",
+            "undelegated it — while delegated it is owned by the delegation program,",
+            "so this constraint is itself the \"log is home\" check."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "settler",
+          "docs": [
+            "Either player may settle; the log says who won."
+          ],
+          "signer": true
+        },
+        {
+          "name": "player_a",
+          "writable": true
+        },
+        {
+          "name": "player_b",
+          "writable": true
+        },
+        {
+          "name": "treasury",
+          "writable": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "stake",
       "docs": [
         "Stake coin tokens into the card's vault. USD value snapshots at the",
@@ -1110,6 +1789,19 @@
         144,
         87
       ]
+    },
+    {
+      "name": "MatchLog",
+      "discriminator": [
+        49,
+        109,
+        128,
+        177,
+        64,
+        255,
+        56,
+        187
+      ]
     }
   ],
   "events": [
@@ -1256,6 +1948,21 @@
       "code": 6017,
       "name": "TooEarly",
       "msg": "deadline has not passed"
+    },
+    {
+      "code": 6018,
+      "name": "LogFull",
+      "msg": "input log is full"
+    },
+    {
+      "code": 6019,
+      "name": "StaleTick",
+      "msg": "tick is older than the last recorded tick"
+    },
+    {
+      "code": 6020,
+      "name": "MatchNotEnded",
+      "msg": "match has not ended on the rollup yet"
     }
   ],
   "types": [
@@ -1524,6 +2231,69 @@
       }
     },
     {
+      "name": "MatchLog",
+      "docs": [
+        "The delegated half of a match.",
+        "",
+        "Holds the input log and the newest state-hash checkpoint, and **no lamports**.",
+        "That separation is the whole safety argument for putting a wagered match on a",
+        "rollup: the money never leaves base layer, so an ER that stalls costs latency,",
+        "not the pot."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "players",
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "plays",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "PlayEntry"
+                }
+              }
+            }
+          },
+          {
+            "name": "last_tick",
+            "type": "u32"
+          },
+          {
+            "name": "last_hash",
+            "type": "u64"
+          },
+          {
+            "name": "checkpoints",
+            "type": "u16"
+          },
+          {
+            "name": "ended",
+            "type": "bool"
+          },
+          {
+            "name": "winner",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "MatchSettled",
       "type": {
         "kind": "struct",
@@ -1543,6 +2313,37 @@
           {
             "name": "rake",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PlayEntry",
+      "docs": [
+        "A single card play. 14 bytes, appended on the ER."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tick",
+            "type": "u32"
+          },
+          {
+            "name": "player",
+            "type": "u8"
+          },
+          {
+            "name": "deck_index",
+            "type": "u8"
+          },
+          {
+            "name": "x",
+            "type": "i32"
+          },
+          {
+            "name": "y",
+            "type": "i32"
           }
         ]
       }

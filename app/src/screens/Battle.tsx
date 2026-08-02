@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
+import { RollupBadge } from '../components/RollupBadge';
 import { ArchetypeIcon, CoinBadge, MoneyRow, Pill } from '../components/ui';
 import { buzz, isMuted, setMuted } from '../lib/audio';
 import { fmtClock, fmtSol } from '../lib/format';
@@ -433,6 +434,11 @@ export function Battle() {
           >
             {match.practice ? 'practice · no stake' : fmtSol(match.stakeSol * 2)}
           </span>
+        </div>
+        {/* Which layer this match is running on — a rollup badge belongs next to
+            the pot, because both are claims about what is real. */}
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <RollupBadge />
         </div>
         {/* A third row, not an absolute overlay — it was landing on top of the
             crown score for the entire double-elixir phase and all of overtime. */}

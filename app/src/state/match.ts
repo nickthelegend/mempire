@@ -16,7 +16,10 @@ import { useClan } from './clan';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
-import { useWallet } from './wallet';
+import { deckCommitment } from '../chain/deckHash';
+import { useChain } from './chain';
+import { useErMatch } from './erMatch';
+import { signer, useWallet } from './wallet';
 
 export type MatchStatus = 'idle' | 'queuing' | 'found' | 'battle' | 'settled';
 
@@ -183,6 +186,28 @@ export const useMatch = create<MatchStore>((set, get) => ({
     const { player, bot } = decks;
     clearTimers();
     pvpClose();
+    useErMatch.getState().reset();
+
+    /**
+     * Put the match on Solana and its log on a MagicBlock rollup.
+     *
+     * Not awaited, and never blocking: a wallet that cannot sign, an
+     * undeployed program, or a rollup that will not come up all leave the
+     * simulated match running exactly as before. The rollup badge reports which
+     * of those happened rather than the UI implying an onchain match that isn't.
+     *
+     * Practice is excluded on purpose — it stakes nothing, so there is nothing
+     * to escrow and no reason to spend a commit quota on it.
+     */
+    if (!practice) {
+      const onchainCards = useChain.getState().cards;
+      if (onchainCards.length >= 8) {
+        const ids = onchainCards.slice(0, 8).map((c) => c.id);
+        void deckCommitment(ids, wallet.address).then((hash) => (
+          useErMatch.getState().openOnchainMatch(deck.tier, tier.stakeSol, ids, hash)
+        ));
+      }
+    }
     set({
       status: 'queuing',
       playerDeck: player,
@@ -292,6 +317,11 @@ export const useMatch = create<MatchStore>((set, get) => ({
     // The opponent applies the identical event at the identical tick — that,
     // and nothing else, is what keeps the two sims one game.
     if (mode === 'human') pvpSendInput(ev);
+    // Write the play to the ephemeral rollup. Deliberately not awaited: the
+    // local sim is authoritative for what the player sees, and a battle must
+    // never stall on a network round trip. The store counts failures instead of
+    // hiding them.
+    void useErMatch.getState().play(signer(), ev.tick, deckIndex, xFp, yFp);
   },
 
   forfeit: () => {
@@ -371,9 +401,15 @@ function stepOne(sim: SimState): void {
     const h = hashState(sim);
     hashes.push(h);
     // The server compares this against the opponent's hash for the same tick.
-    // A mismatch voids the match — that is the whole anti-cheat story until
-    // settlement moves into the rollup.
+    // A mismatch voids the match.
     if (mode === 'human') pvpSendHash(sim.tick, h);
+    // And the rollup keeps the checkpoint onchain, which is what makes the
+    // anti-cheat story verifiable by anyone rather than by our own relay.
+    // Every fourth checkpoint: the sponsored commit quota is finite, and one
+    // hash per 8 seconds of play is enough to bound a divergence.
+    if (sim.tick % (HASH_EVERY_TICKS * 4) === 0) {
+      void useErMatch.getState().mark(signer(), sim.tick, BigInt(h >>> 0));
+    }
   }
 
   // a tower fell this tick → crown, sound, screen shock
@@ -584,6 +620,15 @@ function settle(): void {
   if (mode === 'human') pvpClose();
   humanEscrowSol = 0; // consumed by the payout rules below
   const crowns = countCrowns(sim, perspective);
+
+  // Seal the rollup log and bring it home. Not awaited: the result screen must
+  // appear immediately, and the commit is observable through the rollup badge.
+  // The final hash is the last checkpoint, which is what settlement records.
+  if (sim.phase === 'ended') {
+    const finalHash = hashes.length ? hashes[hashes.length - 1] : 0;
+    const winner = sim.winner === null ? 2 : (sim.winner === perspective ? 0 : 1);
+    void useErMatch.getState().finish(signer(), winner, BigInt(finalHash >>> 0));
+  }
   stopMusic();
   const wallet = useWallet.getState();
   const pot = stakeSol * 2;
