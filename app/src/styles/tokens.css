@@ -243,6 +243,21 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   animation: sheetUp 240ms var(--ease-snap);
 }
 
+/* ── Reserved gutters ────────────────────────────────────────────────────── */
+/* The layout law keeps the space either side of the column for ads. There is no
+   such space on a phone, so below 900px the gutters do not exist at all — the
+   game never surrenders its own column to an ad. */
+.gutter { display: none; }
+
+@media (min-width: 900px) {
+  .gutter {
+    display: block;
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 420px;
+  }
+}
+
 /* Buttons physically depress into their own base edge. */
 .btn-3d:not(:disabled):active {
   transform: translateY(4px);

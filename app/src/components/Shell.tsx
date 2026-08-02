@@ -1,6 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { WalletPicker } from './WalletPicker';
+import { AdSlot } from './AdSlot';
+import { useChainSync } from '../state/useChainSync';
 import { useMatch } from '../state/match';
 import { usePlayerSync } from '../state/sync';
 import { useWallet } from '../state/wallet';
@@ -25,6 +27,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
   useEffect(() => { void autoConnect(); }, [autoConnect]);
   usePlayerSync();
+  useChainSync();
 
   // Router-level so the arena opens from whichever tab the player is on —
   // otherwise a match could run headless with the stake escrowed.
@@ -34,13 +37,18 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const searching = matchStatus === 'queuing' || matchStatus === 'found';
 
+  // The gutters the layout law reserves for ads. Battle takes the whole screen,
+  // and a phone has no gutters to give — `.gutter` handles the width rule.
+  const showGutters = !inBattle;
+
   return (
     <div className={inBattle ? undefined : 'quilt'} style={{ minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
+      {showGutters && <div className="gutter"><AdSlot side="left" /></div>}
       <div
         className={inBattle ? undefined : 'quilt'}
         style={{
           width: 'min(100vw, 430px)', minHeight: '100dvh', position: 'relative',
-          display: 'flex', flexDirection: 'column',
+          display: 'flex', flexDirection: 'column', flexShrink: 0,
           boxShadow: inBattle ? 'none' : '0 0 0 3px rgba(0,0,0,.45), 0 0 60px rgba(0,0,0,.6)',
           background: inBattle ? 'var(--ink)' : undefined,
         }}
@@ -122,6 +130,7 @@ export function Shell({ children }: { children: ReactNode }) {
         )}
         <WalletPicker />
       </div>
+      {showGutters && <div className="gutter"><AdSlot side="right" /></div>}
     </div>
   );
 }
