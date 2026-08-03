@@ -5,6 +5,15 @@ import { nextLevelAt } from '../lib/leveling';
 import { ARCHETYPES, scaleByLevel } from '../sim/archetypes';
 import { TRAITS, effectiveDef, traitForMint } from '../sim/traits';
 import { loreFor } from '../data/lore';
+
+/**
+ * Where a shared card lives.
+ *
+ * The marketing site, not this app — it is the one that server-renders meta
+ * tags. Override with VITE_SHARE_ORIGIN if the landing page moves.
+ */
+const SHARE_ORIGIN = (import.meta.env.VITE_SHARE_ORIGIN as string | undefined)
+  ?? 'https://mempire.fun';
 import { ARCHETYPE_NAMES } from '../sim/types';
 import { FP } from '../sim/fixed';
 import type { MintedCard } from '../state/collection';
@@ -116,7 +125,37 @@ export function CardDetail({
           <button onClick={onClose} aria-label="Close" className="icon-btn" style={{ fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)', alignSelf: 'flex-start', flexShrink: 0 }}>×</button>
         </div>
 
-        <LevelPips level={card.level} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <LevelPips level={card.level} />
+          {/* Shares the landing page's card route, not the game's own URL.
+              X, Discord and the rest read HTML and never run JavaScript, so a
+              link into this app would unfurl as a bare URL however the client
+              behaved. That route serves the tags in the document itself. */}
+          <button
+            onClick={() => {
+              const url = `${SHARE_ORIGIN}/card/${coin.ticker.toLowerCase()}`;
+              const text = lore
+                ? `${lore.tagline}\n\nMy $${coin.ticker} is level ${card.level} in @mempiredotfun.`
+                : `My $${coin.ticker} is level ${card.level} in @mempiredotfun.`;
+              window.open(
+                `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
+                '_blank', 'noopener,noreferrer',
+              );
+            }}
+            aria-label={`Share ${tickerOf(coin)} on X`}
+            className="btn-3d"
+            style={{
+              marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+              background: 'linear-gradient(180deg,#7fa4e2,#3a6fc4 52%,#234a8d)',
+              border: '2px solid var(--ink)', borderRadius: 999,
+              padding: '4px 12px', color: '#fff',
+              fontFamily: 'var(--font-display)', fontSize: 12,
+              WebkitTextStroke: '1.4px var(--ink)', paintOrder: 'stroke fill',
+            }}
+          >
+            SHARE 𝕏
+          </button>
+        </div>
 
         {/* Who this fighter is, and what its trait costs it. Both are properties
             of the coin rather than of this copy — every $BTC in the game is the
