@@ -3,6 +3,8 @@ import { coinByMint, tickerOf } from '../lib/coins';
 import { fmtTokens, fmtUsd } from '../lib/format';
 import { nextLevelAt } from '../lib/leveling';
 import { ARCHETYPES, scaleByLevel } from '../sim/archetypes';
+import { TRAITS, effectiveDef, traitForMint } from '../sim/traits';
+import { loreFor } from '../data/lore';
 import { ARCHETYPE_NAMES } from '../sim/types';
 import { FP } from '../sim/fixed';
 import type { MintedCard } from '../state/collection';
@@ -48,7 +50,13 @@ export function CardDetail({
   }, [onClose]);
 
   if (!coin) return null;
-  const def = ARCHETYPES[card.archetype];
+  const lore = loreFor(coin.ticker);
+  const traitId = traitForMint(card.mint);
+  const trait = TRAITS[traitId];
+  // The trait, folded in — the same numbers the simulation will actually use.
+  // Showing the archetype baseline beside an "Ironclad" chip would be the sheet
+  // describing a fighter the player is not going to get.
+  const def = effectiveDef(ARCHETYPES[card.archetype], traitId, card.archetype);
   const next = nextLevelAt(card.stakedUsd);
   const hp = scaleByLevel(def.hp, card.level);
   const dmg = scaleByLevel(def.damage, card.level);
@@ -81,13 +89,26 @@ export function CardDetail({
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
             <h2 className="display" style={{ fontSize: 25, lineHeight: 1.1 }}>{tickerOf(coin)}</h2>
+            {/* The character's name leads, the asset's name follows. This is a
+                fighter first; the ticker is who it is, not what it does. */}
             <p className="fine" style={{ color: 'var(--dim-on-wood)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {coin.name}
+              {lore ? `${lore.title} · ${coin.name}` : coin.name}
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
               <ArchetypeIcon archetype={card.archetype} size={15} />
               <span className="label" style={{ fontSize: 12, color: 'var(--dim-on-wood)' }}>
                 {ARCHETYPE_NAMES[card.archetype]}
+              </span>
+              <span
+                className="label"
+                title={trait.blurb}
+                style={{
+                  fontSize: 12, color: 'var(--gold)',
+                  border: '1.5px solid var(--gold)', borderRadius: 999,
+                  padding: '0 7px', lineHeight: '17px',
+                }}
+              >
+                {trait.name}
               </span>
               <span className="money" style={{ fontSize: 13, marginLeft: 'auto' }}>{def.elixir}⚡</span>
             </div>
@@ -96,6 +117,24 @@ export function CardDetail({
         </div>
 
         <LevelPips level={card.level} />
+
+        {/* Who this fighter is, and what its trait costs it. Both are properties
+            of the coin rather than of this copy — every $BTC in the game is the
+            same character with the same trade-off. */}
+        {lore && (
+          <section className="well" style={{ borderRadius: 10, padding: '10px 12px', display: 'grid', gap: 6 }}>
+            <p className="display" style={{ fontSize: 13, margin: 0, color: 'var(--gold)' }}>
+              {lore.tagline}
+            </p>
+            <p className="fine" style={{ margin: 0, lineHeight: 1.5, color: 'var(--dim-on-blue, var(--dim))' }}>
+              {lore.story}
+            </p>
+            <p className="fine" style={{ margin: 0, color: 'var(--dim)' }}>
+              <strong style={{ color: 'var(--gold)' }}>{trait.name}</strong>
+              {' — '}{trait.blurb}
+            </p>
+          </section>
+        )}
 
         {/* the coin as a real asset */}
         <div>
