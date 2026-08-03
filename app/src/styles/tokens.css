@@ -134,6 +134,66 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
 }
 
+/* ── The hall ────────────────────────────────────────────────────────────── */
+/* What sits behind the game column on a wide screen.
+ *
+ * The rails used to carry the same quilt as the column, which made the frame
+ * and the game read as one continuous surface — the column stopped being an
+ * object and became a stripe of slightly different lighting. This is the wall
+ * of the room the arena is in: a deep violet drape, a gold damask lattice at a
+ * scale far larger than the quilt's 46px so the two never read as the same
+ * cloth, and a vignette that sinks the outer edges.
+ *
+ * It is deliberately darker and lower in contrast than the column. The hall is
+ * scenery; anything here bright enough to compete would be a bug.
+ */
+.hall {
+  background-color: #1b1140;
+  background-image:
+    /* the gold lattice — two diagonals crossing into a wide diamond damask */
+    repeating-linear-gradient(45deg,
+      rgba(255, 196, 34, 0.05) 0 2px, transparent 2px 84px),
+    repeating-linear-gradient(-45deg,
+      rgba(255, 196, 34, 0.05) 0 2px, transparent 2px 84px),
+    /* a smaller counter-lattice, offset, so the weave has a second order to it */
+    repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(-45deg,
+      rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 28px),
+    /* velvet: vertical banding, as if the drape has fall to it */
+    repeating-linear-gradient(90deg,
+      rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 7px),
+    /* the room's own light, from above, and the corners falling away */
+    radial-gradient(130% 90% at 50% -10%,
+      #4a2a86 0%, #2a1660 42%, #150d33 100%);
+  background-size:
+    84px 84px, 84px 84px, 28px 28px, 28px 28px, 7px 100%, 100% 100%;
+}
+
+/* The seam where the hall meets the column. A drape hangs from something, and
+   without this the rails end in a hard vertical cut that reads as a CSS edge
+   rather than as depth. */
+.hall-edge {
+  position: relative;
+}
+.hall-edge::before,
+.hall-edge::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 26px;
+  pointer-events: none;
+}
+.hall-edge::before {
+  left: 0;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.42), transparent);
+}
+.hall-edge::after {
+  right: 0;
+  background: linear-gradient(270deg, rgba(0, 0, 0, 0.42), transparent);
+}
+
 /* ── Type ────────────────────────────────────────────────────────────────── */
 .display {
   font-family: var(--font-display);

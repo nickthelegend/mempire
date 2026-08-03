@@ -21,6 +21,7 @@ import { revealSection } from '../lib/scroll';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
 import { useEconomy } from '../state/economy';
 import { signer, useWallet } from '../state/wallet';
+import { Token } from '../components/Token';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
 
@@ -501,7 +502,7 @@ export function Cards() {
         </div>
         <button
           onClick={() => setGemShop(true)}
-          aria-label="Buy gems"
+          aria-label="Buy $MEMPIRE"
           className="btn-3d"
           style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
@@ -511,8 +512,8 @@ export function Cards() {
             boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)',
           }}
         >
-          <span aria-hidden style={{ fontSize: 16 }}>💎</span>
-          {/* Gems arrive from chests, lending and purchases — all of which happen
+          <Token size={17} />
+          {/* $MEMPIRE arrives from chests, lending and purchases — all of which happen
               elsewhere on the screen, so the counter has to announce itself. */}
           <span
             ref={gemRef as React.RefObject<HTMLSpanElement>}

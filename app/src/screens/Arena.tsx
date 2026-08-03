@@ -30,7 +30,7 @@ export function Logo({ width = 260 }: { width?: number }) {
 }
 
 /**
- * Resource chip — the gold/gem pills along the top of a Supercell HUD.
+ * Resource chip — the gold/token pills along the top of a Supercell HUD.
  *
  * The number bumps when it changes. Winning a pot and returning to the Arena
  * used to leave the balance silently different; a resource that moved should say

@@ -11,6 +11,7 @@ import { useClan, type ClanSummary } from '../state/clan';
 import { useDeck } from '../state/deck';
 import { useEconomy } from '../state/economy';
 import { useWallet } from '../state/wallet';
+import { Token, TokenAmount } from '../components/Token';
 
 /**
  * The Clan tab.
@@ -185,12 +186,12 @@ function Browse() {
           disabled={busy}
           style={{ fontSize: 18 }}
         >
-          Create new · {CREATE_COST}💎
+          Create new · <TokenAmount amount={CREATE_COST} size={14} />
         </Pill>
       )}
 
       <p className="fine" style={{ textAlign: 'center', fontSize: 12 }}>
-        You hold {gems}💎 · one clan per wallet
+        You hold {gems} $MEMPIRE · one clan per wallet
       </p>
 
       <ClanSheet onJoin={doJoin} />
@@ -222,7 +223,7 @@ function Home() {
   const doLend = async (id: string) => {
     const err = await lend(address, id);
     setLocalError(err);
-    // The server awards the gems; mirroring it locally keeps the counter honest
+    // The server awards the $MEMPIRE; mirroring it locally keeps the counter honest
     // without a second round trip.
     if (!err) addGems(5);
   };
@@ -276,7 +277,9 @@ function Home() {
       <section aria-label="Lend requests">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
           <span className="label">Lend requests</span>
-          <span className="label" style={{ fontSize: 12 }}>+5💎 to lend</span>
+          <span className="label" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              +5<Token size={12} /> to lend
+            </span>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {openRequests.length === 0 ? (

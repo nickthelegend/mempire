@@ -44,6 +44,7 @@ const THREE = await import('three');
 const { vfx } = await import('./src/three/vfx.ts');
 const { createMatch, stepSim } = await import('./src/sim/engine.ts');
 const { ARCHETYPES } = await import('./src/sim/archetypes.ts');
+const { effectiveDef } = await import('./src/sim/traits.ts');
 const { FORMATS } = await import('./src/sim/types.ts');
 
 let pass = 0;
@@ -194,9 +195,12 @@ check('a cooldown that jumps upward marks a hit, and nothing else does', () => {
       const prev = last.get(u.id);
       if (prev !== undefined && u.cooldown > prev) {
         rises += 1;
-        // A reset can only be the archetype's hit interval, or that interval
-        // sped up by a support aura (×100/115, floored).
-        const base = ARCHETYPES[u.archetype].hitTicks;
+        // A reset can only be the unit's own hit interval, or that interval
+        // sped up by a support aura (×100/115, floored). "Its own" means after
+        // its trait: Brutal swings slower than its archetype and Relentless
+        // faster, so reading the raw archetype here would flag every one of
+        // them as a bad reset.
+        const base = effectiveDef(ARCHETYPES[u.archetype], u.trait, u.archetype).hitTicks;
         const buffed = Math.floor((base * 100) / 115);
         if (u.cooldown !== base && u.cooldown !== buffed) bad += 1;
       }

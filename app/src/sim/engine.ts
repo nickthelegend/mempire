@@ -4,7 +4,7 @@ import { Fnv1a } from './hash';
 import {
   ARCHETYPES, AURA_SPEED_DEN, AURA_SPEED_NUM, scaleByLevel,
 } from './archetypes';
-import { effectiveDef } from './traits';
+import { effectiveDef, traitForMint } from './traits';
 import {
   Archetype, DECK_SIZE, FORMATS, HAND_SIZE, type Format,
 } from './types';
@@ -80,10 +80,18 @@ export function createMatch(
   if (decks[0].length !== DECK_SIZE || decks[1].length !== DECK_SIZE) {
     throw new Error('decks must have exactly 8 cards');
   }
+  // A trait is a pure function of the mint, so derive any that is missing here
+  // rather than trusting eight call sites to remember. A card that reached a
+  // spawn without one used to throw mid-match; worse, a caller that filled it
+  // in differently would desync the two clients silently. Deriving it once, at
+  // the only door into a match, removes both.
+  const withTraits = (deck: MatchCard[]): MatchCard[] => deck.map((c) => (
+    c.trait === undefined ? { ...c, trait: traitForMint(c.coinId) } : c
+  ));
   const rng = new XorShift32(seed);
   const players: [PlayerSim, PlayerSim] = [
-    { elixirFP: format.startElixirFP, deck: decks[0], cycle: shuffledCycle(rng) },
-    { elixirFP: format.startElixirFP, deck: decks[1], cycle: shuffledCycle(rng) },
+    { elixirFP: format.startElixirFP, deck: withTraits(decks[0]), cycle: shuffledCycle(rng) },
+    { elixirFP: format.startElixirFP, deck: withTraits(decks[1]), cycle: shuffledCycle(rng) },
   ];
   return {
     tick: 0,

@@ -10,6 +10,7 @@ import {
 import { useDeck } from '../state/deck';
 import { useEconomy } from '../state/economy';
 import { useWallet } from '../state/wallet';
+import { TokenAmount } from './Token';
 
 /**
  * Found a clan.
@@ -19,7 +20,7 @@ import { useWallet } from '../state/wallet';
  * crop step and no moderation queue. Cycling a facet is one tap.
  *
  * Creation costs gems, which is the honest monetisation here — it is a cosmetic
- * and social privilege, never power. The gems are only spent once the server has
+ * and social privilege, never power. The $MEMPIRE is only spent once the server has
  * confirmed the clan exists, so a failed create cannot charge you.
  */
 export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
@@ -55,11 +56,11 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
 
   const submit = async () => {
     if (!nameOk) { setError('name must be at least 3 characters'); return; }
-    if (!affordable) { setError(`need ${CLAN_CREATE_GEM_COST} gems`); return; }
+    if (!affordable) { setError(`need ${CLAN_CREATE_GEM_COST} $MEMPIRE`); return; }
     setError(null);
 
     // Create first, charge second. If the name collides or the wallet is already
-    // in a clan, the player must not lose 500 gems to find that out.
+    // in a clan, the player must not lose 500 $MEMPIRE to find that out.
     const err = await create(address, {
       name: name.trim(),
       description: description.trim(),
@@ -239,11 +240,13 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
           disabled={busy || !nameOk || !affordable}
           style={{ fontSize: 18 }}
         >
-          {busy ? 'Founding…' : `Found clan · ${CLAN_CREATE_GEM_COST}💎`}
+          {busy
+            ? 'Founding…'
+            : <>Found clan · <TokenAmount amount={CLAN_CREATE_GEM_COST} size={14} /></>}
         </Pill>
 
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
-          You hold {gems}💎. Founding is cosmetic and social — it never buys power.
+          You hold {gems} $MEMPIRE. Founding is cosmetic and social — it never buys power.
         </p>
       </div>
     </div>

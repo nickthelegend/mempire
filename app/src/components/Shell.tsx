@@ -44,14 +44,20 @@ export function Shell({ children }: { children: ReactNode }) {
   const showGutters = !inBattle;
 
   return (
-    <div className={inBattle ? undefined : 'quilt'} style={{ minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
+    <div className={inBattle ? undefined : 'hall'} style={{ minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
       {showGutters && <div className="gutter"><AdSlot side="left" /></div>}
       <div
-        className={inBattle ? undefined : 'quilt'}
+        className={inBattle ? undefined : 'quilt hall-edge'}
         style={{
           width: 'min(100vw, 430px)', minHeight: '100dvh', position: 'relative',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
-          boxShadow: inBattle ? 'none' : '0 0 0 3px rgba(0,0,0,.45), 0 0 60px rgba(0,0,0,.6)',
+          // The gold rule is what makes the column an object standing in the
+          // hall rather than a lit patch of the same wall.
+          boxShadow: inBattle ? 'none' : [
+            '0 0 0 2px rgba(255,196,34,.32)',
+            '0 0 0 5px rgba(0,0,0,.55)',
+            '0 0 90px rgba(0,0,0,.7)',
+          ].join(', '),
           background: inBattle ? 'var(--ink)' : undefined,
         }}
       >
