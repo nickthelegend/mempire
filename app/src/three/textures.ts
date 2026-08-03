@@ -278,3 +278,99 @@ export function stoneTexture(repeat: [number, number] = [8, 1]): THREE.Texture {
 
   return finish(c, repeat);
 }
+
+/**
+ * The meadow the arena stands in.
+ *
+ * Deliberately duller and darker than the playing field. The board is where
+ * every decision happens and it has to stay the brightest thing on screen —
+ * surrounding it with grass of the same saturation would put the arena and the
+ * scenery in competition, and the scenery would win by area.
+ *
+ * No checker: the grid means "this is where units walk", and repeating it
+ * outside the frame says the opposite of what the frame says.
+ */
+export function meadowTexture(): THREE.Texture {
+  const S = 512;
+  const [c, ctx] = canvas(S);
+  const rnd = rng(8081);
+
+  ctx.fillStyle = '#3d7a2c';
+  ctx.fillRect(0, 0, S, S);
+
+  // broad patches, so the ground is not one flat colour at distance
+  for (let i = 0; i < 26; i++) {
+    ctx.globalAlpha = 0.16 + rnd() * 0.16;
+    ctx.fillStyle = rnd() > 0.5 ? '#4a8f34' : '#2f6323';
+    ctx.beginPath();
+    ctx.ellipse(rnd() * S, rnd() * S, 40 + rnd() * 90, 26 + rnd() * 60, rnd() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // blades
+  ctx.globalAlpha = 0.2;
+  for (let i = 0; i < 1400; i++) {
+    ctx.fillStyle = rnd() > 0.5 ? '#61a944' : '#27541c';
+    ctx.fillRect(rnd() * S, rnd() * S, 2, 4);
+  }
+  ctx.globalAlpha = 1;
+
+  return finish(c, [26, 26]);
+}
+
+/**
+ * The sky, as a gradient rather than a flat clear colour.
+ *
+ * A single background colour gives the board nothing to sit against — the
+ * horizon does not exist, so the arena and everything around it float in a
+ * void. A vertical ramp with a pale band at the bottom reads as distance, and
+ * the fog is set to that same band so the ground fades into the sky instead of
+ * ending at a hard line.
+ */
+export const HORIZON = '#cfe9ff';
+
+export function skyTexture(): THREE.Texture {
+  const S = 256;
+  const [c, ctx] = canvas(4, S);
+  const g = ctx.createLinearGradient(0, 0, 0, S);
+  g.addColorStop(0, '#1d63b8');    // zenith
+  g.addColorStop(0.42, '#3f8fd8');
+  g.addColorStop(0.74, '#8cc4ee');
+  g.addColorStop(1, HORIZON);      // haze, matched to the fog
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 4, S);
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  // Clamped, not repeated: a wrapped gradient puts a hard seam at the zenith.
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  return t;
+}
+
+/** A soft round cloud, drawn once and billboarded. */
+export function cloudTexture(): THREE.Texture {
+  const S = 256;
+  const [c, ctx] = canvas(S, S / 2);
+  const rnd = rng(606);
+
+  // Overlapping soft discs. A cloud is a silhouette, not a shape with edges.
+  for (let i = 0; i < 14; i++) {
+    const x = 30 + rnd() * (S - 60);
+    const y = S / 4 + (rnd() - 0.5) * 34;
+    const r = 22 + rnd() * 34;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,.95)');
+    g.addColorStop(0.6, 'rgba(255,255,255,.6)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}

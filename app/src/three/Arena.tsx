@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { FP } from '../sim/fixed';
 import { ARENA_H, ARENA_W, BRIDGE_X, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { causticTexture, grassTexture, stoneTexture, waterTexture, woodTexture } from './textures';
+import { GROUND_Y } from './World';
 
 const W = ARENA_W / FP; // 18
 const H = ARENA_H / FP; // 32
@@ -68,22 +69,27 @@ export function Arena({ placing }: { placing: boolean }) {
   // reshuffles its trees every match feels unstable.
   const scenery = useMemo(() => {
     const spots: { x: number; z: number; kind: 'tree' | 'rock' | 'bush'; s: number }[] = [];
-    const edges = [-FRAME - 1.5, W + FRAME + 1.5];
-    for (let i = 0; i < 10; i++) {
-      const z = 1.2 + i * (H / 10);
+    // Clear of the plinth, which is W + 4.2 wide. Inside that, a tree grows
+    // out of the side of the platform.
+    const edges = [-5.4, W + 5.4];
+    for (let i = 0; i < 12; i++) {
+      const z = -3 + i * ((H + 6) / 12);
       edges.forEach((x, k) => {
         const roll = (i + k * 2) % 4;
         spots.push({
-          x: x + (i % 2 ? 0.55 : -0.35) * (k ? -1 : 1),
+          x: x + (i % 2 ? 1.5 : -0.9) * (k ? -1 : 1),
           z,
           kind: roll === 0 ? 'rock' : roll === 3 ? 'bush' : 'tree',
-          s: 0.85 + ((i * 7 + k * 3) % 5) * 0.08,
+          s: 0.9 + ((i * 7 + k * 3) % 5) * 0.1,
         });
       });
     }
-    // corners behind each king
-    [-2.0, W + 2.0].forEach((x) => {
-      [-2.1, H + 2.1].forEach((z) => spots.push({ x, z, kind: 'tree', s: 1.2 }));
+    // A stand behind each king, framing the ends of the board.
+    [-4.2, W + 4.2].forEach((x) => {
+      [-5.4, H + 5.4].forEach((z) => spots.push({ x, z, kind: 'tree', s: 1.3 }));
+    });
+    [W * 0.3, W * 0.7].forEach((x) => {
+      [-5.8, H + 5.8].forEach((z) => spots.push({ x, z, kind: 'bush', s: 1.1 }));
     });
     return spots;
   }, []);
@@ -324,7 +330,10 @@ function Banner({ x, z, colour }: { x: number; z: number; colour: string }) {
 
 function Tree({ x, z, s }: { x: number; z: number; s: number }) {
   return (
-    <group position={[x, 0, z]} scale={s}>
+    // GROUND_Y, not 0. Scenery lives on the meadow the plinth stands in; at
+    // play height it hovered over nothing, which is what made the trees look
+    // like they were standing in the water.
+    <group position={[x, GROUND_Y, z]} scale={s}>
       <mesh position={[0, 0.5, 0]} castShadow>
         <cylinderGeometry args={[0.16, 0.24, 1, 6]} />
         <meshStandardMaterial color="#6b4423" roughness={0.9} />
@@ -345,7 +354,10 @@ function Tree({ x, z, s }: { x: number; z: number; s: number }) {
 
 function Bush({ x, z, s }: { x: number; z: number; s: number }) {
   return (
-    <group position={[x, 0, z]} scale={s}>
+    // GROUND_Y, not 0. Scenery lives on the meadow the plinth stands in; at
+    // play height it hovered over nothing, which is what made the trees look
+    // like they were standing in the water.
+    <group position={[x, GROUND_Y, z]} scale={s}>
       {[
         [0, 0.32, 0, 0.46],
         [0.34, 0.24, 0.14, 0.33],
@@ -369,7 +381,10 @@ function Bush({ x, z, s }: { x: number; z: number; s: number }) {
 
 function Rock({ x, z, s }: { x: number; z: number; s: number }) {
   return (
-    <group position={[x, 0, z]} scale={s}>
+    // GROUND_Y, not 0. Scenery lives on the meadow the plinth stands in; at
+    // play height it hovered over nothing, which is what made the trees look
+    // like they were standing in the water.
+    <group position={[x, GROUND_Y, z]} scale={s}>
       <mesh position={[0, 0.34, 0]} rotation={[0.3, 0.8, 0.15]} castShadow>
         <dodecahedronGeometry args={[0.55, 0]} />
         <meshStandardMaterial color="#9aa3ae" roughness={0.95} />

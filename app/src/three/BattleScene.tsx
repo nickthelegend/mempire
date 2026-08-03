@@ -6,6 +6,8 @@ import { FP, fp } from '../sim/fixed';
 import { ARENA_W, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
 import { Arena } from './Arena';
+import { World } from './World';
+import { HORIZON } from './textures';
 import { TowerMesh } from './Towers';
 import { UnitsBillboard } from './UnitsBillboard';
 import { vfx } from './vfx';
@@ -24,6 +26,66 @@ let activeCamera: THREE.Camera | null = null;
  */
 let viewSeat: 0 | 1 = 0;
 export function setViewSeat(seat: 0 | 1): void { viewSeat = seat; }
+
+/**
+ * The sun, and the one light that casts.
+ *
+ * Configured through a ref rather than as JSX props, because two of the things
+ * it needs do not work declaratively:
+ *
+ * 1. `shadow-camera-left` and friends set the values but nothing recomputes
+ *    the projection, so the shadow camera stays at its default 10-unit box.
+ *    The board is 18x32, so almost all of it fell outside — and the frustum
+ *    edge cut across the play field as a hard diagonal that looked like a
+ *    shadow of something that was not there.
+ * 2. `target-position` moves an Object3D that is not in the scene graph, so
+ *    its world matrix never updates and the light keeps aiming at the origin.
+ *    The board's centre is (9, 0, 16), not (0, 0, 0).
+ *
+ * Raked rather than overhead: from nearly straight down, every shadow falls
+ * underneath the thing casting it and is hidden by it from this camera.
+ */
+function Sun() {
+  const ref = useRef<THREE.DirectionalLight>(null);
+
+  useEffect(() => {
+    const light = ref.current;
+    if (!light) return;
+
+    light.target.position.set(W / 2, 0, H / 2);
+    light.target.updateMatrixWorld();
+
+    const cam = light.shadow.camera;
+    // Wide enough for the board, its plinth and the near scenery. Wider than
+    // that spreads 1024px over ground nobody is looking at and the shadows
+    // under the towers turn to mush.
+    cam.left = -34;
+    cam.right = 34;
+    cam.top = 40;
+    cam.bottom = -40;
+    cam.near = 1;
+    cam.far = 120;
+    cam.updateProjectionMatrix();
+    light.shadow.bias = -0.0012;
+    light.shadow.normalBias = 0.02;
+  }, []);
+
+  // The target is deliberately NOT added to the scene. It normally has to be,
+  // so the renderer updates its matrix — but the effect above calls
+  // updateMatrixWorld() on it directly, and an unparented object's world
+  // matrix is just its local one. Adding it would be a second thing to keep in
+  // sync for no gain.
+  return (
+    <directionalLight
+      ref={ref}
+      position={[22, 19, 4]}
+      intensity={2.6}
+      color="#fff6e0"
+      castShadow
+      shadow-mapSize={[1024, 1024]}
+    />
+  );
+}
 
 function CameraRig({ seat }: { seat: 0 | 1 }) {
   const camera = useThree((s) => s.camera);
@@ -321,32 +383,16 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
       >
         <CameraRig seat={perspective} />
         {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}
-        <color attach="background" args={['#5aa9e0']} />
-        <fog attach="fog" args={['#7cc0e8', 74, 132]} />
+        {/* The horizon haze, matched to the sky ramp's bottom stop so the
+            ground fades into the sky instead of ending on a line. Starts far
+            enough out that nothing on the board is ever touched by it. */}
+        <fog attach="fog" args={[HORIZON, 46, 124]} />
         <ambientLight intensity={1.35} color="#e8f2ff" />
-        <directionalLight
-          // Raked, not overhead. At [8, 22, 6] the sun was near enough to
-          // straight down that every shadow fell underneath the object casting
-          // it and was hidden by it from a top-down camera — shadow mapping
-          // switched on and nothing visibly changed.
-          position={[22, 19, 4]}
-          intensity={2.6}
-          color="#fff6e0"
-          castShadow
-          shadow-mapSize={[1024, 1024]}
-          // Framed tight around the board. A default camera spreads 1024px
-          // over the whole scene and the shadows come out as mush.
-          shadow-camera-left={-26}
-          shadow-camera-right={26}
-          shadow-camera-top={34}
-          shadow-camera-bottom={-34}
-          shadow-camera-near={1}
-          shadow-camera-far={70}
-          shadow-bias={-0.0012}
-        />
+        <Sun />
         <directionalLight position={[-10, 14, 30]} intensity={0.55} color="#bfe4ff" />
         {/* The arena draws its own canvas textures, so it never suspends.
             Units load separately — the field must never wait on meshes. */}
+        <World />
         <Arena placing={placing} />
         <Suspense fallback={null}>
           <UnitsBillboard />
