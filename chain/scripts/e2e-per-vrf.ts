@@ -240,10 +240,18 @@ async function main() {
       })
       .rpc();
     check('end_log still takes only payer/log/magic — settlement unchanged', true);
-    await sleep(9000);
-    const backOnBase = await baseConn.getAccountInfo(logPda);
+    // Poll rather than sleeping a fixed time. Undelegation is asynchronous and
+    // its latency varies with the validator and the network; a flat 9s passed
+    // most runs and failed the rest, which is asserting on the network's mood
+    // rather than on the program.
+    let backOnBase = null;
+    for (let i = 0; i < 45; i += 1) {
+      await sleep(1500);
+      const info = await baseConn.getAccountInfo(logPda);
+      if (info?.owner.equals(programId)) { backOnBase = info; break; }
+    }
     check('log came back to base owned by our program',
-      backOnBase?.owner.equals(programId) ?? false, backOnBase?.owner.toBase58());
+      backOnBase !== null, backOnBase ? backOnBase.owner.toBase58() : 'still delegated after 67s');
   } catch (e: any) {
     check('unseal_log then end_log undelegated cleanly', false,
       String(e?.message ?? e).slice(0, 140));
