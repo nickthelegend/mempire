@@ -6,6 +6,7 @@ import {
   pvpCancel, pvpClose, pvpConnect, pvpQueue, pvpSendEnded, pvpSendHash, pvpSendInput,
   type MatchedPayload,
 } from '../lib/pvp';
+import { traitForMint } from '../sim/traits';
 import { archetypeForMint } from '../sim/archetypes';
 import { decideBot, type BotDifficulty } from '../sim/bot';
 import { createMatch, hashState, stepSim } from '../sim/engine';
@@ -210,7 +211,10 @@ function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } | null {
     const c = cards.find((x) => x.id === id);
     const coin = c && COINS.find((k) => k.mint === c.mint);
     if (!c || !coin) return null;
-    player.push({ coinId: c.mint, name: coin.ticker, archetype: c.archetype, level: c.level });
+    player.push({
+      coinId: c.mint, name: coin.ticker, archetype: c.archetype,
+      trait: traitForMint(c.mint), level: c.level,
+    });
   }
   if (player.length !== 8) return null;
   // bot mirrors the player's power so brackets feel honest
@@ -219,6 +223,7 @@ function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } | null {
     coinId: c.mint,
     name: c.ticker,
     archetype: archetypeForMint(c.mint),
+    trait: traitForMint(c.mint),
     level: levels[(i * 3) % levels.length],
   }));
   return { player, bot };

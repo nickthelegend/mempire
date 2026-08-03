@@ -1,3 +1,4 @@
+import type { Trait } from './traits';
 export const TICKS_PER_SEC = 20;
 export const REGULATION_TICKS = 180 * TICKS_PER_SEC; // 3 min
 export const OVERTIME_TICKS = 60 * TICKS_PER_SEC; // +60 s
@@ -72,6 +73,12 @@ export interface MatchCard {
   coinId: string; // mint address (or seeded id on devnet)
   name: string; // coin ticker, e.g. DOGGO
   archetype: Archetype; // hash(mint) % 6, global and permanent
+  /**
+   * Derived from the same mint, by the same discipline as `archetype`: global,
+   * permanent, and identical for everyone holding that coin. Carried on the
+   * card rather than recomputed per tick so the hot loop never hashes.
+   */
+  trait: Trait;
   level: number; // 1–10 from staked USD snapshot
 }
 
@@ -90,6 +97,8 @@ export interface Unit {
   targetUnit: number; // unit id or -1
   targetTower: number; // tower index or -1
   state: UnitState;
+  /** Copied from the card that spawned it; drives its effective stats. */
+  trait: Trait;
   cardIndex: number; // which deck slot spawned it (render: coin skin)
 }
 

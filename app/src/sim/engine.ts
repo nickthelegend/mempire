@@ -4,6 +4,7 @@ import { Fnv1a } from './hash';
 import {
   ARCHETYPES, AURA_SPEED_DEN, AURA_SPEED_NUM, scaleByLevel,
 } from './archetypes';
+import { effectiveDef } from './traits';
 import {
   Archetype, DECK_SIZE, FORMATS, HAND_SIZE, type Format,
 } from './types';
@@ -114,7 +115,9 @@ function applyInput(state: SimState, ev: InputEvent): void {
   // the card must actually be in hand right now — stale inputs are dropped
   if (p.cycle.indexOf(deckIdx) >= HAND_SIZE) return;
   const card = p.deck[deckIdx];
-  const def = ARCHETYPES[card.archetype];
+  // Trait folded in once, at spawn. Everything downstream reads these numbers,
+  // so a trait can never be applied twice or forgotten on one code path.
+  const def = effectiveDef(ARCHETYPES[card.archetype], card.trait, card.archetype);
   const cost = def.elixir * FP;
   if (p.elixirFP < cost) return; // stale input: not enough elixir → drop
   const [x, y] = card.archetype === Archetype.Spell
@@ -149,6 +152,7 @@ function applyInput(state: SimState, ev: InputEvent): void {
       targetUnit: -1,
       targetTower: -1,
       state: 'advance',
+      trait: card.trait,
       cardIndex: deckIdx,
     });
   }
@@ -254,7 +258,7 @@ function damageTower(state: SimState, idx: number, dmg: number): void {
 function stepUnits(state: SimState): void {
   for (const u of state.units) {
     if (u.hp <= 0) continue;
-    const def = ARCHETYPES[u.archetype];
+    const def = effectiveDef(ARCHETYPES[u.archetype], u.trait, u.archetype);
     if (u.cooldown > 0) u.cooldown--;
 
     // sticky unit target if still valid, else re-acquire
