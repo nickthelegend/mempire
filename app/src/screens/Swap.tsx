@@ -39,7 +39,15 @@ function parseAmount(text: string): bigint {
   return whole * UNIT + BigInt(frac || '0');
 }
 
-export function Swap() {
+/**
+ * The swap itself, with no page around it.
+ *
+ * Lives apart from the screen because it is reached two ways: as a route, and
+ * as a sheet from the + on the $MEMPIRE balance. A trade started from the
+ * balance should be the *same* trade, against the same pool with the same
+ * guards — not a simplified one that happens to look similar.
+ */
+export function SwapPanel({ compact = false }: { compact?: boolean }) {
   const address = useWallet((s) => s.address);
   const [pool, setPool] = useState<PoolState | null>(null);
   const [poolFailed, setPoolFailed] = useState(false);
@@ -108,15 +116,17 @@ export function Swap() {
   const outLabel = buying ? '$MEMPIRE' : 'USDC';
 
   return (
-    <div className="screen-in" style={{ display: 'grid', gap: 14 }}>
-      <header>
-        <h1 style={{ margin: 0 }}>SWAP</h1>
-        <p className="fine" style={{ color: 'var(--dim)', margin: '2px 0 0' }}>
-          {pool && pool.reserveBase > 0n
-            ? `1 $MEMPIRE = $${pool.price.toFixed(8)} · pool ${fmt(pool.reserveQuote, 2)} USDC`
-            : 'reading the pool…'}
-        </p>
-      </header>
+    <div style={{ display: 'grid', gap: compact ? 11 : 14 }}>
+      {!compact && (
+        <header>
+          <h1 style={{ margin: 0 }}>SWAP</h1>
+          <p className="fine" style={{ color: 'var(--dim)', margin: '2px 0 0' }}>
+            {pool && pool.reserveBase > 0n
+              ? `1 $MEMPIRE = $${pool.price.toFixed(8)} · pool ${fmt(pool.reserveQuote, 2)} USDC`
+              : 'reading the pool…'}
+          </p>
+        </header>
+      )}
 
       {poolFailed && (
         <div className="well" role="alert" style={{ padding: 12, borderRadius: 10 }}>
@@ -264,6 +274,15 @@ export function Swap() {
         {USDC_MINT.toBase58().slice(-4)}), constant product, 0.30% to liquidity
         providers. Pool {POOL.toBase58().slice(0, 4)}…{POOL.toBase58().slice(-4)}.
       </p>
+    </div>
+  );
+}
+
+/** The Swap route. Still deep-linkable; no longer a tab. */
+export function Swap() {
+  return (
+    <div className="screen-in" style={{ padding: '18px 16px' }}>
+      <SwapPanel />
     </div>
   );
 }

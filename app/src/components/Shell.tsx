@@ -12,9 +12,11 @@ const TABS = [
   { to: '/cards', label: 'Cards', icon: '/art/tab_cards.png' },
   { to: '/deck', label: 'Deck', icon: '/art/tab_deck.png' },
   { to: '/clan', label: 'Clan', icon: '/art/clan_badge.png' },
-  { to: '/swap', label: 'Swap', icon: '/art/tab_swap.png' },
   { to: '/empire', label: 'Empire', icon: '/art/tab_empire.png' },
 ];
+// Swap is deliberately not a tab. It is a thing you do *to* your balance, not
+// a place you go, so it lives behind the + on the $MEMPIRE pill — next to the
+// number it changes. Five tabs also give each one room the six never had.
 
 /**
  * Layout law: one centered 430px column on the quilted field, gutters
@@ -47,7 +49,7 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className={inBattle ? undefined : 'hall'} style={{ minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
       {showGutters && <div className="gutter"><AdSlot side="left" /></div>}
       <div
-        className={inBattle ? undefined : 'quilt hall-edge'}
+        className={inBattle ? undefined : 'quilt'}
         style={{
           width: 'min(100vw, 430px)', minHeight: '100dvh', position: 'relative',
           display: 'flex', flexDirection: 'column', flexShrink: 0,

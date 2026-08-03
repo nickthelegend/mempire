@@ -170,30 +170,6 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
     84px 84px, 84px 84px, 28px 28px, 28px 28px, 7px 100%, 100% 100%;
 }
 
-/* The seam where the hall meets the column. A drape hangs from something, and
-   without this the rails end in a hard vertical cut that reads as a CSS edge
-   rather than as depth. */
-.hall-edge {
-  position: relative;
-}
-.hall-edge::before,
-.hall-edge::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 26px;
-  pointer-events: none;
-}
-.hall-edge::before {
-  left: 0;
-  background: linear-gradient(90deg, rgba(0, 0, 0, 0.42), transparent);
-}
-.hall-edge::after {
-  right: 0;
-  background: linear-gradient(270deg, rgba(0, 0, 0, 0.42), transparent);
-}
-
 /* ── Type ────────────────────────────────────────────────────────────────── */
 .display {
   font-family: var(--font-display);

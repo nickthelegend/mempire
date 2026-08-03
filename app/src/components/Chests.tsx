@@ -4,7 +4,7 @@ import {
   CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy,
   type ChestSlot, type OpenedChest,
 } from '../state/economy';
-import { Link } from 'react-router-dom';
+import { SwapPanel } from '../screens/Swap';
 import { Token } from './Token';
 
 /** One-second ticker, only while something is actually counting down. */
@@ -359,9 +359,18 @@ export function ChestRail() {
   );
 }
 
-/** $MEMPIRE shop sheet — the one place SOL becomes the in-game token. */
+/**
+ * The + on the $MEMPIRE balance.
+ *
+ * Two ways to get more, and the real one leads. Swapping trades USDC against
+ * the live constant-product pool and settles onchain; the bundles are the
+ * arcade convenience and say plainly that they are simulated. Putting the pool
+ * behind a link on a sheet named after a real mint made the simulated path
+ * look like the only path, which is backwards.
+ */
 export function GemShop({ onClose }: { onClose: () => void }) {
   const { gems, buyGems } = useEconomy();
+  const [tab, setTab] = useState<'swap' | 'bundles'>('swap');
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex', justifyContent: 'center' }}>
@@ -369,7 +378,7 @@ export function GemShop({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Buy $MEMPIRE"
+        aria-label="Get $MEMPIRE"
         className="panel sheet"
         style={{ gap: 10 }}
       >
@@ -389,7 +398,42 @@ export function GemShop({ onClose }: { onClose: () => void }) {
           </span>
           <button onClick={() => { click(); onClose(); }} aria-label="Close" className="icon-btn" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
         </div>
-        <p className="fine" style={{ color: 'var(--dim-on-wood)', marginTop: -6 }}>
+
+        <div role="tablist" aria-label="How to get $MEMPIRE" style={{ display: 'flex', gap: 6 }}>
+          {([['swap', 'Swap'], ['bundles', 'Bundles']] as const).map(([id, label]) => (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => { click(); setTab(id); }}
+              className="display display--sm"
+              style={{
+                flex: 1, minHeight: 40, borderRadius: 'var(--r-pill)', fontSize: 15,
+                border: '2px solid var(--ink)', cursor: 'pointer',
+                background: tab === id
+                  ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold))'
+                  : 'rgba(0,0,0,.28)',
+                color: tab === id ? '#3a2600' : 'var(--dim-on-wood)',
+                WebkitTextStroke: tab === id ? 0 : undefined,
+                textShadow: tab === id ? 'none' : undefined,
+                boxShadow: tab === id ? 'inset 0 2px 0 rgba(255,255,255,.4)' : 'var(--bevel-in)',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'swap' ? (
+          <>
+            <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
+              Trade USDC against the live pool. Real curve, real signature.
+            </p>
+            <SwapPanel compact />
+          </>
+        ) : (
+        <>
+        <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
           $MEMPIRE skips chest timers, enters tournaments and buys cosmetics.
           It never buys stats — card power comes only from staking real tokens.
         </p>
@@ -417,36 +461,8 @@ export function GemShop({ onClose }: { onClose: () => void }) {
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
           Devnet build — no real SOL is charged.
         </p>
-
-        {/* The way in that is not simulated.
-            $MEMPIRE is a real SPL mint with a real constant-product pool, so a
-            sheet that only offered fake SOL bundles would be hiding the one
-            path here that actually settles onchain. The bundles above are the
-            arcade convenience; this is the token. */}
-        <div style={{ borderTop: '2px solid rgba(0,0,0,.35)', paddingTop: 10, marginTop: 2 }}>
-          <Link
-            to="/swap"
-            aria-label="Swap USDC for $MEMPIRE on the live pool"
-            onClick={() => { click(); onClose(); }}
-            className="btn-3d"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              minHeight: 52, padding: '8px 14px', borderRadius: 'var(--r-card)',
-              background: 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold))',
-              border: '2.5px solid var(--ink)',
-              boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-gold-dark)',
-              textDecoration: 'none',
-            }}
-          >
-            <Token size={22} />
-            <span className="display" style={{ fontSize: 17, color: '#3a2600', WebkitTextStroke: 0, textShadow: 'none' }}>
-              Swap USDC → $MEMPIRE
-            </span>
-          </Link>
-          <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', marginTop: 6 }}>
-            The live pool. Real USDC, a real curve, and a signature you keep.
-          </p>
-        </div>
+        </>
+        )}
       </div>
     </div>
   );
