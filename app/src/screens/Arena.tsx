@@ -4,7 +4,8 @@ import { CardFrame } from '../components/CardFrame';
 import { Tutorial, resetTutorial, tutorialDone } from '../components/Tutorial';
 import { LeagueBadge } from '../components/LeagueBadge';
 import { Crowns, Pill } from '../components/ui';
-import { fmtSol, shortAddr } from '../lib/format';
+import { fmtSol } from '../lib/format';
+import { leagueFor } from '../lib/ranking';
 import { EASE_SNAP, usePulse } from '../lib/motion';
 import { FEES, useCollection } from '../state/collection';
 import { TIERS, useDeck } from '../state/deck';
@@ -127,6 +128,13 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
           >
             anon_king
           </span>
+          {/* The wallet, not the address.
+              "Guest · ANoN…8UEG" needed 139px in a 110px box, so it rendered
+              as "Guest · ANoN…" — an address truncated twice is an address
+              nobody can check, which is the only reason to print one. The full
+              form now sits in the menu below, where it has room and a copy
+              button next to it. What stays is the part a player actually needs
+              at a glance: whether this session is a real wallet or a guest. */}
           <span
             className="mono"
             style={{
@@ -134,13 +142,34 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
               whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}
           >
-            {wallet.walletName} · {shortAddr(wallet.address)}
+            {wallet.walletName}
           </span>
         </span>
       </button>
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <LeagueBadge trophies={trophies} size={34} />
+        {/* The badge carried the trophy count only in its aria-label, so it
+            sat between two chips that both showed a number and showed none
+            itself — reading as a decorative crest rather than the rank it is.
+            Trophies are the number a ladder game is played for; it belongs on
+            screen, in the same chip shape as the two beside it. */}
+        <div
+          title={`${leagueFor(trophies).name} · ${trophies} trophies`}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 3,
+            padding: '2px 9px 2px 2px', borderRadius: 999,
+            background: 'var(--recess)', boxShadow: 'var(--bevel-in)',
+            border: '2px solid var(--ink)',
+          }}
+        >
+          <LeagueBadge trophies={trophies} size={28} />
+          <span
+            className="display display--sm"
+            style={{ fontSize: 14, color: 'var(--text)' }}
+          >
+            {trophies}
+          </span>
+        </div>
         <Chip icon="👑" value={String(wins)} tone="blue" />
         <Chip icon="◎" value={fmtSol(wallet.sol).replace(' SOL', '')} tone="gold" />
       </div>
@@ -152,6 +181,19 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
             className="panel"
             style={{ position: 'absolute', top: 48, left: 0, zIndex: 25, padding: 6, minWidth: 200 }}
           >
+            {/* The address itself, before the button that copies it. "Copy
+                address" on its own asks the player to take on trust which
+                address they are about to paste. */}
+            <p
+              className="mono"
+              style={{
+                margin: 0, padding: '8px 10px 6px', fontSize: 11.5,
+                color: 'var(--dim-on-wood)', wordBreak: 'break-all',
+                lineHeight: 1.45, userSelect: 'all',
+              }}
+            >
+              {wallet.address}
+            </p>
             <button
               onClick={() => { void navigator.clipboard?.writeText(wallet.address); setOpen(false); }}
               className="menu-item"
@@ -215,10 +257,17 @@ export function Arena() {
   const pot = tier.stakeSol * 2;
   const queueing = match.status === 'queuing' || match.status === 'found';
 
+  // The gap and the wordmark are sized to land this screen inside one 812px
+  // viewport — the common iPhone. The battle deck is the last row, and a new
+  // player's own deck arriving already cut off by the tab bar is the worst
+  // first impression a game about decks could make. 669px of content plus
+  // 80px of gaps plus the tab bar's 80px reserve overran by 37px, so the gap
+  // comes down and the wordmark gives up the rest: the app is already open,
+  // and nobody needs a 102px logo to know which one they are in.
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '12px 16px 8px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '10px 16px 6px' }}>
       <TopHud onReplayTutorial={() => setShowTutorial(true)} />
-      <Logo width={210} />
+      <Logo width={168} />
 
       {/* tier picker — carved wood rail of stake plates */}
       <section className="panel" data-tut="tier" style={{ padding: 9 }}>

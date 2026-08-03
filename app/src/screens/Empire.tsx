@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { MoneyRow, Pill } from '../components/ui';
 import { RankChip } from '../components/ClanBits';
 import { fmtSol, shortAddr } from '../lib/format';
@@ -73,6 +74,7 @@ function Leaderboard({ me }: { me: string }) {
 }
 
 export function Empire() {
+  const nav = useNavigate();
   const wallet = useWallet();
   const openPicker = useWallet((s) => s.openPicker);
   const history = useMatch((s) => s.history);
@@ -130,8 +132,19 @@ export function Empire() {
           <section aria-label="match history">
             <div className="label" style={{ marginBottom: 8 }}>Battles</div>
             {history.length === 0 ? (
-              <div className="well" style={{ padding: 22, textAlign: 'center' }}>
-                <span className="fine">no battles yet — the arena awaits, anon</span>
+              /* The one screen a new player reaches with nothing on it. Saying
+                 "the arena awaits" and then not opening the arena leaves them
+                 to go and find the tab, which is the moment a first session
+                 ends. */
+              <div className="well" style={{ padding: '22px 20px', textAlign: 'center', display: 'grid', gap: 12, justifyItems: 'center' }}>
+                <span className="fine">No battles yet — the arena awaits, anon.</span>
+                <Pill
+                  tone="gold"
+                  onClick={() => nav('/')}
+                  style={{ fontSize: 15, minHeight: 44, padding: '10px 20px', width: 'auto' }}
+                >
+                  Find a match
+                </Pill>
               </div>
             ) : (
               <div className="well" style={{ padding: '2px 12px' }}>

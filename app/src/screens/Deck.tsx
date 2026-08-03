@@ -1,4 +1,6 @@
 import { useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Pill } from '../components/ui';
 import { CardFrame } from '../components/CardFrame';
 import { click } from '../lib/audio';
 import { COINS } from '../lib/coins';
@@ -9,6 +11,7 @@ import { useCollection } from '../state/collection';
 import { DECK_SLOTS, useDeck } from '../state/deck';
 
 export function Deck() {
+  const nav = useNavigate();
   const cards = useCollection((s) => s.cards);
   const deck = useDeck();
   const benchRef = useRef<HTMLElement>(null);
@@ -138,8 +141,23 @@ export function Deck() {
       <section aria-label="collection" ref={benchRef} style={{ scrollMarginTop: 12 }}>
         <div className="label" style={{ marginBottom: 8 }}>Collection · one card per coin</div>
         {bench.length === 0 ? (
-          <div className="well" style={{ padding: 20, textAlign: 'center' }}>
-            <span className="fine">everything you own is already enlisted, ser</span>
+          /* An empty bench is not a failure — it means every card is playing.
+             But saying only that leaves the bottom half of the screen dead and
+             the player with nowhere to go. The way to get a bench is to mint
+             more of what you hold, so the empty state says that and offers the
+             door rather than making them find the Cards tab themselves. */
+          <div className="well" style={{ padding: '22px 20px', textAlign: 'center', display: 'grid', gap: 12, justifyItems: 'center' }}>
+            <span className="fine">Everything you own is already enlisted, ser.</span>
+            <span className="fine" style={{ color: 'var(--dim)', maxWidth: 260 }}>
+              Mint another coin you hold and it lands here, ready to swap in.
+            </span>
+            <Pill
+              tone="blue"
+              onClick={() => nav('/cards')}
+              style={{ fontSize: 15, minHeight: 44, padding: '10px 20px', width: 'auto' }}
+            >
+              Mint from your bags
+            </Pill>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 10 }}>

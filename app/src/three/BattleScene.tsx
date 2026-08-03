@@ -299,13 +299,34 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
         camera={{ position: [W / 2, 33, -11.5], fov: 52, near: 1, far: 140 }}
         style={{ touchAction: 'none' }}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
+        // Soft shadows from the sun only. The board is read from directly
+        // above, so a shadow is the one cue that tells a tower from a decal —
+        // without it the whole field is flat colour. One 1024 map on one light
+        // is the cheapest version of that; a second shadow-casting light would
+        // double the cost for a second set of shadows nobody would read.
+        shadows={{ type: THREE.PCFSoftShadowMap }}
       >
         <CameraRig seat={perspective} />
         {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}
         <color attach="background" args={['#5aa9e0']} />
         <fog attach="fog" args={['#7cc0e8', 74, 132]} />
         <ambientLight intensity={2.1} color="#e8f2ff" />
-        <directionalLight position={[8, 22, 6]} intensity={2.3} color="#fff6e0" />
+        <directionalLight
+          position={[8, 22, 6]}
+          intensity={2.3}
+          color="#fff6e0"
+          castShadow
+          shadow-mapSize={[1024, 1024]}
+          // Framed tight around the board. A default camera spreads 1024px
+          // over the whole scene and the shadows come out as mush.
+          shadow-camera-left={-26}
+          shadow-camera-right={26}
+          shadow-camera-top={34}
+          shadow-camera-bottom={-34}
+          shadow-camera-near={1}
+          shadow-camera-far={70}
+          shadow-bias={-0.0012}
+        />
         <directionalLight position={[-10, 14, 30]} intensity={0.7} color="#bfe4ff" />
         {/* The arena draws its own canvas textures, so it never suspends.
             Units load separately — the field must never wait on meshes. */}

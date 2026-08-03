@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { FP } from '../sim/fixed';
 import { ARENA_H, ARENA_W, BRIDGE_X, RIVER_BOT, RIVER_TOP } from '../sim/engine';
-import { grassTexture, waterTexture, woodTexture } from './textures';
+import { causticTexture, grassTexture, stoneTexture, waterTexture, woodTexture } from './textures';
 
 const W = ARENA_W / FP; // 18
 const H = ARENA_H / FP; // 32
@@ -11,54 +11,84 @@ const RT = RIVER_TOP / FP;
 const RB = RIVER_BOT / FP;
 
 const FRAME = 1.3; // wood border thickness
+const GOLD = '#ffc422';
+const INK = '#10203f';
 
 /**
- * The arena, built to read the way the genre's players expect: checkered green
- * grass inside a wood frame, a cyan river with plank bridges, and scenery
- * outside the frame so the board sits in a place rather than in a void.
+ * The arena.
  *
- * Geometry and textures are memoised and disposed on unmount — this subtree
- * rebuilds whenever a match starts.
+ * It used to be a green rectangle in a brown frame, which read as a spread-
+ * sheet next to sixty-four pieces of hand-drawn character art. The board is
+ * where a player spends three minutes staring, so it gets the same treatment
+ * as everything else in this world:
+ *
+ * - **Gold.** The frame carries the same gold rule the panels and the column
+ *   wear, with corner caps and banner posts. It is the one line that ties the
+ *   board to the rest of the game.
+ * - **Depth.** Stone banks, a sunken river bed, raised bridges with posts, and
+ *   a soft darkening toward the outer tiles so the field is not uniformly lit.
+ * - **Movement.** Two water layers scrolling at different speeds and in
+ *   different directions. One scrolling texture reads as a conveyor belt.
+ * - **Wear.** Faint tracks from each bridge toward the towers — the paths
+ *   every unit in every match actually walks.
+ *
+ * Everything is memoised and disposed on unmount; this subtree rebuilds on
+ * every match start.
  */
 export function Arena({ placing }: { placing: boolean }) {
   const grass = useMemo(grassTexture, []);
   const water = useMemo(waterTexture, []);
+  const caustic = useMemo(causticTexture, []);
+  const stone = useMemo(() => stoneTexture([10, 1]), []);
   const woodFrame = useMemo(() => woodTexture([6, 1]), []);
   const woodPlank = useMemo(() => woodTexture([2, 1]), []);
-  const waterRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  const placeRef = useRef<THREE.MeshBasicMaterial>(null);
+  const t = useRef(0);
 
   useEffect(() => () => {
-    [grass, water, woodFrame, woodPlank].forEach((t) => t.dispose());
-  }, [grass, water, woodFrame, woodPlank]);
+    [grass, water, caustic, stone, woodFrame, woodPlank].forEach((x) => x.dispose());
+  }, [grass, water, caustic, stone, woodFrame, woodPlank]);
 
-  // river drifts, so the board is never completely still
   useFrame((_, dt) => {
-    water.offset.x += dt * 0.05;
-    if (waterRef.current) waterRef.current.needsUpdate = false;
+    t.current += dt;
+    // Opposed directions and unequal speeds. Matching them would just be one
+    // thicker texture travelling in one direction.
+    water.offset.x += dt * 0.045;
+    caustic.offset.x -= dt * 0.021;
+    caustic.offset.y = Math.sin(t.current * 0.35) * 0.03;
+    // The deploy-zone wash breathes, so a held card reads as an invitation
+    // rather than as a rectangle that appeared.
+    if (placeRef.current) {
+      placeRef.current.opacity = 0.1 + Math.sin(t.current * 2.6) * 0.045;
+    }
   });
 
   // Scenery is placed from a fixed table rather than at random: a board that
   // reshuffles its trees every match feels unstable.
   const scenery = useMemo(() => {
-    const spots: { x: number; z: number; kind: 'tree' | 'rock'; s: number }[] = [];
-    const edges = [-FRAME - 1.4, W + FRAME + 1.4];
-    for (let i = 0; i < 9; i++) {
-      const z = 1.5 + i * (H / 9);
+    const spots: { x: number; z: number; kind: 'tree' | 'rock' | 'bush'; s: number }[] = [];
+    const edges = [-FRAME - 1.5, W + FRAME + 1.5];
+    for (let i = 0; i < 10; i++) {
+      const z = 1.2 + i * (H / 10);
       edges.forEach((x, k) => {
+        const roll = (i + k * 2) % 4;
         spots.push({
-          x: x + (i % 2 ? 0.5 : -0.3) * (k ? -1 : 1),
+          x: x + (i % 2 ? 0.55 : -0.35) * (k ? -1 : 1),
           z,
-          kind: (i + k) % 3 === 0 ? 'rock' : 'tree',
+          kind: roll === 0 ? 'rock' : roll === 3 ? 'bush' : 'tree',
           s: 0.85 + ((i * 7 + k * 3) % 5) * 0.08,
         });
       });
     }
     // corners behind each king
-    [-1.8, W + 1.8].forEach((x) => {
-      [-1.9, H + 1.9].forEach((z) => spots.push({ x, z, kind: 'tree', s: 1.15 }));
+    [-2.0, W + 2.0].forEach((x) => {
+      [-2.1, H + 2.1].forEach((z) => spots.push({ x, z, kind: 'tree', s: 1.2 }));
     });
     return spots;
   }, []);
+
+  const midZ = (RT + RB) / 2;
 
   return (
     <group>
@@ -69,9 +99,35 @@ export function Arena({ placing }: { placing: boolean }) {
         { pos: [-FRAME / 2, 0.16, H / 2] as const, size: [FRAME, 0.34, H] as const },
         { pos: [W + FRAME / 2, 0.16, H / 2] as const, size: [FRAME, 0.34, H] as const },
       ].map((b, i) => (
-        <mesh key={i} position={b.pos as unknown as [number, number, number]}>
+        <mesh key={i} position={b.pos as unknown as [number, number, number]} castShadow>
           <boxGeometry args={b.size as unknown as [number, number, number]} />
           <meshStandardMaterial map={woodFrame} roughness={0.8} />
+        </mesh>
+      ))}
+
+      {/* The gold rule around the playing field. The same line the game's
+          panels wear, and the one thing that makes the board look like it
+          belongs to this product rather than to the genre in general.
+          Sized for the match camera, which sits 33 units up — the first pass
+          used a 0.18-wide bar and it never rendered a full pixel. */}
+      {[
+        { pos: [W / 2, 0.4, -0.16] as const, size: [W + 0.64, 0.16, 0.32] as const },
+        { pos: [W / 2, 0.4, H + 0.16] as const, size: [W + 0.64, 0.16, 0.32] as const },
+        { pos: [-0.16, 0.4, H / 2] as const, size: [0.32, 0.16, H] as const },
+        { pos: [W + 0.16, 0.4, H / 2] as const, size: [0.32, 0.16, H] as const },
+      ].map((b, i) => (
+        <mesh key={`gold${i}`} position={b.pos as unknown as [number, number, number]}>
+          <boxGeometry args={b.size as unknown as [number, number, number]} />
+          <meshStandardMaterial color={GOLD} roughness={0.32} metalness={0.65} emissive="#4a3200" />
+        </mesh>
+      ))}
+
+      {/* Corner caps, so the gold rule terminates in something rather than
+          simply stopping. */}
+      {[[-0.16, -0.16], [W + 0.16, -0.16], [-0.16, H + 0.16], [W + 0.16, H + 0.16]].map(([x, z], i) => (
+        <mesh key={`cap${i}`} position={[x, 0.5, z]} castShadow>
+          <cylinderGeometry args={[0.42, 0.48, 0.7, 8]} />
+          <meshStandardMaterial color={GOLD} roughness={0.28} metalness={0.7} emissive="#4a3200" />
         </mesh>
       ))}
 
@@ -84,41 +140,111 @@ export function Arena({ placing }: { placing: boolean }) {
         <meshStandardMaterial map={grass} roughness={0.92} />
       </mesh>
 
+      {/* Worn tracks from each bridge to each tower. Faint on purpose — this
+          is the shape of every match that has ever been played here, and it
+          should read as history rather than as painted lane markings. */}
+      {BRIDGE_X.map((bx) => {
+        const x = bx / FP;
+        return [6, H - 6].map((z) => (
+          <mesh
+            key={`${bx}-${z}`}
+            rotation={[-Math.PI / 2, 0, 0]}
+            position={[x, 0.012, (z + midZ) / 2]}
+          >
+            <planeGeometry args={[2.1, Math.abs(midZ - z)]} />
+            <meshBasicMaterial color="#c8a86a" transparent opacity={0.12} depthWrite={false} />
+          </mesh>
+        ));
+      })}
+
       {/* ── river ──────────────────────────────────────────────────── */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.03, (RT + RB) / 2]}>
+      {/* The bed, below the surface, so the channel has a bottom to see. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, -0.06, midZ]}>
+        <planeGeometry args={[W, RB - RT]} />
+        <meshStandardMaterial color="#0d4a6b" roughness={1} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.02, midZ]}>
         <planeGeometry args={[W, RB - RT]} />
         <meshStandardMaterial
-          ref={waterRef}
           map={water}
           transparent
-          opacity={0.95}
-          roughness={0.24}
-          metalness={0.12}
+          opacity={0.9}
+          roughness={0.18}
+          metalness={0.2}
         />
       </mesh>
-      {/* river banks */}
+      {/* caustics, scrolling against the water */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.035, midZ]}>
+        <planeGeometry args={[W, RB - RT]} />
+        <meshBasicMaterial
+          map={caustic}
+          transparent
+          // Additive white over an entire plane bleaches whatever is under it.
+          // At 0.16 it reads as light catching the surface; at the 0.34 this
+          // started on, the river came out silver.
+          opacity={0.16}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* Foam where the water meets the stone. Without it the river is a
+          rectangle laid on grass; with it, the water touches something. */}
+      {[RT + 0.07, RB - 0.07].map((z) => (
+        <mesh key={`foam${z}`} rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.045, z]}>
+          {/* Narrow. Two wide strips on a two-tile river is a third of the
+              channel painted white, and the water stops being water. */}
+          <planeGeometry args={[W, 0.14]} />
+          <meshBasicMaterial color="#dffaff" transparent opacity={0.3} depthWrite={false} />
+        </mesh>
+      ))}
+
+      {/* stone banks */}
       {[RT, RB].map((z) => (
-        <mesh key={z} position={[W / 2, 0.07, z]}>
-          <boxGeometry args={[W, 0.14, 0.24]} />
-          <meshStandardMaterial color="#8a6b3c" roughness={0.9} />
+        <mesh key={z} position={[W / 2, 0.09, z]} castShadow receiveShadow>
+          <boxGeometry args={[W, 0.2, 0.34]} />
+          <meshStandardMaterial map={stone} roughness={0.86} />
         </mesh>
       ))}
 
       {/* ── bridges ────────────────────────────────────────────────── */}
       {BRIDGE_X.map((bx) => {
         const x = bx / FP;
+        const span = RB - RT + 0.7;
         return (
           <group key={bx}>
-            <mesh position={[x, 0.11, (RT + RB) / 2]}>
-              <boxGeometry args={[2.6, 0.22, RB - RT + 0.5]} />
+            {/* stone abutments at each end, so the bridge lands on something */}
+            {[RT - 0.1, RB + 0.1].map((z) => (
+              <mesh key={z} position={[x, 0.1, z]} castShadow receiveShadow>
+                <boxGeometry args={[3.0, 0.26, 0.5]} />
+                <meshStandardMaterial map={stone} roughness={0.88} />
+              </mesh>
+            ))}
+            <mesh position={[x, 0.16, midZ]} castShadow receiveShadow>
+              <boxGeometry args={[2.6, 0.24, span]} />
               <meshStandardMaterial map={woodPlank} roughness={0.82} />
             </mesh>
-            {/* rails */}
+            {/* rails, and a post at each corner */}
             {[-1.24, 1.24].map((off) => (
-              <mesh key={off} position={[x + off, 0.3, (RT + RB) / 2]}>
-                <boxGeometry args={[0.16, 0.3, RB - RT + 0.5]} />
-                <meshStandardMaterial color="#7a5424" roughness={0.85} />
-              </mesh>
+              <group key={off}>
+                <mesh position={[x + off, 0.42, midZ]} castShadow>
+                  <boxGeometry args={[0.16, 0.28, span]} />
+                  <meshStandardMaterial color="#7a5424" roughness={0.85} />
+                </mesh>
+                {[midZ - span / 2 + 0.12, midZ + span / 2 - 0.12].map((z) => (
+                  <group key={z}>
+                    <mesh position={[x + off, 0.36, z]} castShadow>
+                      <boxGeometry args={[0.26, 0.62, 0.26]} />
+                      <meshStandardMaterial color="#6b4720" roughness={0.88} />
+                    </mesh>
+                    {/* a gold finial — the board's accent, repeated small */}
+                    <mesh position={[x + off, 0.72, z]}>
+                      <sphereGeometry args={[0.15, 8, 6]} />
+                      <meshStandardMaterial color={GOLD} roughness={0.3} metalness={0.7} />
+                    </mesh>
+                  </group>
+                ))}
+              </group>
             ))}
           </group>
         );
@@ -126,18 +252,67 @@ export function Arena({ placing }: { placing: boolean }) {
 
       {/* ── own-half highlight while a card is held ────────────────── */}
       {placing && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.05, RT / 2]}>
-          <planeGeometry args={[W, RT]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.13} />
-        </mesh>
+        <>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.05, RT / 2]}>
+            <planeGeometry args={[W, RT]} />
+            <meshBasicMaterial ref={placeRef} color="#bfe9ff" transparent opacity={0.12} depthWrite={false} />
+          </mesh>
+          {/* The boundary of what is allowed, stated as a line. A wash alone
+              leaves the player guessing where the legal area stops. */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[W / 2, 0.055, RT - 0.06]}>
+            <planeGeometry args={[W, 0.12]} />
+            <meshBasicMaterial color={GOLD} transparent opacity={0.75} depthWrite={false} />
+          </mesh>
+        </>
       )}
+
+      {/* ── banners on the frame ───────────────────────────────────── */}
+      {[0, 1].map((side) => (
+        [W * 0.22, W * 0.78].map((x) => (
+          <Banner
+            key={`${side}-${x}`}
+            x={x}
+            z={side ? H + FRAME / 2 : -FRAME / 2}
+            colour={side ? '#c9433f' : '#3f6fc9'}
+          />
+        ))
+      ))}
 
       {/* ── scenery outside the frame ──────────────────────────────── */}
       {scenery.map((s, i) => (
-        s.kind === 'tree'
-          ? <Tree key={i} x={s.x} z={s.z} s={s.s} />
-          : <Rock key={i} x={s.x} z={s.z} s={s.s} />
+        s.kind === 'tree' ? <Tree key={i} x={s.x} z={s.z} s={s.s} />
+          : s.kind === 'rock' ? <Rock key={i} x={s.x} z={s.z} s={s.s} />
+            : <Bush key={i} x={s.x} z={s.z} s={s.s} />
       ))}
+    </group>
+  );
+}
+
+/**
+ * A pennant on a pole, in the owning side's colour.
+ *
+ * Blue and red rather than the arena's gold: gold means SOL is moving
+ * everywhere else in this product, and a decorative flag is not that.
+ */
+function Banner({ x, z, colour }: { x: number; z: number; colour: string }) {
+  return (
+    <group position={[x, 0, z]}>
+      <mesh position={[0, 1.1, 0]} castShadow>
+        <cylinderGeometry args={[0.07, 0.09, 2.2, 6]} />
+        <meshStandardMaterial color="#5b3a17" roughness={0.9} />
+      </mesh>
+      <mesh position={[0, 2.25, 0]}>
+        <sphereGeometry args={[0.15, 8, 6]} />
+        <meshStandardMaterial color={GOLD} roughness={0.3} metalness={0.7} />
+      </mesh>
+      <mesh position={[0.42, 1.62, 0]} castShadow>
+        <boxGeometry args={[0.8, 0.62, 0.05]} />
+        <meshStandardMaterial color={colour} roughness={0.75} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position={[0.42, 1.28, 0]}>
+        <boxGeometry args={[0.8, 0.08, 0.06]} />
+        <meshStandardMaterial color={INK} roughness={0.8} />
+      </mesh>
     </group>
   );
 }
@@ -145,14 +320,42 @@ export function Arena({ placing }: { placing: boolean }) {
 function Tree({ x, z, s }: { x: number; z: number; s: number }) {
   return (
     <group position={[x, 0, z]} scale={s}>
-      <mesh position={[0, 0.5, 0]}>
-        <cylinderGeometry args={[0.16, 0.22, 1, 6]} />
+      <mesh position={[0, 0.5, 0]} castShadow>
+        <cylinderGeometry args={[0.16, 0.24, 1, 6]} />
         <meshStandardMaterial color="#6b4423" roughness={0.9} />
       </mesh>
       {[0, 1, 2].map((i) => (
-        <mesh key={i} position={[0, 1.15 + i * 0.52, 0]}>
-          <coneGeometry args={[0.92 - i * 0.24, 0.85, 7]} />
-          <meshStandardMaterial color={i === 2 ? '#4f9a32' : '#3f8228'} roughness={0.86} />
+        <mesh key={i} position={[0, 1.15 + i * 0.52, 0]} castShadow>
+          <coneGeometry args={[0.94 - i * 0.24, 0.88, 7]} />
+          {/* Lit from the top down, so the canopy has a direction. */}
+          <meshStandardMaterial
+            color={['#357024', '#3f8228', '#59a83a'][i]}
+            roughness={0.86}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Bush({ x, z, s }: { x: number; z: number; s: number }) {
+  return (
+    <group position={[x, 0, z]} scale={s}>
+      {[
+        [0, 0.32, 0, 0.46],
+        [0.34, 0.24, 0.14, 0.33],
+        [-0.3, 0.22, -0.1, 0.3],
+      ].map(([bx, by, bz, r], i) => (
+        <mesh key={i} position={[bx, by, bz]} castShadow>
+          <sphereGeometry args={[r, 8, 6]} />
+          <meshStandardMaterial color={i === 0 ? '#3f8228' : '#357024'} roughness={0.9} />
+        </mesh>
+      ))}
+      {/* berries, so a bush is not just a green lump */}
+      {[[0.16, 0.55, 0.2], [-0.2, 0.45, 0.1]].map(([bx, by, bz], i) => (
+        <mesh key={`b${i}`} position={[bx, by, bz]}>
+          <sphereGeometry args={[0.08, 6, 5]} />
+          <meshStandardMaterial color="#e0574f" roughness={0.6} />
         </mesh>
       ))}
     </group>
@@ -162,13 +365,18 @@ function Tree({ x, z, s }: { x: number; z: number; s: number }) {
 function Rock({ x, z, s }: { x: number; z: number; s: number }) {
   return (
     <group position={[x, 0, z]} scale={s}>
-      <mesh position={[0, 0.34, 0]} rotation={[0.3, 0.8, 0.15]}>
+      <mesh position={[0, 0.34, 0]} rotation={[0.3, 0.8, 0.15]} castShadow>
         <dodecahedronGeometry args={[0.55, 0]} />
-        <meshStandardMaterial color="#8d8f96" roughness={0.95} />
+        <meshStandardMaterial color="#9aa3ae" roughness={0.95} />
       </mesh>
-      <mesh position={[0.42, 0.18, 0.2]} rotation={[0.7, 0.2, 0]}>
+      <mesh position={[0.42, 0.18, 0.2]} rotation={[0.7, 0.2, 0]} castShadow>
         <dodecahedronGeometry args={[0.3, 0]} />
-        <meshStandardMaterial color="#7c7e85" roughness={0.95} />
+        <meshStandardMaterial color="#848d98" roughness={0.95} />
+      </mesh>
+      {/* a tuft at the base, so the rock sits in the grass rather than on it */}
+      <mesh position={[-0.3, 0.1, -0.25]}>
+        <sphereGeometry args={[0.22, 7, 5]} />
+        <meshStandardMaterial color="#3f8228" roughness={0.92} />
       </mesh>
     </group>
   );
