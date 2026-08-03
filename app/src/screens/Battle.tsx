@@ -47,7 +47,11 @@ function ResultOverlay() {
   return (
     <div style={{
       position: 'absolute', inset: 0, zIndex: 30,
-      background: 'var(--scrim)', backdropFilter: 'blur(7px)',
+      // No backdrop-filter. Blurring the backdrop here means re-sampling the
+      // whole match canvas every frame the result card is up, on the one
+      // device class least able to afford it. A heavier scrim hides the board
+      // just as well and costs a single fill.
+      background: 'rgba(6,14,32,.82)',
       display: 'flex', flexDirection: 'column', justifyContent: 'center',
       padding: '0 22px', gap: 14, textAlign: 'center',
       animation: 'fadeIn 300ms var(--ease-snap)',
