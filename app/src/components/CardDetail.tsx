@@ -14,6 +14,9 @@ import { loreFor } from '../data/lore';
  */
 const SHARE_ORIGIN = (import.meta.env.VITE_SHARE_ORIGIN as string | undefined)
   ?? 'https://mempire.fun';
+
+/** The X handle, without the @. Mirrors X_HANDLE in the landing site's site.ts. */
+const X_HANDLE = 'MempireFun';
 import { ARCHETYPE_NAMES } from '../sim/types';
 import { FP } from '../sim/fixed';
 import type { MintedCard } from '../state/collection';
@@ -135,8 +138,8 @@ export function CardDetail({
             onClick={() => {
               const url = `${SHARE_ORIGIN}/card/${coin.ticker.toLowerCase()}`;
               const text = lore
-                ? `${lore.tagline}\n\nMy $${coin.ticker} is level ${card.level} in @mempiredotfun.`
-                : `My $${coin.ticker} is level ${card.level} in @mempiredotfun.`;
+                ? `${lore.tagline}\n\nMy $${coin.ticker} is level ${card.level} in @${X_HANDLE}.`
+                : `My $${coin.ticker} is level ${card.level} in @${X_HANDLE}.`;
               window.open(
                 `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`,
                 '_blank', 'noopener,noreferrer',
