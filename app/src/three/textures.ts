@@ -168,11 +168,11 @@ export function waterTexture(): THREE.Texture {
   // on the canvas on purpose: the arena runs ambient at 2.1 and a sun at 2.3,
   // and a mid-cyan under that light comes out white.
   const g = ctx.createLinearGradient(0, 0, 0, S);
-  g.addColorStop(0, '#0a4a72');
-  g.addColorStop(0.16, '#0f6d99');
-  g.addColorStop(0.5, '#1f9fc4');
-  g.addColorStop(0.84, '#0f6d99');
-  g.addColorStop(1, '#0a4a72');
+  g.addColorStop(0, '#05314f');
+  g.addColorStop(0.16, '#08506f');
+  g.addColorStop(0.5, '#0f7d9e');
+  g.addColorStop(0.84, '#08506f');
+  g.addColorStop(1, '#05314f');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, S, S);
 
@@ -241,7 +241,11 @@ export function stoneTexture(repeat: [number, number] = [8, 1]): THREE.Texture {
   const [c, ctx] = canvas(S);
   const rnd = rng(515);
 
-  ctx.fillStyle = '#9aa3ae';
+  // Much darker than cut stone looks in daylight, on purpose. Ambient 2.1
+  // plus a 2.3 sun multiplies everything here, and the first pass at #9aa3ae
+  // came out pure white — which made the river read as a white strip with a
+  // thin blue line down the middle.
+  ctx.fillStyle = '#5c6672';
   ctx.fillRect(0, 0, S, S);
 
   const rows = 4;
@@ -252,18 +256,18 @@ export function stoneTexture(repeat: [number, number] = [8, 1]): THREE.Texture {
       const x = offset + i * (S / 4);
       const shade = 0.82 + rnd() * 0.28;
       const v = (n: number) => Math.min(255, Math.round(n * shade));
-      ctx.fillStyle = `rgb(${v(163)},${v(172)},${v(184)})`;
+      ctx.fillStyle = `rgb(${v(102)},${v(112)},${v(126)})`;
       ctx.fillRect(x + 2, r * h + 2, S / 4 - 4, h - 4);
       // top bevel, so each block catches the light
-      ctx.fillStyle = 'rgba(255,255,255,.22)';
+      ctx.fillStyle = 'rgba(255,255,255,.16)';
       ctx.fillRect(x + 2, r * h + 2, S / 4 - 4, 3);
-      ctx.fillStyle = 'rgba(0,0,0,.2)';
+      ctx.fillStyle = 'rgba(0,0,0,.3)';
       ctx.fillRect(x + 2, r * h + h - 5, S / 4 - 4, 3);
     }
   }
 
   // mortar
-  ctx.strokeStyle = 'rgba(60,66,76,.55)';
+  ctx.strokeStyle = 'rgba(28,33,41,.7)';
   ctx.lineWidth = 2;
   for (let r = 0; r <= rows; r++) {
     ctx.beginPath();

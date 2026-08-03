@@ -108,13 +108,15 @@ export function Arena({ placing }: { placing: boolean }) {
       {/* The gold rule around the playing field. The same line the game's
           panels wear, and the one thing that makes the board look like it
           belongs to this product rather than to the genre in general.
-          Sized for the match camera, which sits 33 units up — the first pass
-          used a 0.18-wide bar and it never rendered a full pixel. */}
+          Inlaid flush into the wood rather than raised on top of it. Raised,
+          the side pieces were seen edge-on from a camera 33 units up and read
+          as a gold wall, while the two ends — seen from above — read as a
+          hairline. Flush is the same line on all four. */}
       {[
-        { pos: [W / 2, 0.4, -0.16] as const, size: [W + 0.64, 0.16, 0.32] as const },
-        { pos: [W / 2, 0.4, H + 0.16] as const, size: [W + 0.64, 0.16, 0.32] as const },
-        { pos: [-0.16, 0.4, H / 2] as const, size: [0.32, 0.16, H] as const },
-        { pos: [W + 0.16, 0.4, H / 2] as const, size: [0.32, 0.16, H] as const },
+        { pos: [W / 2, 0.335, -0.22] as const, size: [W + 0.88, 0.05, 0.44] as const },
+        { pos: [W / 2, 0.335, H + 0.22] as const, size: [W + 0.88, 0.05, 0.44] as const },
+        { pos: [-0.22, 0.335, H / 2] as const, size: [0.44, 0.05, H] as const },
+        { pos: [W + 0.22, 0.335, H / 2] as const, size: [0.44, 0.05, H] as const },
       ].map((b, i) => (
         <mesh key={`gold${i}`} position={b.pos as unknown as [number, number, number]}>
           <boxGeometry args={b.size as unknown as [number, number, number]} />
@@ -124,9 +126,9 @@ export function Arena({ placing }: { placing: boolean }) {
 
       {/* Corner caps, so the gold rule terminates in something rather than
           simply stopping. */}
-      {[[-0.16, -0.16], [W + 0.16, -0.16], [-0.16, H + 0.16], [W + 0.16, H + 0.16]].map(([x, z], i) => (
-        <mesh key={`cap${i}`} position={[x, 0.5, z]} castShadow>
-          <cylinderGeometry args={[0.42, 0.48, 0.7, 8]} />
+      {[[-0.22, -0.22], [W + 0.22, -0.22], [-0.22, H + 0.22], [W + 0.22, H + 0.22]].map(([x, z], i) => (
+        <mesh key={`cap${i}`} position={[x, 0.42, z]} castShadow>
+          <cylinderGeometry args={[0.4, 0.46, 0.5, 8]} />
           <meshStandardMaterial color={GOLD} roughness={0.28} metalness={0.7} emissive="#4a3200" />
         </mesh>
       ))}
@@ -205,7 +207,7 @@ export function Arena({ placing }: { placing: boolean }) {
       {/* stone banks */}
       {[RT, RB].map((z) => (
         <mesh key={z} position={[W / 2, 0.09, z]} castShadow receiveShadow>
-          <boxGeometry args={[W, 0.2, 0.34]} />
+          <boxGeometry args={[W, 0.2, 0.22]} />
           <meshStandardMaterial map={stone} roughness={0.86} />
         </mesh>
       ))}

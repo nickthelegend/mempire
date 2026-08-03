@@ -298,7 +298,20 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
         dpr={[1, 1.75]}
         camera={{ position: [W / 2, 33, -11.5], fov: 52, near: 1, far: 140 }}
         style={{ touchAction: 'none' }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{
+          antialias: true,
+          powerPreference: 'high-performance',
+          // Filmic roll-off instead of a hard clip.
+          //
+          // This scene runs ambient 2.1 plus a 2.3 sun, so a lit top surface
+          // receives well over 1.0 and anything light-coloured clipped to pure
+          // white — the towers were white blocks, the stone banks were a white
+          // strip, and every fix was another material hand-darkened until it
+          // happened to look right. ACES compresses the highlights instead, so
+          // a light material keeps its shading and its colour.
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.25,
+        }}
         // Soft shadows from the sun only. The board is read from directly
         // above, so a shadow is the one cue that tells a tower from a decal —
         // without it the whole field is flat colour. One 1024 map on one light
@@ -310,10 +323,14 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
         {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}
         <color attach="background" args={['#5aa9e0']} />
         <fog attach="fog" args={['#7cc0e8', 74, 132]} />
-        <ambientLight intensity={2.1} color="#e8f2ff" />
+        <ambientLight intensity={1.35} color="#e8f2ff" />
         <directionalLight
-          position={[8, 22, 6]}
-          intensity={2.3}
+          // Raked, not overhead. At [8, 22, 6] the sun was near enough to
+          // straight down that every shadow fell underneath the object casting
+          // it and was hidden by it from a top-down camera — shadow mapping
+          // switched on and nothing visibly changed.
+          position={[22, 19, 4]}
+          intensity={2.6}
           color="#fff6e0"
           castShadow
           shadow-mapSize={[1024, 1024]}
@@ -327,7 +344,7 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
           shadow-camera-far={70}
           shadow-bias={-0.0012}
         />
-        <directionalLight position={[-10, 14, 30]} intensity={0.7} color="#bfe4ff" />
+        <directionalLight position={[-10, 14, 30]} intensity={0.55} color="#bfe4ff" />
         {/* The arena draws its own canvas textures, so it never suspends.
             Units load separately — the field must never wait on meshes. */}
         <Arena placing={placing} />
