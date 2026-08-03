@@ -374,3 +374,86 @@ export function cloudTexture(): THREE.Texture {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
+
+/**
+ * Weathered arena sand, for the floor between the board and the stands.
+ *
+ * Pale and low-contrast: it is the largest surface in the bowl after the
+ * board itself, and anything with pattern in it competes with the play grid.
+ */
+export function sandTexture(): THREE.Texture {
+  const S = 512;
+  const [c, ctx] = canvas(S);
+  const rnd = rng(3131);
+
+  // Darker than sand looks in daylight. It sits directly against the board's
+  // bright green and a true sand value reads as a glare beside it.
+  ctx.fillStyle = '#8a7148';
+  ctx.fillRect(0, 0, S, S);
+
+  for (let i = 0; i < 30; i++) {
+    ctx.globalAlpha = 0.1 + rnd() * 0.12;
+    ctx.fillStyle = rnd() > 0.5 ? '#9b8055' : '#6f5a38';
+    ctx.beginPath();
+    ctx.ellipse(rnd() * S, rnd() * S, 30 + rnd() * 80, 20 + rnd() * 50, rnd() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 0.25;
+  for (let i = 0; i < 2200; i++) {
+    ctx.fillStyle = rnd() > 0.5 ? '#a68a5c' : '#665233';
+    ctx.fillRect(rnd() * S, rnd() * S, 2, 2);
+  }
+  ctx.globalAlpha = 1;
+  return finish(c, [10, 10]);
+}
+
+/**
+ * Colosseum masonry: big weathered blocks with deep joints.
+ *
+ * Coarser than the river's cut stone — these are structural blocks seen from
+ * across an arena, and a fine course reads as noise at that distance. Kept
+ * dark for the same reason everything else here is: ambient plus sun puts a
+ * lit face well over 1.0, and pale limestone comes back as white.
+ */
+export function masonryTexture(repeat: [number, number] = [6, 2]): THREE.Texture {
+  const S = 256;
+  const [c, ctx] = canvas(S);
+  const rnd = rng(777);
+
+  ctx.fillStyle = '#4a4238';
+  ctx.fillRect(0, 0, S, S);
+
+  const rows = 5;
+  const h = S / rows;
+  for (let r = 0; r < rows; r++) {
+    const offset = (r % 2) * (S / 6);
+    for (let i = -1; i < 4; i++) {
+      const x = offset + i * (S / 3);
+      const shade = 0.84 + rnd() * 0.3;
+      const v = (n: number) => Math.min(255, Math.round(n * shade));
+      ctx.fillStyle = `rgb(${v(88)},${v(79)},${v(66)})`;
+      ctx.fillRect(x + 2, r * h + 2, S / 3 - 4, h - 4);
+      ctx.fillStyle = 'rgba(255,246,220,.1)';
+      ctx.fillRect(x + 2, r * h + 2, S / 3 - 4, 3);
+      ctx.fillStyle = 'rgba(0,0,0,.34)';
+      ctx.fillRect(x + 2, r * h + h - 5, S / 3 - 4, 3);
+      // a few blocks are cracked or stained — an unweathered ruin is a model
+      if (rnd() > 0.72) {
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = '#3a3227';
+        ctx.fillRect(x + 6 + rnd() * 30, r * h + 6, 3, h - 14);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(30,26,20,.6)';
+  ctx.lineWidth = 3;
+  for (let r = 0; r <= rows; r++) {
+    ctx.beginPath();
+    ctx.moveTo(0, r * h);
+    ctx.lineTo(S, r * h);
+    ctx.stroke();
+  }
+  return finish(c, repeat);
+}
