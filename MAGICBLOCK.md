@@ -146,6 +146,48 @@ of shipping.
 
 ---
 
+## Session keys — no wallet popups mid-battle
+
+`chain/programs/mempire-rollup` — `open_session`, `close_session` · client
+`app/src/chain/session.ts`
+
+A three-minute match writes a card play per drop and a checkpoint every forty
+ticks. Signed by the connected wallet that is dozens of Phantom prompts, which
+does not make the game annoying so much as unplayable. The seat authorises a
+temporary keypair once and the rollup accepts it for the rest of the match.
+
+**Not the `session-keys` crate.** It pins Anchor 1.x and these programs are
+0.32.1 — adding it pulls in a second copy of `anchor-lang`, and there is no
+`anchor-compat` escape hatch like the ER SDK has. The session lives on the match
+log instead: two signer slots and two expiries, one per seat.
+
+That turned out to be the better design anyway. The log is already delegated, so
+the session is readable exactly where `play_card` runs — a separate session
+account would have to be delegated to the same validator, and getting that wrong
+fails mid-match. And a session stored on the log is scoped to **one match** by
+construction; there is nowhere for it to be replayed.
+
+**Why handing the key out is safe.** This program has no transfer path. It owns
+no lamports beyond its own rent and cannot move a token. The worst a stolen
+session key does is write nonsense into one match log — and the lockstep hash
+check already voids a match whose log disagrees with the simulation, refunding
+both stakes. Escrow and payout live in the base-layer program and stay
+wallet-only, deliberately.
+
+`play_card` and `checkpoint` keep the account list they always had. Widening
+authority is a change to who may sign, not to what must be passed, so every
+existing caller kept working — the lesson from the `end_log` regression.
+
+Enforced on-chain, not in the UI: expiry, a 30-minute ceiling, a session key
+that may not be one of the seats, and revocation that only a wallet can perform
+(a stolen key revoking itself would lock the owner out of their own seat).
+
+The session key is **never funded** — rollup fees are zero, which is the other
+reason a session on an ER is cheap to hand out. The suite proves an unfunded key
+signs successfully.
+
+---
+
 ## The AMM — $MEMPIRE / USDC
 
 `chain/programs/mempire-amm` · deployed `7tM95L7TooveTGAtmo6nRyJRQpSVADN3DPaagJmSp8CP`
@@ -190,11 +232,9 @@ names them.
 | **Price / liquidity oracle** | Devnet mock — `register_coin` / `set_price`, admin-written. Jupiter/Pyth replaces it on mainnet | `chain/programs/mempire/src/lib.rs` |
 | **Match seed** | Matchmaker-derived (`fnv(matchId) ^ fnv(deckA) ^ fnv(deckB)`), order-independent but **server-trusted**. Not commit-reveal | `server/matchmaker.js` |
 | **SOL balance in Guest mode** | Simulated, stated on the Empire screen | `screens/Empire.tsx` |
-| **Session keys** | Not implemented. PRODUCT.md promises zero wallet popups mid-battle; today each ER write is a signature | — |
 | **cNFT card layer** | Not implemented. Cards are PDAs, not Bubblegum cNFTs | — |
 | **AMM on the rollup** | The pool has delegate/commit instructions, but swaps run on base layer: the vault ATAs are not delegated through eSPL, so an ER swap would fail at the token CPI | `programs/mempire-amm` |
 | **PER on the pool** | Not built. The design follows the sealed-auction split — public pool so reserves stay auditable, private per-trader orders so size cannot be front-run | — |
-| **AMM error codes** | Source is fixed (one enum, six unique codes); the *deployed* build still carries the 6000 collision and needs an upgrade | `programs/mempire-amm/src/lib.rs` |
 | **Mainnet** | Devnet only | — |
 
 The lockstep hash check is what actually protects a match, not the seed: a
@@ -222,6 +262,8 @@ BASE_RPC=https://api.devnet.solana.com npx tsx scripts/e2e-full-flow.ts
 | `cargo test -p mempire-rollup` | chest odds partition the roll exactly 62/26/9/3 | 4/4 |
 | `app/test-chest-drop.mjs` | the TS tier rule matches the Rust SDK on 256 vectors; drops are reproducible and unbiased | 12/12 |
 | `cargo test -p mempire-amm` | k never decreases, rounding favours the pool, no free round trip, LP accounting | 14/14 |
+| `cargo test -p mempire-rollup` | chest odds, and session authority: expiry, revocation, seat attribution, the zero key | 11/11 |
+| `server/test-api.mjs` | all 22 HTTP routes, the WebSocket upgrade, body cap, rate limiting | 30/30 |
 | `chain/scripts/e2e-amm.ts` | real SPL tokens moving: vault ownership, conservation, formula agreement, slippage/zero/substituted-vault guards | 18/18 |
 
 `e2e-full-flow.ts` prints every transaction signature it produced. They open in

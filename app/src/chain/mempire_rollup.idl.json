@@ -310,6 +310,55 @@
       "args": []
     },
     {
+      "name": "close_session",
+      "docs": [
+        "Rollup. Revokes the caller's session immediately.",
+        "",
+        "Expiry is the backstop, not the mechanism — a player who closes the tab",
+        "or suspects their key leaked should not have to wait it out. Wallet-only",
+        "on purpose: a session key cannot revoke itself, because a stolen one",
+        "would then be able to lock the real owner out of their own seat."
+      ],
+      "discriminator": [
+        68,
+        114,
+        178,
+        140,
+        222,
+        38,
+        248,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "commit_chests",
       "docs": [
         "Rollup. Commits the rail back to base layer and hands it back.",
@@ -957,6 +1006,75 @@
               2
             ]
           }
+        }
+      ]
+    },
+    {
+      "name": "open_session",
+      "docs": [
+        "Rollup. Authorises a temporary key to write for the caller's seat.",
+        "",
+        "One wallet signature at the start of a match, and then none for the rest",
+        "of it. Without this a real wallet prompts on every card drop and on every",
+        "checkpoint — dozens of popups in three minutes, which does not make the",
+        "game annoying so much as unplayable.",
+        "",
+        "# Why this is safe to hand out",
+        "",
+        "This program has **no transfer path**. It owns no lamports beyond its own",
+        "rent and cannot move a token. The worst a stolen session key can do is",
+        "write nonsense plays into one match log — and the lockstep hash check",
+        "already voids a match whose log does not match the simulation, refunding",
+        "both stakes. Escrow and payout live in `mempire` on the base layer and",
+        "are wallet-only, deliberately.",
+        "",
+        "The scope is therefore: one seat, one match, until it expires."
+      ],
+      "discriminator": [
+        130,
+        54,
+        124,
+        7,
+        236,
+        20,
+        104,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "log",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "log.match_id",
+                "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "signer": true
+        }
+      ],
+      "args": [
+        {
+          "name": "session_signer",
+          "type": "pubkey"
+        },
+        {
+          "name": "ttl_secs",
+          "type": "i64"
         }
       ]
     },
@@ -1685,6 +1803,19 @@
         35,
         241
       ]
+    },
+    {
+      "name": "SessionOpened",
+      "discriminator": [
+        34,
+        79,
+        77,
+        95,
+        195,
+        207,
+        104,
+        223
+      ]
     }
   ],
   "errors": [
@@ -1705,61 +1836,66 @@
     },
     {
       "code": 6003,
+      "name": "BadSession",
+      "msg": "session key is invalid, expired, or would collide with a seat"
+    },
+    {
+      "code": 6004,
       "name": "WrongQueue",
       "msg": "oracle queue is not a delegated (ephemeral) queue"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "BadSlot",
       "msg": "chest slot index out of range"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "RequestInFlight",
       "msg": "a randomness request is already in flight"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "NoRequestInFlight",
       "msg": "no randomness request is in flight"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "RequestNotStale",
       "msg": "the in-flight request has not timed out yet"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "SlotNotEmpty",
       "msg": "chest slot is not empty"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "SlotNotFilled",
       "msg": "chest slot has nothing to claim"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "PermissionAccountsMissing",
       "msg": "permission accounts must all be supplied together"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "BadDeckIndex",
       "msg": "deck index out of range"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "BadWinner",
       "msg": "invalid winner value"
     }
@@ -1813,11 +1949,6 @@
     },
     {
       "name": "ChestClaimed",
-      "docs": [
-        "Emitted when a chest is taken. Carries the randomness so a client — or",
-        "anyone auditing a drop after the fact — can re-derive exactly what it",
-        "contained from the transaction alone."
-      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -1905,6 +2036,40 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "session_signers",
+            "docs": [
+              "A temporary signer each seat may authorise to write on its behalf.",
+              "",
+              "Kept on the log rather than in a separate session account for two",
+              "reasons. The log is already delegated to the rollup, so the session is",
+              "readable exactly where `play_card` runs — a session account created",
+              "elsewhere would have to be delegated to the same validator, and getting",
+              "that wrong fails mid-match. And a session stored here is scoped to *one",
+              "match* by construction: there is nowhere for it to be replayed.",
+              "",
+              "`Pubkey::default()` means no session."
+            ],
+            "type": {
+              "array": [
+                "pubkey",
+                2
+              ]
+            }
+          },
+          {
+            "name": "session_expires",
+            "docs": [
+              "Unix seconds each session stops being accepted. Enforced on-chain; a UI",
+              "timer is not a security control."
+            ],
+            "type": {
+              "array": [
+                "i64",
+                2
+              ]
+            }
           }
         ]
       }
@@ -2004,6 +2169,37 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionOpened",
+      "docs": [
+        "Emitted when a chest is taken. Carries the randomness so a client — or",
+        "anyone auditing a drop after the fact — can re-derive exactly what it",
+        "contained from the transaction alone.",
+        "Emitted when a seat authorises a temporary signer, so the delegation is",
+        "visible on-chain rather than only in the client that created it."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "seat",
+            "type": "u8"
+          },
+          {
+            "name": "session_signer",
+            "type": "pubkey"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
           }
         ]
       }

@@ -223,10 +223,66 @@ async function main() {
       (await baseConn.getAccountInfo(permission)) === null, 'ER-local, as the model requires');
   }
 
+  console.log('\n═══ 3b. rollup: session keys (zero wallet popups) ═══');
+  const sessionA = Keypair.generate();
+  {
+    // Seat A authorises a throwaway key. This is the one wallet signature a
+    // match needs; everything after it is signed by the session.
+    const sig = await erA.methods.openSession(sessionA.publicKey, new anchor.BN(900))
+      .accounts({ log, player: playerA.publicKey })
+      .rpc();
+    record('open_session', sig);
+    const acc: any = await (erA.account as any).matchLog.fetch(log);
+    check('the session is recorded against the right seat',
+      acc.sessionSigners[0].equals(sessionA.publicKey)
+      && acc.sessionSigners[1].equals(PublicKey.default),
+      'seat 0 only');
+    check('it carries an on-chain expiry, not a UI timer',
+      Number(acc.sessionExpires[0]) > Math.floor(Date.now() / 1000),
+      `expires ${acc.sessionExpires[0]}`);
+
+    // A session key needs no funding: rollup fees are zero.
+    const erSession = progFor(sessionA, erConn);
+    const playSig = await erSession.methods.playCard(100, 1, 5120, 13312)
+      .accounts({ log, player: sessionA.publicKey })
+      .rpc();
+    record('play_card (session key, unfunded)', playSig);
+    const after: any = await (erA.account as any).matchLog.fetch(log);
+    const last = after.plays[after.plays.length - 1];
+    check('the session play was attributed to the seat, not to the key',
+      last.player === 0 && last.tick === 100, `seat ${last.player} tick ${last.tick}`);
+
+    // A key nobody authorised must still be refused.
+    try {
+      await progFor(stranger, erConn).methods.playCard(110, 0, 4096, 12288)
+        .accounts({ log, player: stranger.publicKey })
+        .rpc();
+      check('an unauthorised key is still refused', false, 'it was accepted');
+    } catch (e) {
+      const r = refusedAs(e, 'NotAPlayer', idl);
+      check('an unauthorised key is still refused', r.ok, r.text);
+    }
+
+    // Revoke, then prove the key is dead.
+    const revoke = await erA.methods.closeSession()
+      .accounts({ log, player: playerA.publicKey })
+      .rpc();
+    record('close_session', revoke);
+    try {
+      await erSession.methods.playCard(120, 0, 4096, 12288)
+        .accounts({ log, player: sessionA.publicKey })
+        .rpc();
+      check('a revoked session cannot write', false, 'the revoked key still wrote');
+    } catch (e) {
+      const r = refusedAs(e, 'NotAPlayer', idl);
+      check('a revoked session cannot write', r.ok, r.text);
+    }
+  }
+
   console.log('\n═══ 4. rollup: both players actually play ═══');
   {
     const plays: [anchor.Program, Keypair, string, number][] = [
-      [erA, playerA, 'A', 20], [erB, playerB, 'B', 40], [erA, playerA, 'A', 60],
+      [erA, playerA, 'A', 200], [erB, playerB, 'B', 240], [erA, playerA, 'A', 280],
     ];
     for (const [prog, kp, who, tick] of plays) {
       const sig = await prog.methods.playCard(tick, 0, 4096, 12288)
@@ -235,10 +291,11 @@ async function main() {
       record(`play_card (${who}, tick ${tick})`, sig);
     }
     const acc: any = await (erA.account as any).matchLog.fetch(log);
-    check('all three plays are on the rollup', acc.plays.length === 3,
+    // Four now: the session play from 3b, then these three.
+    check('all plays are on the rollup', acc.plays.length === 4,
       `${acc.plays.length} entries`);
     check('seats were attributed correctly',
-      acc.plays[0].player === 0 && acc.plays[1].player === 1 && acc.plays[2].player === 0,
+      acc.plays.map((p: any) => p.player).join(',') === '0,0,1,0',
       acc.plays.map((p: any) => p.player).join(','));
   }
 
@@ -254,7 +311,7 @@ async function main() {
       check('non-player rejected as NotAPlayer', r.ok, r.text);
     }
     try {
-      await erA.methods.playCard(10, 0, 4096, 12288)
+      await erA.methods.playCard(5, 0, 4096, 12288)
         .accounts({ log, player: playerA.publicKey })
         .rpc();
       check('a play in the past is rejected', false, 'it was accepted');
@@ -266,7 +323,7 @@ async function main() {
 
   console.log('\n═══ 6. rollup: checkpoint the state hash ═══');
   {
-    const sig = await erA.methods.checkpoint(80, new anchor.BN('123456789'))
+    const sig = await erA.methods.checkpoint(300, new anchor.BN('123456789'))
       .accounts({ log, player: playerA.publicKey })
       .rpc();
     record('checkpoint', sig);
@@ -309,12 +366,12 @@ async function main() {
     if (home) {
       const acc: any = await (baseA.account as any).matchLog.fetch(log);
       check('rollup state survived the commit',
-        acc.plays.length === 3 && acc.ended === true
+        acc.plays.length === 4 && acc.ended === true
           && acc.lastHash.toString() === '987654321' && acc.winner === 0,
         `${acc.plays.length} plays, winner ${acc.winner}, hash ${acc.lastHash}`);
       check('a play kept its exact contents',
-        acc.plays[1].tick === 40 && acc.plays[1].player === 1 && acc.plays[1].x === 4096,
-        `tick ${acc.plays[1].tick} seat ${acc.plays[1].player} x ${acc.plays[1].x}`);
+        acc.plays[2].tick === 240 && acc.plays[2].player === 1 && acc.plays[2].x === 4096,
+        `tick ${acc.plays[2].tick} seat ${acc.plays[2].player} x ${acc.plays[2].x}`);
     }
   }
 

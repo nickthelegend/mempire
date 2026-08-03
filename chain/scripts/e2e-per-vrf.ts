@@ -363,7 +363,12 @@ async function main() {
         false, 'both were accepted — the in-flight guard did not fire');
     } catch (e: any) {
       const text = `${e?.msg ?? ''} ${e?.message ?? ''} ${String(e)} ${(e?.logs ?? []).join(' ')}`;
-      const inFlight = /RequestInFlight|already in flight|0x1775/i.test(text);
+      // Resolve the code from the IDL rather than hardcoding hex. The literal
+      // 0x1775 that used to be here went stale the moment a new variant was
+      // added ahead of it in the enum, and reported a correct guard as broken.
+      const want = (idl.errors ?? []).find((x: any) => x.name === 'RequestInFlight');
+      const inFlight = /RequestInFlight|already in flight/i.test(text)
+        || (!!want && text.includes(`0x${want.code.toString(16)}`));
       check('two requests in one transaction are refused as RequestInFlight',
         inFlight,
         inFlight ? 'guard fired on instruction 1'

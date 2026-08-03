@@ -155,6 +155,8 @@ pub mod mempire_rollup {
         log.ended = false;
         log.winner = u8::MAX;
         log.bump = ctx.bumps.log;
+        log.session_signers = [Pubkey::default(); 2];
+        log.session_expires = [0; 2];
         Ok(())
     }
 
@@ -297,6 +299,84 @@ pub mod mempire_rollup {
         Ok(())
     }
 
+    /// Rollup. Authorises a temporary key to write for the caller's seat.
+    ///
+    /// One wallet signature at the start of a match, and then none for the rest
+    /// of it. Without this a real wallet prompts on every card drop and on every
+    /// checkpoint — dozens of popups in three minutes, which does not make the
+    /// game annoying so much as unplayable.
+    ///
+    /// # Why this is safe to hand out
+    ///
+    /// This program has **no transfer path**. It owns no lamports beyond its own
+    /// rent and cannot move a token. The worst a stolen session key can do is
+    /// write nonsense plays into one match log — and the lockstep hash check
+    /// already voids a match whose log does not match the simulation, refunding
+    /// both stakes. Escrow and payout live in `mempire` on the base layer and
+    /// are wallet-only, deliberately.
+    ///
+    /// The scope is therefore: one seat, one match, until it expires.
+    pub fn open_session(
+        ctx: Context<Session>,
+        session_signer: Pubkey,
+        ttl_secs: i64,
+    ) -> Result<()> {
+        require!(!ctx.accounts.log.ended, RollupError::AlreadyEnded);
+        require_keys_neq!(session_signer, Pubkey::default(), RollupError::BadSession);
+        // A session may not outlive the match it is scoped to by much. Three
+        // minutes plus overtime plus slack; an hour-long key for a five-minute
+        // game is a key that outlives the reason it existed.
+        require!(
+            (0..=1_800).contains(&ttl_secs),
+            RollupError::BadSession
+        );
+        // The session key must not be a seat: that would let one player's
+        // "session" be the other player's wallet.
+        let log = &ctx.accounts.log;
+        require!(
+            session_signer != log.players[0] && session_signer != log.players[1],
+            RollupError::BadSession
+        );
+
+        let signer = ctx.accounts.player.key();
+        let seat = if signer == log.players[0] {
+            0usize
+        } else if signer == log.players[1] {
+            1usize
+        } else {
+            return err!(RollupError::NotAPlayer);
+        };
+
+        let log = &mut ctx.accounts.log;
+        log.session_signers[seat] = session_signer;
+        log.session_expires[seat] = Clock::get()?.unix_timestamp + ttl_secs;
+        emit!(SessionOpened { match_id: log.match_id, seat: seat as u8, session_signer,
+            expires_at: log.session_expires[seat] });
+        Ok(())
+    }
+
+    /// Rollup. Revokes the caller's session immediately.
+    ///
+    /// Expiry is the backstop, not the mechanism — a player who closes the tab
+    /// or suspects their key leaked should not have to wait it out. Wallet-only
+    /// on purpose: a session key cannot revoke itself, because a stolen one
+    /// would then be able to lock the real owner out of their own seat.
+    pub fn close_session(ctx: Context<Session>) -> Result<()> {
+        let signer = ctx.accounts.player.key();
+        let log = &ctx.accounts.log;
+        let seat = if signer == log.players[0] {
+            0usize
+        } else if signer == log.players[1] {
+            1usize
+        } else {
+            return err!(RollupError::NotAPlayer);
+        };
+        let log = &mut ctx.accounts.log;
+        log.session_signers[seat] = Pubkey::default();
+        log.session_expires[seat] = 0;
+        Ok(())
+    }
+
     /// Rollup. One card play, at rollup latency instead of base-layer latency.
     ///
     /// This is what makes the input log genuinely onchain rather than relayed by
@@ -316,13 +396,17 @@ pub mod mempire_rollup {
 
         // Delegation is routing, never authorization: the rollup enforces the
         // same seat check the base layer would.
-        let seat = if signer == log.players[0] {
-            0u8
-        } else if signer == log.players[1] {
-            1u8
-        } else {
-            return err!(RollupError::NotAPlayer);
-        };
+        //
+        // The signer may be the seat's wallet or the temporary key that seat
+        // authorised. `seat_for` resolves which, and returns the seat index
+        // rather than a yes/no so a session write cannot be attributed to the
+        // wrong player — that would be worse than refusing it.
+        //
+        // The account list is deliberately unchanged. Widening authority is a
+        // change to who may sign, not to what must be passed, and every existing
+        // caller keeps working.
+        let now = Clock::get()?.unix_timestamp;
+        let seat = log.seat_for(&signer, now).ok_or(RollupError::NotAPlayer)?;
 
         // Monotonic ticks: a replayed or reordered play cannot rewrite history
         // both simulations have already run past.
@@ -346,12 +430,10 @@ pub mod mempire_rollup {
     /// clients comparing checkpoints as they go.
     pub fn checkpoint(ctx: Context<Write>, tick: u32, hash: u64) -> Result<()> {
         let signer = ctx.accounts.player.key();
+        let now = Clock::get()?.unix_timestamp;
         let log = &mut ctx.accounts.log;
         require!(!log.ended, RollupError::AlreadyEnded);
-        require!(
-            signer == log.players[0] || signer == log.players[1],
-            RollupError::NotAPlayer
-        );
+        require!(log.seat_for(&signer, now).is_some(), RollupError::NotAPlayer);
         require!(tick >= log.last_tick, RollupError::StaleTick);
         log.last_tick = tick;
         log.last_hash = hash;
@@ -651,10 +733,45 @@ pub struct MatchLog {
     pub ended: bool,
     pub winner: u8,
     pub bump: u8,
+    /// A temporary signer each seat may authorise to write on its behalf.
+    ///
+    /// Kept on the log rather than in a separate session account for two
+    /// reasons. The log is already delegated to the rollup, so the session is
+    /// readable exactly where `play_card` runs — a session account created
+    /// elsewhere would have to be delegated to the same validator, and getting
+    /// that wrong fails mid-match. And a session stored here is scoped to *one
+    /// match* by construction: there is nowhere for it to be replayed.
+    ///
+    /// `Pubkey::default()` means no session.
+    pub session_signers: [Pubkey; 2],
+    /// Unix seconds each session stops being accepted. Enforced on-chain; a UI
+    /// timer is not a security control.
+    pub session_expires: [i64; 2],
 }
 impl MatchLog {
     pub const SIZE: usize =
-        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1;
+        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1
+        + 64  // session_signers
+        + 16; // session_expires
+
+    /// The seat this key may write for, if any, honouring expiry.
+    ///
+    /// Returns the seat index rather than a bool so the caller cannot forget to
+    /// attribute the play to the right player — attributing a session write to
+    /// the wrong seat would be worse than rejecting it.
+    pub fn seat_for(&self, key: &Pubkey, now: i64) -> Option<u8> {
+        for (i, p) in self.players.iter().enumerate() {
+            if p == key {
+                return Some(i as u8);
+            }
+        }
+        for (i, s) in self.session_signers.iter().enumerate() {
+            if s == key && *s != Pubkey::default() && now < self.session_expires[i] {
+                return Some(i as u8);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Accounts)]
@@ -715,6 +832,19 @@ pub struct EndLog<'info> {
         bump = log.bump,
     )]
     pub log: Account<'info, MatchLog>,
+}
+
+/// Opening or closing a session. Wallet-only: the `player` here must be a seat,
+/// never a session key, or a stolen key could extend or revoke itself.
+#[derive(Accounts)]
+pub struct Session<'info> {
+    #[account(
+        mut,
+        seeds = [b"log", log.match_id.to_le_bytes().as_ref()],
+        bump = log.bump,
+    )]
+    pub log: Account<'info, MatchLog>,
+    pub player: Signer<'info>,
 }
 
 /// Shared by `seal_log` and `reseal_log`. Rollup-only.
@@ -849,6 +979,16 @@ pub struct CallbackChest<'info> {
 /// Emitted when a chest is taken. Carries the randomness so a client — or
 /// anyone auditing a drop after the fact — can re-derive exactly what it
 /// contained from the transaction alone.
+/// Emitted when a seat authorises a temporary signer, so the delegation is
+/// visible on-chain rather than only in the client that created it.
+#[event]
+pub struct SessionOpened {
+    pub match_id: u64,
+    pub seat: u8,
+    pub session_signer: Pubkey,
+    pub expires_at: i64,
+}
+
 #[event]
 pub struct ChestClaimed {
     pub owner: Pubkey,
@@ -905,6 +1045,8 @@ pub enum RollupError {
     AlreadyEnded,
     #[msg("match has not ended yet")]
     NotEnded,
+    #[msg("session key is invalid, expired, or would collide with a seat")]
+    BadSession,
     #[msg("oracle queue is not a delegated (ephemeral) queue")]
     WrongQueue,
     #[msg("chest slot index out of range")]
@@ -929,4 +1071,86 @@ pub enum RollupError {
     StaleTick,
     #[msg("invalid winner value")]
     BadWinner,
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+
+    fn log_with(sessions: [Pubkey; 2], expires: [i64; 2]) -> MatchLog {
+        MatchLog {
+            match_id: 1,
+            players: [Pubkey::new_unique(), Pubkey::new_unique()],
+            plays: Vec::new(),
+            last_tick: 0,
+            last_hash: 0,
+            checkpoints: 0,
+            ended: false,
+            winner: u8::MAX,
+            bump: 255,
+            session_signers: sessions,
+            session_expires: expires,
+        }
+    }
+
+    #[test]
+    fn a_seat_always_writes_for_itself() {
+        let log = log_with([Pubkey::default(); 2], [0; 2]);
+        assert_eq!(log.seat_for(&log.players[0], 0), Some(0));
+        assert_eq!(log.seat_for(&log.players[1], 0), Some(1));
+    }
+
+    #[test]
+    fn a_live_session_writes_for_the_seat_that_opened_it() {
+        let key = Pubkey::new_unique();
+        let mut log = log_with([Pubkey::default(); 2], [0; 2]);
+        log.session_signers[1] = key;
+        log.session_expires[1] = 100;
+        // Attributed to seat 1, not merely accepted — a session write landing on
+        // the wrong seat would corrupt the match rather than fail it.
+        assert_eq!(log.seat_for(&key, 50), Some(1));
+    }
+
+    #[test]
+    fn an_expired_session_is_refused() {
+        let key = Pubkey::new_unique();
+        let mut log = log_with([Pubkey::default(); 2], [0; 2]);
+        log.session_signers[0] = key;
+        log.session_expires[0] = 100;
+        assert_eq!(log.seat_for(&key, 99), Some(0));
+        assert_eq!(log.seat_for(&key, 100), None, "expiry is inclusive of the deadline");
+        assert_eq!(log.seat_for(&key, 101), None);
+    }
+
+    #[test]
+    fn a_revoked_session_is_refused() {
+        let key = Pubkey::new_unique();
+        let mut log = log_with([key, Pubkey::default()], [i64::MAX, 0]);
+        assert_eq!(log.seat_for(&key, 0), Some(0));
+        log.session_signers[0] = Pubkey::default();
+        log.session_expires[0] = 0;
+        assert_eq!(log.seat_for(&key, 0), None);
+    }
+
+    #[test]
+    fn the_default_pubkey_is_never_a_valid_session() {
+        // Both slots are empty, and an empty slot is Pubkey::default(). If that
+        // matched, anyone could sign as the zero key and write for both seats.
+        let log = log_with([Pubkey::default(); 2], [i64::MAX; 2]);
+        assert_eq!(log.seat_for(&Pubkey::default(), 0), None);
+    }
+
+    #[test]
+    fn a_stranger_is_refused() {
+        let log = log_with([Pubkey::new_unique(), Pubkey::new_unique()], [i64::MAX; 2]);
+        assert_eq!(log.seat_for(&Pubkey::new_unique(), 0), None);
+    }
+
+    #[test]
+    fn one_seats_session_cannot_write_for_the_other() {
+        let a = Pubkey::new_unique();
+        let log = log_with([a, Pubkey::new_unique()], [i64::MAX; 2]);
+        // Seat 0's key resolves to seat 0 and nothing else.
+        assert_eq!(log.seat_for(&a, 0), Some(0));
+    }
 }

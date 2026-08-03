@@ -5,6 +5,9 @@ import rollupIdl from './mempire_rollup.idl.json';
 import { canSign, getConnection, getProvider } from './provider';
 import { readableChainError } from './actions';
 import {
+  closeSession, forgetSession, openSession, sessionFor, sessionProvider,
+} from './session';
+import {
   IS_LOCALNET, LOCALNET_VALIDATOR, MAGIC_CONTEXT_ID, MAGIC_PROGRAM_ID,
   confirmCommit, resolveEr, waitUndelegated,
 } from './magicblock';
@@ -170,9 +173,18 @@ export async function playCardEr(
   const er = await resolveEr(log);
   if (!er) throw new Error('match log is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  // Sign with the match's session key when it has one. The rollup accepts
+  // either the seat's wallet or the temporary key that seat authorised, and
+  // the account list is identical — so this is purely a question of who holds
+  // the pen, never of what gets passed.
+  const kp = sessionFor(matchId);
+  const prog = kp
+    ? new Program(rollupIdl as Idl, sessionProvider(er.conn, kp))
+    : erProgram(wallet, er.conn);
+
+  const signature = await prog.methods
     .playCard(tick, deckIndex, x, y)
-    .accounts({ log, player: wallet.publicKey! } as any)
+    .accounts({ log, player: (kp?.publicKey ?? wallet.publicKey)! } as any)
     .rpc();
 
   return { signature };
@@ -187,9 +199,14 @@ export async function checkpointEr(
   const er = await resolveEr(log);
   if (!er) throw new Error('match log is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const kp = sessionFor(matchId);
+  const prog = kp
+    ? new Program(rollupIdl as Idl, sessionProvider(er.conn, kp))
+    : erProgram(wallet, er.conn);
+
+  const signature = await prog.methods
     .checkpoint(tick, new BN(hash.toString()))
-    .accounts({ log, player: wallet.publicKey! } as any)
+    .accounts({ log, player: (kp?.publicKey ?? wallet.publicKey)! } as any)
     .rpc();
 
   return { signature };
@@ -382,6 +399,33 @@ export async function readChestRail(
   } catch {
     return null;
   }
+}
+
+/**
+ * Authorises a temporary signer for this match. One wallet popup, then none.
+ *
+ * Runs on the rollup, where the log lives — a session recorded on base layer
+ * would not be readable by the validator that has to check it.
+ */
+export async function openSessionEr(
+  adapter: Adapter | null, matchId: number,
+): Promise<boolean> {
+  const wallet = requireSigner(adapter);
+  const log = matchLogPda(matchId);
+  const er = await resolveEr(log);
+  if (!er) return false;
+  return openSession(wallet, matchId, erProgram(wallet, er.conn), log);
+}
+
+/** Revokes it. Never throws — expiry is the backstop. */
+export async function closeSessionEr(
+  adapter: Adapter | null, matchId: number,
+): Promise<void> {
+  if (!canSign(adapter)) { forgetSession(); return; }
+  const log = matchLogPda(matchId);
+  const er = await resolveEr(log);
+  if (!er) { forgetSession(); return; }
+  await closeSession(adapter, erProgram(adapter, er.conn), log);
 }
 
 export async function endLogEr(

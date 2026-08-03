@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
-  checkpointEr, closeLogTx, delegateLogTx, endLogEr, fetchLog, initLogTx, sealLogEr,
-  unsealLogEr,
+  checkpointEr, closeLogTx, closeSessionEr, delegateLogTx, endLogEr, fetchLog,
+  initLogTx, openSessionEr, sealLogEr, unsealLogEr,
   matchLogPda, playCardEr, readableChainError,
 } from '../chain/erActions';
 import { createMatchTx } from '../chain/actions';
@@ -51,6 +51,8 @@ interface ErMatchState {
    * the badge must not claim a privacy property the match does not have.
    */
   sealed: boolean;
+  /** True when a session key is signing rollup writes instead of the wallet. */
+  sessioned: boolean;
   lastError: string | null;
   lastSignature: string | null;
   commitSignature: string | null;
@@ -97,6 +99,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   writes: 0,
   failed: 0,
   sealed: false,
+  sessioned: false,
   lastError: null,
   lastSignature: null,
   commitSignature: null,
@@ -104,7 +107,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   begin: async (adapter, matchId, players) => {
     if (!adapter) { set({ phase: 'off' }); return; }
     set({
-      phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false,
+      phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false, sessioned: false,
       lastError: null, commitSignature: null,
       logAddress: matchLogPda(matchId).toBase58(),
     });
@@ -128,7 +131,12 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       } catch (e) {
         set({ lastError: readableChainError(e) });
       }
-      set({ phase: 'live', fqdn: er.fqdn, sealed });
+      // Authorise a session key before the first card can be played. One
+      // popup here replaces one per card drop and per checkpoint for the rest
+      // of the match. Non-fatal: a match without a session still plays, it just
+      // prompts — losing the match over a UX optimisation is the wrong trade.
+      const sessioned = await openSessionEr(adapter, matchId);
+      set({ phase: 'live', fqdn: er.fqdn, sealed, sessioned });
     } catch (e) {
       // The match is already playable; the rollup is the optional half.
       set({ phase: 'degraded', lastError: readableChainError(e) });
@@ -196,6 +204,13 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       // Close the seal first — it is ER-local, so once the log leaves the
       // rollup nothing can reach it. Swallowed deliberately: settlement must
       // never fail because a permission would not close.
+      // Revoke the session before the log leaves the rollup. Expiry would
+      // handle it, but a finished match should not leave a usable key behind
+      // for a quarter of an hour.
+      if (get().sessioned) {
+        await closeSessionEr(adapter, matchId);
+        set({ sessioned: false });
+      }
       if (get().sealed) {
         try { await unsealLogEr(adapter, matchId); } catch { /* rent stays behind */ }
         set({ sealed: false });
