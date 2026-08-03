@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { FP } from '../sim/fixed';
 import { ARENA_H, ARENA_W } from '../sim/engine';
 import { masonryTexture, sandTexture, skyTexture } from './textures';
+import { Boxes, type Box } from './Boxes';
 
 const W = ARENA_W / FP; // 18
 const H = ARENA_H / FP; // 32
@@ -64,9 +65,6 @@ export function World() {
   const stone = useMemo(() => masonryTexture([8, 2]), []);
   const stoneTall = useMemo(() => masonryTexture([10, 1]), []);
   const sky = useMemo(skyTexture, []);
-  const flames = useRef<THREE.Group>(null);
-  const t = useRef(0);
-
   useEffect(() => () => {
     [sand, stone, stoneTall, sky].forEach((x) => x.dispose());
   }, [sand, stone, stoneTall, sky]);
@@ -101,19 +99,45 @@ export function World() {
     return out;
   }, []);
 
-  useFrame((_, dt) => {
-    t.current += dt;
-    // Flames breathe out of phase. A row of them pulsing together reads as one
-    // flashing light rather than as fire.
-    if (!flames.current) return;
-    flames.current.children.forEach((f, i) => {
-      const s = 0.86 + Math.sin(t.current * 7 + i * 1.7) * 0.13;
-      f.scale.set(s, 1 + (1 - s) * 1.6, s);
-    });
-  });
-
   const outer = tiers[TIERS - 1];
-  const barrier = ringSlabs(INNER_X, INNER_Z, INNER_X + 1.1, INNER_Z + 1.1);
+
+  /**
+   * Every static box in the bowl, grouped by material.
+   *
+   * Twenty tier slabs, four wall slabs and eight gold bands were thirty-two
+   * draw calls for geometry that never moves. As three instanced meshes they
+   * are three. See Boxes.tsx for why draw calls are the thing worth counting
+   * here rather than triangles.
+   */
+  const { wallBoxes, goldBoxes, tierBoxes } = useMemo(() => {
+    const barrier = ringSlabs(INNER_X, INNER_Z, INNER_X + 1.1, INNER_Z + 1.1);
+    const wall: Box[] = barrier.map((s) => ({
+      pos: [s[0], GROUND_Y + WALL_H / 2, s[1]] as const,
+      size: [s[2], WALL_H, s[3]] as const,
+    }));
+    const gold: Box[] = barrier.map((s) => ({
+      pos: [s[0], GROUND_Y + WALL_H + 0.08, s[1]] as const,
+      size: [s[2] + 0.1, 0.16, s[3] + 0.1] as const,
+    }));
+    // the arcade's gold fillet rides in the same instanced mesh
+    const o = tiers[TIERS - 1];
+    ringSlabs(o.ox - 0.7, o.oz - 0.7, o.ox + 0.7, o.oz + 0.7).forEach((s) => {
+      gold.push({
+        pos: [s[0], GROUND_Y + o.top + 2.94, s[1]] as const,
+        size: [s[2] + 0.12, 0.14, s[3] + 0.12] as const,
+      });
+    });
+    const tier: Box[] = [];
+    tiers.forEach((t) => {
+      ringSlabs(t.ix, t.iz, t.ox, t.oz).forEach((s) => {
+        tier.push({
+          pos: [s[0], GROUND_Y + t.top / 2, s[1]] as const,
+          size: [s[2], t.top, s[3]] as const,
+        });
+      });
+    });
+    return { wallBoxes: wall, goldBoxes: gold, tierBoxes: tier };
+  }, [tiers]);
 
   return (
     <group>
@@ -146,66 +170,33 @@ export function World() {
       {/* ── the barrier wall ───────────────────────────────────────────
           What separates the floor from the crowd. Solid, so the front row
           never appears to be standing at floor level. */}
-      {barrier.map((s, i) => (
-        <mesh key={`wall${i}`} position={[s[0], GROUND_Y + WALL_H / 2, s[1]]} castShadow receiveShadow>
-          <boxGeometry args={[s[2], WALL_H, s[3]]} />
-          <meshStandardMaterial map={stoneTall} roughness={0.92} />
-        </mesh>
-      ))}
+      <Boxes boxes={wallBoxes} receiveShadow>
+        <meshStandardMaterial map={stoneTall} roughness={0.92} />
+      </Boxes>
 
       {/* The gold band along the barrier's top — the same rule the board's
           frame wears, carried up into the room around it. */}
-      {barrier.map((s, i) => (
-        <mesh key={`wallgold${i}`} position={[s[0], GROUND_Y + WALL_H + 0.08, s[1]]}>
-          <boxGeometry args={[s[2] + 0.1, 0.16, s[3] + 0.1]} />
-          <meshStandardMaterial color={GOLD} roughness={0.35} metalness={0.6} emissive="#3d2900" />
-        </mesh>
-      ))}
+      <Boxes boxes={goldBoxes}>
+        <meshStandardMaterial color={GOLD} roughness={0.35} metalness={0.6} emissive="#3d2900" />
+      </Boxes>
 
       {/* ── the tiers ──────────────────────────────────────────────────
+          Nothing in the bowl casts a shadow. With shadow mapping on, every
+          caster is drawn a second time into the shadow map, and the stands'
+          shadows would land on other stands — forty extra draw calls a frame
+          for something no player will ever look at. The plinth still casts,
+          because its shadow on the sand is what grounds the board.
           Each ring runs from the floor to its own top, so they nest into a
           stepped bowl with no gaps at the corners and no coplanar faces to
           z-fight. */}
-      {tiers.map((tier, k) =>
-        ringSlabs(tier.ix, tier.iz, tier.ox, tier.oz).map((s, i) => (
-          <mesh
-            key={`t${k}-${i}`}
-            position={[s[0], GROUND_Y + tier.top / 2, s[1]]}
-            castShadow
-            receiveShadow
-          >
-            <boxGeometry args={[s[2], tier.top, s[3]]} />
-            <meshStandardMaterial map={stone} roughness={0.95} />
-          </mesh>
-        )),
-      )}
+      <Boxes boxes={tierBoxes}>
+        <meshStandardMaterial map={stone} roughness={0.95} />
+      </Boxes>
 
       <Crowd tiers={tiers} />
       <Arcade outer={outer} stone={stoneTall} />
 
-      {/* ── torches ────────────────────────────────────────────────────── */}
-      <group>
-        {torches.map(([x, z], i) => (
-          <mesh key={`post${i}`} position={[x, GROUND_Y + WALL_H + 0.55, z]} castShadow>
-            <cylinderGeometry args={[0.11, 0.15, 1.1, 6]} />
-            <meshStandardMaterial color="#3a3227" roughness={0.9} />
-          </mesh>
-        ))}
-      </group>
-      <group ref={flames}>
-        {torches.map(([x, z], i) => (
-          // Emissive, not point lights. Twenty-six point lights would rebuild
-          // every material's shader and cost more than the rest of the bowl
-          // put together; nothing here needs to be lit *by* a torch, it only
-          // needs to read as one. `toneMapped={false}` keeps the flame at full
-          // brightness through the ACES curve — a fire that rolls off with
-          // everything else stops looking like fire.
-          <mesh key={`flame${i}`} position={[x, GROUND_Y + WALL_H + 1.32, z]}>
-            <coneGeometry args={[0.26, 0.72, 6]} />
-            <meshBasicMaterial color="#ffb02e" toneMapped={false} />
-          </mesh>
-        ))}
-      </group>
+      <Torches at={torches} />
     </group>
   );
 }
@@ -312,6 +303,14 @@ function Crowd({ tiers }: { tiers: Tier[] }) {
 function Arcade({ outer, stone }: { outer: Tier; stone: THREE.Texture }) {
   const cols = useRef<THREE.InstancedMesh>(null);
 
+  const lintelBoxes = useMemo<Box[]>(
+    () => ringSlabs(outer.ox - 0.7, outer.oz - 0.7, outer.ox + 0.7, outer.oz + 0.7).map((s) => ({
+      pos: [s[0], GROUND_Y + outer.top + 3.35, s[1]] as const,
+      size: [s[2], 0.7, s[3]] as const,
+    })),
+    [outer],
+  );
+
   const posts = useMemo(() => {
     const out: [number, number][] = [];
     const { ox, oz } = outer;
@@ -342,24 +341,80 @@ function Arcade({ outer, stone }: { outer: Tier; stone: THREE.Texture }) {
 
   return (
     <group>
-      <instancedMesh ref={cols} args={[undefined, undefined, posts.length]} castShadow>
+      <instancedMesh ref={cols} args={[undefined, undefined, posts.length]}>
         <cylinderGeometry args={[0.42, 0.5, 3, 8]} />
         <meshStandardMaterial map={stone} roughness={0.9} />
       </instancedMesh>
 
       {/* The lintel the columns carry, and a gold fillet beneath it. */}
-      {ringSlabs(outer.ox - 0.7, outer.oz - 0.7, outer.ox + 0.7, outer.oz + 0.7).map((s, i) => (
-        <group key={`lintel${i}`}>
-          <mesh position={[s[0], GROUND_Y + outer.top + 3.35, s[1]]} castShadow>
-            <boxGeometry args={[s[2], 0.7, s[3]]} />
-            <meshStandardMaterial map={stone} roughness={0.9} />
-          </mesh>
-          <mesh position={[s[0], GROUND_Y + outer.top + 2.94, s[1]]}>
-            <boxGeometry args={[s[2] + 0.12, 0.14, s[3] + 0.12]} />
-            <meshStandardMaterial color={GOLD} roughness={0.35} metalness={0.6} emissive="#3d2900" />
-          </mesh>
-        </group>
-      ))}
+      {/* The gold fillet under this lintel is drawn with the barrier's band,
+          in World's goldBoxes — same material, so same call. */}
+      <Boxes boxes={lintelBoxes}>
+        <meshStandardMaterial map={stone} roughness={0.9} />
+      </Boxes>
+    </group>
+  );
+}
+
+/**
+ * The torches along the barrier, as two instanced meshes.
+ *
+ * Twenty-six posts and twenty-six flames were fifty-two draw calls a frame for
+ * objects a few pixels wide. Instanced they are two, and the flames still
+ * animate independently — a per-instance matrix write is a few dozen floats,
+ * which is nothing next to a draw call.
+ *
+ * The flames are emissive rather than point lights. Twenty-six point lights
+ * would rebuild every material's shader in the scene for light nothing needs;
+ * nothing here has to be lit *by* a torch, it only has to read as one.
+ * `toneMapped={false}` keeps them at full brightness through the ACES curve,
+ * because a fire that rolls off along with everything else stops looking like
+ * fire.
+ */
+function Torches({ at }: { at: [number, number][] }) {
+  const posts = useRef<THREE.InstancedMesh>(null);
+  const flames = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const t = useRef(0);
+
+  useEffect(() => {
+    const mesh = posts.current;
+    if (!mesh) return;
+    at.forEach(([x, z], i) => {
+      dummy.position.set(x, GROUND_Y + WALL_H + 0.55, z);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  }, [at, dummy]);
+
+  useFrame((_, dt) => {
+    const mesh = flames.current;
+    if (!mesh) return;
+    t.current += dt;
+    at.forEach(([x, z], i) => {
+      // Out of phase per torch. A row of flames pulsing together reads as one
+      // flashing light rather than as fire.
+      const s = 0.86 + Math.sin(t.current * 7 + i * 1.7) * 0.13;
+      dummy.position.set(x, GROUND_Y + WALL_H + 1.32, z);
+      dummy.scale.set(s, 1 + (1 - s) * 1.6, s);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+  });
+
+  return (
+    <group>
+      <instancedMesh ref={posts} args={[undefined, undefined, at.length]}>
+        <cylinderGeometry args={[0.11, 0.15, 1.1, 6]} />
+        <meshStandardMaterial color="#3a3227" roughness={0.9} />
+      </instancedMesh>
+      <instancedMesh ref={flames} args={[undefined, undefined, at.length]}>
+        <coneGeometry args={[0.26, 0.72, 6]} />
+        <meshBasicMaterial color="#ffb02e" toneMapped={false} />
+      </instancedMesh>
     </group>
   );
 }

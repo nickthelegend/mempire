@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { FP } from '../sim/fixed';
 import { ARENA_H, ARENA_W, BRIDGE_X, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { causticTexture, grassTexture, stoneTexture, waterTexture, woodTexture } from './textures';
+import { Boxes, Spheres, type Box } from './Boxes';
 
 const W = ARENA_W / FP; // 18
 const H = ARENA_H / FP; // 32
@@ -66,20 +67,63 @@ export function Arena({ placing }: { placing: boolean }) {
 
   const midZ = (RT + RB) / 2;
 
+  /**
+   * The frame and its gold rule, as instance tables.
+   *
+   * Eight boxes that never move were eight draw calls, and a draw call is
+   * driver-side CPU work — the thing that actually breaks on a slow machine.
+   * See Boxes.tsx.
+   */
+  const frameBoxes = useMemo<Box[]>(() => [
+    { pos: [W / 2, 0.16, -FRAME / 2], size: [W + FRAME * 2, 0.34, FRAME] },
+    { pos: [W / 2, 0.16, H + FRAME / 2], size: [W + FRAME * 2, 0.34, FRAME] },
+    { pos: [-FRAME / 2, 0.16, H / 2], size: [FRAME, 0.34, H] },
+    { pos: [W + FRAME / 2, 0.16, H / 2], size: [FRAME, 0.34, H] },
+  ], []);
+
+  /** Every static piece of both bridges, grouped by the material it wears. */
+  const {
+    bridgeStone, bridgeDeck, bridgeRail, bridgePost, finials,
+  } = useMemo(() => {
+    const stoneB: Box[] = [];
+    const deck: Box[] = [];
+    const rail: Box[] = [];
+    const post: Box[] = [];
+    const fin: [number, number, number][] = [];
+    const span = RB - RT + 0.7;
+    BRIDGE_X.forEach((bx) => {
+      const x = bx / FP;
+      [RT - 0.1, RB + 0.1].forEach((z) => {
+        stoneB.push({ pos: [x, 0.1, z], size: [3.0, 0.26, 0.5] });
+      });
+      deck.push({ pos: [x, 0.16, midZ], size: [2.6, 0.24, span] });
+      [-1.24, 1.24].forEach((off) => {
+        rail.push({ pos: [x + off, 0.42, midZ], size: [0.16, 0.28, span] });
+        [midZ - span / 2 + 0.12, midZ + span / 2 - 0.12].forEach((z) => {
+          post.push({ pos: [x + off, 0.36, z], size: [0.26, 0.62, 0.26] });
+          fin.push([x + off, 0.72, z]);
+        });
+      });
+    });
+    return {
+      bridgeStone: stoneB, bridgeDeck: deck, bridgeRail: rail,
+      bridgePost: post, finials: fin,
+    };
+  }, [midZ]);
+
+  const goldRuleBoxes = useMemo<Box[]>(() => [
+    { pos: [W / 2, 0.335, -0.22], size: [W + 0.88, 0.05, 0.44] },
+    { pos: [W / 2, 0.335, H + 0.22], size: [W + 0.88, 0.05, 0.44] },
+    { pos: [-0.22, 0.335, H / 2], size: [0.44, 0.05, H] },
+    { pos: [W + 0.22, 0.335, H / 2], size: [0.44, 0.05, H] },
+  ], []);
+
   return (
     <group>
       {/* ── wood frame ─────────────────────────────────────────────── */}
-      {[
-        { pos: [W / 2, 0.16, -FRAME / 2] as const, size: [W + FRAME * 2, 0.34, FRAME] as const },
-        { pos: [W / 2, 0.16, H + FRAME / 2] as const, size: [W + FRAME * 2, 0.34, FRAME] as const },
-        { pos: [-FRAME / 2, 0.16, H / 2] as const, size: [FRAME, 0.34, H] as const },
-        { pos: [W + FRAME / 2, 0.16, H / 2] as const, size: [FRAME, 0.34, H] as const },
-      ].map((b, i) => (
-        <mesh key={i} position={b.pos as unknown as [number, number, number]} castShadow>
-          <boxGeometry args={b.size as unknown as [number, number, number]} />
-          <meshStandardMaterial map={woodFrame} roughness={0.8} />
-        </mesh>
-      ))}
+      <Boxes boxes={frameBoxes} castShadow>
+        <meshStandardMaterial map={woodFrame} roughness={0.8} />
+      </Boxes>
 
       {/* The gold rule around the playing field. The same line the game's
           panels wear, and the one thing that makes the board look like it
@@ -88,17 +132,9 @@ export function Arena({ placing }: { placing: boolean }) {
           the side pieces were seen edge-on from a camera 33 units up and read
           as a gold wall, while the two ends — seen from above — read as a
           hairline. Flush is the same line on all four. */}
-      {[
-        { pos: [W / 2, 0.335, -0.22] as const, size: [W + 0.88, 0.05, 0.44] as const },
-        { pos: [W / 2, 0.335, H + 0.22] as const, size: [W + 0.88, 0.05, 0.44] as const },
-        { pos: [-0.22, 0.335, H / 2] as const, size: [0.44, 0.05, H] as const },
-        { pos: [W + 0.22, 0.335, H / 2] as const, size: [0.44, 0.05, H] as const },
-      ].map((b, i) => (
-        <mesh key={`gold${i}`} position={b.pos as unknown as [number, number, number]}>
-          <boxGeometry args={b.size as unknown as [number, number, number]} />
-          <meshStandardMaterial color={GOLD} roughness={0.32} metalness={0.65} emissive="#4a3200" />
-        </mesh>
-      ))}
+      <Boxes boxes={goldRuleBoxes}>
+        <meshStandardMaterial color={GOLD} roughness={0.32} metalness={0.65} emissive="#4a3200" />
+      </Boxes>
 
       {/* Corner caps, so the gold rule terminates in something rather than
           simply stopping. */}
@@ -189,47 +225,25 @@ export function Arena({ placing }: { placing: boolean }) {
       ))}
 
       {/* ── bridges ────────────────────────────────────────────────── */}
-      {BRIDGE_X.map((bx) => {
-        const x = bx / FP;
-        const span = RB - RT + 0.7;
-        return (
-          <group key={bx}>
-            {/* stone abutments at each end, so the bridge lands on something */}
-            {[RT - 0.1, RB + 0.1].map((z) => (
-              <mesh key={z} position={[x, 0.1, z]} castShadow receiveShadow>
-                <boxGeometry args={[3.0, 0.26, 0.5]} />
-                <meshStandardMaterial map={stone} roughness={0.88} />
-              </mesh>
-            ))}
-            <mesh position={[x, 0.16, midZ]} castShadow receiveShadow>
-              <boxGeometry args={[2.6, 0.24, span]} />
-              <meshStandardMaterial map={woodPlank} roughness={0.82} />
-            </mesh>
-            {/* rails, and a post at each corner */}
-            {[-1.24, 1.24].map((off) => (
-              <group key={off}>
-                <mesh position={[x + off, 0.42, midZ]} castShadow>
-                  <boxGeometry args={[0.16, 0.28, span]} />
-                  <meshStandardMaterial color="#7a5424" roughness={0.85} />
-                </mesh>
-                {[midZ - span / 2 + 0.12, midZ + span / 2 - 0.12].map((z) => (
-                  <group key={z}>
-                    <mesh position={[x + off, 0.36, z]} castShadow>
-                      <boxGeometry args={[0.26, 0.62, 0.26]} />
-                      <meshStandardMaterial color="#6b4720" roughness={0.88} />
-                    </mesh>
-                    {/* a gold finial — the board's accent, repeated small */}
-                    <mesh position={[x + off, 0.72, z]}>
-                      <sphereGeometry args={[0.15, 8, 6]} />
-                      <meshStandardMaterial color={GOLD} roughness={0.3} metalness={0.7} />
-                    </mesh>
-                  </group>
-                ))}
-              </group>
-            ))}
-          </group>
-        );
-      })}
+      {/* Bridges. The stone abutments, the decks, the rails and the posts are
+          each a table rather than a mesh per piece — two bridges were twenty-six
+          draw calls for geometry that never moves. The gold finials stay
+          spheres, so they get their own instanced mesh below. */}
+      <Boxes boxes={bridgeStone} castShadow receiveShadow>
+        <meshStandardMaterial map={stone} roughness={0.88} />
+      </Boxes>
+      <Boxes boxes={bridgeDeck} castShadow receiveShadow>
+        <meshStandardMaterial map={woodPlank} roughness={0.82} />
+      </Boxes>
+      <Boxes boxes={bridgeRail} castShadow>
+        <meshStandardMaterial color="#7a5424" roughness={0.85} />
+      </Boxes>
+      <Boxes boxes={bridgePost} castShadow>
+        <meshStandardMaterial color="#6b4720" roughness={0.88} />
+      </Boxes>
+      <Spheres at={finials} r={0.15}>
+        <meshStandardMaterial color={GOLD} roughness={0.3} metalness={0.7} />
+      </Spheres>
 
       {/* ── own-half highlight while a card is held ────────────────── */}
       {placing && (
