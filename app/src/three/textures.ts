@@ -164,12 +164,15 @@ export function waterTexture(): THREE.Texture {
   const S = 256;
   const [c, ctx] = canvas(S);
 
+  // Deep at the banks, lit mid-channel. The values are darker than they look
+  // on the canvas on purpose: the arena runs ambient at 2.1 and a sun at 2.3,
+  // and a mid-cyan under that light comes out white.
   const g = ctx.createLinearGradient(0, 0, 0, S);
-  g.addColorStop(0, '#1b7fa8');
-  g.addColorStop(0.18, '#27a9cc');
-  g.addColorStop(0.5, '#54dced');
-  g.addColorStop(0.82, '#27a9cc');
-  g.addColorStop(1, '#1b7fa8');
+  g.addColorStop(0, '#0a4a72');
+  g.addColorStop(0.16, '#0f6d99');
+  g.addColorStop(0.5, '#1f9fc4');
+  g.addColorStop(0.84, '#0f6d99');
+  g.addColorStop(1, '#0a4a72');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, S, S);
 
@@ -180,7 +183,7 @@ export function waterTexture(): THREE.Texture {
     const amp = 2 + rnd() * 5;
     const freq = 2 + Math.floor(rnd() * 4);
     const edge = Math.abs(y / S - 0.5) * 2; // fainter toward the banks
-    ctx.strokeStyle = `rgba(255,255,255,${0.42 * (1 - edge * 0.7)})`;
+    ctx.strokeStyle = `rgba(190,240,255,${0.3 * (1 - edge * 0.7)})`;
     ctx.lineWidth = 1.5 + rnd() * 2;
     ctx.beginPath();
     ctx.moveTo(0, y);

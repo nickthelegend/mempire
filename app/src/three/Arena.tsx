@@ -168,9 +168,12 @@ export function Arena({ placing }: { placing: boolean }) {
         <meshStandardMaterial
           map={water}
           transparent
-          opacity={0.9}
-          roughness={0.18}
-          metalness={0.2}
+          opacity={0.94}
+          // Rough and non-metallic. A near-mirror surface under this arena's
+          // light (ambient 2.1, sun 2.3) returns white, which is how the river
+          // ended up looking like poured concrete.
+          roughness={0.72}
+          metalness={0}
         />
       </mesh>
       {/* caustics, scrolling against the water */}
