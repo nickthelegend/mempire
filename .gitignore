@@ -17,3 +17,8 @@ chain/magicblock-test-storage/
 
 # The $MEMPIRE mint authority. Never commit a mint key.
 chain/.mempire-mint.json
+
+# HyperFrames render output — rebuildable from the composition + assets
+videos/*/renders/
+videos/*/snapshots/
+videos/*/.hyperframes/
