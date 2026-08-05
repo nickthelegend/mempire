@@ -450,13 +450,27 @@ pub mod mempire {
                 MempireError::BadMatchState
             );
             require!(now >= m.deadline, MempireError::TooEarly);
-            let is_player = ctx.accounts.claimer.key() == m.players[0]
-                || ctx.accounts.claimer.key() == m.players[1];
-            let grace_passed = now >= m.deadline + 60;
-            require!(is_player || grace_passed, MempireError::NotAPlayer);
+            // You may only claim a timeout for yourself.
+            //
+            // This used to accept any `winner_account` that was one of the two
+            // players, and after a 60-second grace, from any third party at
+            // all. So the losing player's best move was never to sign
+            // `settle`: wait out the deadline, call this with themselves as
+            // winner, and take the whole pot. The honest 2-of-2 path was
+            // strictly dominated by stalling.
+            //
+            // A timeout is now what it says — the opponent stopped
+            // responding, so the player who is still here takes it — and the
+            // third-party grace path is gone, because there is no honest
+            // reason for a stranger to decide who won a match.
+            let claimer = ctx.accounts.claimer.key();
             require!(
-                ctx.accounts.winner_account.key() == m.players[0]
-                    || ctx.accounts.winner_account.key() == m.players[1],
+                claimer == m.players[0] || claimer == m.players[1],
+                MempireError::NotAPlayer
+            );
+            require_keys_eq!(
+                ctx.accounts.winner_account.key(),
+                claimer,
                 MempireError::NotAPlayer
             );
         }
@@ -518,6 +532,7 @@ pub mod mempire {
         log.last_hash = 0;
         log.checkpoints = 0;
         log.ended = false;
+        log.claims = [3, 3]; // neither seat has said anything yet
         log.winner = u8::MAX;
         log.bump = ctx.bumps.match_log;
         Ok(())
@@ -525,6 +540,30 @@ pub mod mempire {
 
     /// Hands the log to the ephemeral rollup. Base layer.
     pub fn delegate_match_log(ctx: Context<DelegateMatchLog>, match_id: u64) -> Result<()> {
+        // Only a player in this match may delegate its log.
+        //
+        // This was permissionless, with a caller-supplied validator. That let
+        // anyone delegate any log to a validator they operate — and the
+        // delegated account's authority is what computes and commits its state,
+        // so a hostile validator could commit an arbitrary winner. Naming a
+        // validator that does not exist was just as bad in the other direction:
+        // the log became permanently un-delegatable, forcing the match down the
+        // timeout path.
+        //
+        // The account is raw AccountInfo because the delegation macro needs it
+        // that way, so `players` is read by deserialising the account before it
+        // leaves this program's ownership.
+        {
+            let info = &ctx.accounts.match_log;
+            let data = info.try_borrow_data()?;
+            let mut slice: &[u8] = &data;
+            let log = MatchLog::try_deserialize(&mut slice)?;
+            require!(
+                log.players.contains(ctx.accounts.payer.key),
+                MempireError::NotAPlayer
+            );
+        }
+
         // Seeds must match the account definition exactly or the delegation
         // record is derived for a different address and the ER never sees it.
         ctx.accounts.delegate_match_log(
@@ -607,20 +646,32 @@ pub mod mempire {
     /// instruction that reads the committed log.
     pub fn end_match_log(ctx: Context<EndMatchLog>, winner: u8, final_hash: u64) -> Result<()> {
         require!(winner <= 2, MempireError::BadWinner);
-        {
+        let seat = {
             let signer = ctx.accounts.payer.key();
             let log = &ctx.accounts.match_log;
             require!(!log.ended, MempireError::BadMatchState);
-            require!(
-                signer == log.players[0] || signer == log.players[1],
-                MempireError::NotAPlayer
-            );
-        }
+            if signer == log.players[0] {
+                0usize
+            } else if signer == log.players[1] {
+                1usize
+            } else {
+                return err!(MempireError::NotAPlayer);
+            }
+        };
 
+        // This seat's claim, and only this seat's.
+        //
+        // It used to write `log.winner` directly, which `settle_from_log` then
+        // paid out — so whoever called first took the pot, and calling first
+        // required playing exactly zero cards. A result is only a result when
+        // both seats say the same thing; settlement checks that, and a
+        // disagreement voids and refunds rather than paying either claim.
         let log = &mut ctx.accounts.match_log;
-        log.ended = true;
-        log.winner = winner;
+        log.claims[seat] = winner;
         log.last_hash = final_hash;
+        // `ended` means "no further plays", which is true as soon as one seat
+        // has called it — the other can still record its own claim.
+        log.ended = true;
 
         MagicIntentBundleBuilder::new(
             ctx.accounts.payer.to_account_info(),
@@ -656,8 +707,28 @@ pub mod mempire {
                     && ctx.accounts.player_b.key() == m.players[1],
                 MempireError::NotAPlayer
             );
-            require!(log.winner <= 2, MempireError::BadWinner);
-            (log.winner, log.last_hash)
+            // Both seats must have spoken, and must agree.
+            //
+            // Disagreement is not settled for either side: one of them is
+            // lying and the program cannot tell which, so the honest outcome
+            // is the one the whole design already uses for a desync — void,
+            // and both stakes go home. A cheater can therefore turn a loss
+            // into a refund, which is griefing; they cannot turn it into a
+            // win, which is theft. Closing the griefing gap needs the log's
+            // plays verified onchain and is recorded in AUDIT.md as open.
+            require!(
+                log.claims[0] != 3 && log.claims[1] != 3,
+                MempireError::MatchNotEnded
+            );
+            require!(
+                log.claims[0] <= 2 && log.claims[1] <= 2,
+                MempireError::BadWinner
+            );
+            require!(
+                log.claims[0] == log.claims[1],
+                MempireError::ResultDisputed
+            );
+            (log.claims[0], log.last_hash)
         };
 
         let pot = ctx.accounts.match_account.stake_lamports * 2;
@@ -851,13 +922,20 @@ pub struct MatchLog {
     pub checkpoints: u16,
     pub ended: bool,
     pub winner: u8,
+    /// What each seat says the result was. 3 = has not said.
+    ///
+    /// A single seat used to be able to set `winner` outright, and
+    /// `settle_from_log` paid it verbatim — so the first player to call
+    /// `end_match_log` took the pot without a card being played. Both seats
+    /// now record their own claim and settlement requires them to agree.
+    pub claims: [u8; 2],
     pub bump: u8,
 }
 impl MatchLog {
     // discriminator + match_id + players + Vec len prefix + entries
-    //   + last_tick + last_hash + checkpoints + ended + winner + bump
+    //   + last_tick + last_hash + checkpoints + ended + winner + claims + bump
     pub const SIZE: usize =
-        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1;
+        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 2 + 1;
 }
 
 // ── Contexts ─────────────────────────────────────────────────────────────────
@@ -1199,6 +1277,8 @@ pub struct MatchSettled {
 
 #[error_code]
 pub enum MempireError {
+    #[msg("the two players reported different winners; the match voids")]
+    ResultDisputed,
     #[msg("fee exceeds allowed maximum")]
     FeeTooHigh,
     #[msg("coin does not meet the liquidity floor")]

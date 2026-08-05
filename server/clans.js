@@ -212,7 +212,7 @@ export function registerClanRoutes(app, db) {
   });
 
   // ── create ───────────────────────────────────────────────────────────────
-  app.post('/api/clans', async (req, res) => {
+  app.post('/api/clans', requireWallet('clan.create'), async (req, res) => {
     await ready;
     const {
       address, name, description, region, crest, requiredPower, joinMode, memberName, power,
@@ -275,7 +275,7 @@ export function registerClanRoutes(app, db) {
   });
 
   // ── join ─────────────────────────────────────────────────────────────────
-  app.post('/api/clans/:tag/join', async (req, res) => {
+  app.post('/api/clans/:tag/join', requireWallet('clan.join'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, memberName, power } = req.body ?? {};
@@ -328,7 +328,7 @@ export function registerClanRoutes(app, db) {
   });
 
   // ── leave ────────────────────────────────────────────────────────────────
-  app.post('/api/clans/:tag/leave', async (req, res) => {
+  app.post('/api/clans/:tag/leave', requireWallet('clan.leave'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address } = req.body ?? {};
@@ -413,7 +413,7 @@ export function registerClanRoutes(app, db) {
   });
 
   // ── promote / demote / kick ──────────────────────────────────────────────
-  app.post('/api/clans/:tag/role', async (req, res) => {
+  app.post('/api/clans/:tag/role', requireWallet('clan.role'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, target, role } = req.body ?? {};
@@ -455,7 +455,7 @@ export function registerClanRoutes(app, db) {
     }
   });
 
-  app.post('/api/clans/:tag/kick', async (req, res) => {
+  app.post('/api/clans/:tag/kick', requireWallet('clan.kick'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, target } = req.body ?? {};
@@ -495,7 +495,7 @@ export function registerClanRoutes(app, db) {
   // ── lend requests ────────────────────────────────────────────────────────
   // The clan's social loop. A request names an archetype rather than a specific
   // card, because what a deck is missing is a role, not a coin.
-  app.post('/api/clans/:tag/request', async (req, res) => {
+  app.post('/api/clans/:tag/request', requireWallet('clan.request'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, archetype, note } = req.body ?? {};
@@ -536,7 +536,7 @@ export function registerClanRoutes(app, db) {
   });
 
   /** Answer someone's request. The lender's count goes up; so does the clan's. */
-  app.post('/api/clans/:tag/lend', async (req, res) => {
+  app.post('/api/clans/:tag/lend', requireWallet('clan.lend'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, requestId } = req.body ?? {};
@@ -581,7 +581,7 @@ export function registerClanRoutes(app, db) {
    * Called when a member settles a win. Crowns roll up to the clan, which is
    * what the clan leaderboard ranks on.
    */
-  app.post('/api/clans/:tag/crowns', async (req, res) => {
+  app.post('/api/clans/:tag/crowns', requireWallet('clan.crowns'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
     const { address, crowns, power } = req.body ?? {};

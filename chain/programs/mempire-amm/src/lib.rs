@@ -26,9 +26,7 @@
 //! | `add_liquidity`    | base  |
 //! | `remove_liquidity` | base  |
 //! | `swap`             | base **or** ER — see below |
-//! | `delegate_pool`    | base  |
 //! | `seal_pool`        | ER    |
-//! | `commit_pool`      | ER    |
 //!
 //! `swap` is layer-agnostic on purpose. Once the pool and the trader's token
 //! accounts are delegated, a delegated SPL balance materialises on the rollup as
@@ -40,9 +38,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
-use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
-use ephemeral_rollups_sdk::cpi::DelegateConfig;
-use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 
 pub mod math;
 use math::{
@@ -51,7 +46,23 @@ use math::{
 
 declare_id!("7tM95L7TooveTGAtmo6nRyJRQpSVADN3DPaagJmSp8CP");
 
-#[ephemeral]
+/*
+ * There is deliberately no `delegate_pool` / `commit_pool`.
+ *
+ * They existed, permissionless, with a caller-supplied validator — so anyone
+ * could delegate the pool to a validator they operate and have it commit
+ * forged reserves, or name a validator that does not exist and freeze every
+ * LP's funds until someone could reach that rollup. The pool account holds
+ * the reserves that drive every payout, so this was the single most dangerous
+ * instruction in the repo.
+ *
+ * They are removed rather than gated, because an ephemeral rollup buys this
+ * program nothing. A rollup's value is sub-slot latency for state a game
+ * updates twenty times a second; an AMM updates on trades, at trade
+ * frequency, and it has no public mempool to protect against. Gating an
+ * instruction that should not exist leaves the reader wondering when to use
+ * it.
+ */
 #[program]
 pub mod mempire_amm {
     use super::*;
@@ -344,38 +355,7 @@ pub mod mempire_amm {
         Ok(())
     }
 
-    /// Base layer. Hands the pool to an ephemeral rollup.
-    pub fn delegate_pool(ctx: Context<DelegatePool>) -> Result<()> {
-        let base = ctx.accounts.base_mint.key();
-        let quote = ctx.accounts.quote_mint.key();
-        ctx.accounts.delegate_pool(
-            &ctx.accounts.payer,
-            &[b"pool", base.as_ref(), quote.as_ref()],
-            DelegateConfig {
-                validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
-                ..Default::default()
-            },
-        )?;
-        Ok(())
-    }
 
-    /// Rollup. Commits the reserves back to Solana and hands the pool back.
-    ///
-    /// Price is the pool's public output, so it must be verifiable at rest even
-    /// while trading happens somewhere faster. Committing is what makes that
-    /// true: between commits the rollup is authoritative, and after one anybody
-    /// can read the reserves on Solana and check the price for themselves.
-    pub fn commit_pool(ctx: Context<CommitPool>) -> Result<()> {
-        ctx.accounts.pool.exit(&crate::ID)?;
-        MagicIntentBundleBuilder::new(
-            ctx.accounts.payer.to_account_info(),
-            ctx.accounts.magic_context.to_account_info(),
-            ctx.accounts.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[ctx.accounts.pool.to_account_info()])
-        .build_and_invoke()?;
-        Ok(())
-    }
 }
 
 /// The pool PDA's signer seeds. A macro because three instructions need it and
@@ -509,32 +489,7 @@ pub struct Swap<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-#[delegate]
-#[derive(Accounts)]
-pub struct DelegatePool<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    /// CHECK: the pool PDA being delegated; seeds match the account definition.
-    #[account(mut, del, seeds = [b"pool", base_mint.key().as_ref(), quote_mint.key().as_ref()], bump)]
-    pub pool: AccountInfo<'info>,
-    pub base_mint: Account<'info, Mint>,
-    pub quote_mint: Account<'info, Mint>,
-    /// CHECK: optional target ER validator, forwarded in DelegateConfig.
-    pub validator: Option<UncheckedAccount<'info>>,
-}
 
-#[commit]
-#[derive(Accounts)]
-pub struct CommitPool<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [b"pool", pool.base_mint.as_ref(), pool.quote_mint.as_ref()],
-        bump = pool.bump,
-    )]
-    pub pool: Account<'info, Pool>,
-}
 
 #[event]
 pub struct Swapped {

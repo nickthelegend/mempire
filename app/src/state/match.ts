@@ -19,7 +19,6 @@ import { useLadder } from './ladder';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
-import { deckCommitment } from '../chain/deckHash';
 import { useChain } from './chain';
 import { useErMatch } from './erMatch';
 import {
@@ -283,15 +282,26 @@ export const useMatch = create<MatchStore>((set, get) => ({
      * Practice is excluded on purpose — it stakes nothing, so there is nothing
      * to escrow and no reason to spend a commit quota on it.
      */
-    if (!practice) {
-      const onchainCards = useChain.getState().cards;
-      if (onchainCards.length >= 8) {
-        const ids = onchainCards.slice(0, 8).map((c) => c.id);
-        void deckCommitment(ids, wallet.address).then((hash) => (
-          useErMatch.getState().openOnchainMatch(deck.tier, tier.stakeSol, ids, hash)
-        ));
-      }
-    }
+    /*
+     * The base-layer escrow is deliberately NOT opened here.
+     *
+     * It used to be: `openOnchainMatch` escrowed real lamports the moment a
+     * player queued. But `joinMatchTx`, `settleTx` and `claimTimeoutTx` are
+     * not called anywhere in this app — so every queued match created an
+     * escrow that nothing on earth could ever settle, refund or time out. It
+     * did not lose a fraction of a stake; it stranded the whole thing, every
+     * time, and locked the player's eight cards with it.
+     *
+     * Escrowing into a settlement path that does not exist is strictly worse
+     * than not escrowing. So until join/settle/timeout are wired end to end,
+     * the stake is what the UI already showed it to be — a local number — and
+     * the tier is labelled accordingly. What IS real and unchanged: the match
+     * log on the ephemeral rollup, the PER seal, the VRF chest roll and the
+     * $MEMPIRE pool.
+     *
+     * Tracked as A1/A2 in AUDIT.md. Do not re-enable this call without the
+     * other three.
+     */
     set({
       status: 'queuing',
       playerDeck: player,
@@ -601,6 +611,46 @@ function refundEscrow(): void {
  * A real opponent. Seat 0's deck is seat 0's deck on both machines — the sim
  * is one shared timeline and `perspective` only changes who the camera loves.
  */
+/**
+ * A deck relayed by the opponent, checked before it can touch the simulation.
+ *
+ * `createMatch` only ever validated the length. Everything else came straight
+ * from JSON on a relay the opponent controls, and the sim indexes tables with
+ * it: an `archetype` of 6 makes `ARCHETYPES[6]` undefined, so the elixir cost
+ * is NaN, `elixir < NaN` is false, and `elixir -= NaN` poisons that seat's
+ * balance for the rest of the match — every card free, forever.
+ *
+ * The reason that is worse than it sounds: it happens identically on both
+ * clients, and `Fnv1a.int(NaN)` hashes to the same value on both, so the state
+ * hash agrees and no desync is ever detected. A corrupted match settles as if
+ * it were honest.
+ *
+ * Rejecting here means the match voids and both stakes come home, which is the
+ * same thing that happens for any other unplayable state.
+ */
+function sanitiseDeck(deck: unknown): MatchCard[] | null {
+  if (!Array.isArray(deck) || deck.length !== 8) return null;
+  const out: MatchCard[] = [];
+  for (const c of deck) {
+    if (!c || typeof c !== 'object') return null;
+    const { coinId, name, archetype, level, trait } = c as Record<string, unknown>;
+    if (typeof coinId !== 'string' || !coinId) return null;
+    if (typeof name !== 'string') return null;
+    if (!Number.isInteger(archetype) || (archetype as number) < 0 || (archetype as number) > 5) return null;
+    if (!Number.isInteger(level) || (level as number) < 1 || (level as number) > 10) return null;
+    // A missing trait is fine — createMatch derives it from the mint. An
+    // out-of-range one is not: TRAITS[trait] is dereferenced every tick.
+    if (trait !== undefined && (!Number.isInteger(trait) || (trait as number) < 0 || (trait as number) > 5)) return null;
+    out.push({
+      coinId, name: name.slice(0, 24),
+      archetype: archetype as MatchCard['archetype'],
+      level: level as number,
+      trait: trait as MatchCard['trait'],
+    });
+  }
+  return out;
+}
+
 function beginHumanBattle(
   m: MatchedPayload, myDeck: MatchCard[], stakeSol: number, tierIdx: number,
   rush = false,
@@ -617,9 +667,17 @@ function beginHumanBattle(
   humanEscrowSol = stakeSol;
   play('coin');
 
+  const oppDeck = sanitiseDeck(m.opponent.deck);
+  if (!oppDeck) {
+    // Not a desync and not our fault — refuse to start rather than run a
+    // simulation whose rules the opponent chose.
+    settleVoid('the opponent sent a deck the simulation cannot run');
+    return;
+  }
+
   const decks: [MatchCard[], MatchCard[]] = m.role === 0
-    ? [myDeck, m.opponent.deck]
-    : [m.opponent.deck, myDeck];
+    ? [myDeck, oppDeck]
+    : [oppDeck, myDeck];
 
   let sim: SimState;
   try {

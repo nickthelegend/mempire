@@ -8,6 +8,7 @@
  */
 import cors from 'cors';
 import express from 'express';
+import { requireWallet } from './auth.js';
 import { MongoClient } from 'mongodb';
 import { registerClanRoutes } from './clans.js';
 import { applyMatch, leagueFor } from './ranking.js';
@@ -25,6 +26,11 @@ let leaderboard;
 let ladder;
 
 const app = express();
+// Railway terminates TLS at its edge, so req.ip was the proxy for every
+// client — one shared limiter bucket, and one noisy player 429s the whole
+// playerbase. One hop only: trusting the whole chain makes the key a
+// spoofable X-Forwarded-For.
+app.set('trust proxy', 1);
 // Locked to the deployed app's origin in production; open in development.
 app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
 app.use(express.json({ limit: '256kb' }));
@@ -97,7 +103,7 @@ const num = (v, lo, hi, fallback = 0) => {
   return Math.min(Math.max(n, lo), hi);
 };
 
-app.put('/api/player/:address', async (req, res) => {
+app.put('/api/player/:address', requireWallet('player.put'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
   const {
@@ -149,7 +155,7 @@ app.put('/api/player/:address', async (req, res) => {
 });
 
 /** Append one settled match and bump the player's standing. */
-app.post('/api/match/:address', async (req, res) => {
+app.post('/api/match/:address', requireWallet('match.post'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
   const { won, draw, potSol, payoutSol, rakeSol, crowns } = req.body ?? {};
@@ -323,7 +329,7 @@ app.get('/api/ladder/:address', async (req, res) => {
 });
 
 /** Apply one ranked result. Returns the new standing. */
-app.post('/api/ladder/:address', async (req, res) => {
+app.post('/api/ladder/:address', requireWallet('ladder.post'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
   const { opponentTrophies, outcome } = req.body ?? {};

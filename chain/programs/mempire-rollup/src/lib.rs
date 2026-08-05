@@ -170,6 +170,30 @@ pub mod mempire_rollup {
     /// ER clone both look correct. On devnet the router assigns placement, so
     /// `None` is the normal case there.
     pub fn delegate_log(ctx: Context<DelegateLog>, match_id: u64) -> Result<()> {
+        // Only a player in this match may delegate its log.
+        //
+        // This was permissionless, with a caller-supplied validator. That let
+        // anyone delegate any log to a validator they operate — and the
+        // delegated account's authority is what computes and commits its state,
+        // so a hostile validator could commit an arbitrary winner. Naming a
+        // validator that does not exist was just as bad in the other direction:
+        // the log became permanently un-delegatable, forcing the match down the
+        // timeout path.
+        //
+        // The account is raw AccountInfo because the delegation macro needs it
+        // that way, so `players` is read by deserialising the account before it
+        // leaves this program's ownership.
+        {
+            let info = &ctx.accounts.log;
+            let data = info.try_borrow_data()?;
+            let mut slice: &[u8] = &data;
+            let log = MatchLog::try_deserialize(&mut slice)?;
+            require!(
+                log.players.contains(ctx.accounts.payer.key),
+                RollupError::NotAPlayer
+            );
+        }
+
         // Seeds must match the account definition exactly, or the delegation
         // record is derived for a different address and the rollup never sees it.
         ctx.accounts.delegate_log(
