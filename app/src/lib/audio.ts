@@ -51,9 +51,21 @@ export function initAudio(): void {
   if (ready) return;
   ready = true;
   (Object.keys(FILES) as Sfx[]).forEach((k) => {
-    const pool = Array.from({ length: POOL_SIZE }, () => {
+    // Only the first voice preloads.
+    //
+    // Every voice used to set preload='auto', so each sound fired POOL_SIZE
+    // simultaneous requests for the same file — before any of them had
+    // returned, so none could serve the others from cache. The browser
+    // cancelled the losers: ~34 aborted requests a session on desktop and 48
+    // on mobile, each one a wasted MP3 round trip on the connection least able
+    // to afford it.
+    //
+    // The rest load on first play, by which time voice zero has populated the
+    // HTTP cache and they cost nothing. A pool exists so overlapping hits do
+    // not cut each other off, not so the file arrives N times.
+    const pool = Array.from({ length: POOL_SIZE }, (_, i) => {
       const a = new Audio(FILES[k]);
-      a.preload = 'auto';
+      a.preload = i === 0 ? 'auto' : 'none';
       a.volume = VOLUME[k];
       return a;
     });

@@ -253,8 +253,20 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         aria-label={`Swap ${input || '0'} ${inLabel} for ${outLabel}`}
       >
         {busy ? <Spinner /> : null}
-        {busy ? ' Swapping…' : signer() ? 'Swap' : 'Connect a wallet to swap'}
+        {busy ? ' Swapping…' : signer() ? 'Swap' : 'Connect a real wallet to swap'}
       </Pill>
+
+      {/* Guest mode simulates a wallet so the whole game is playable without
+          an extension — but a simulated wallet has no secret key, so it cannot
+          sign a transfer. Saying so beats a disabled button with no reason
+          next to a form that looks ready to use. */}
+      {!signer() && (
+        <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
+          You are playing as a guest. Guest mode simulates a wallet so the game
+          works without an extension, but it holds no keys — a real swap needs a
+          real signature. Everything else, including battles, works as a guest.
+        </p>
+      )}
 
       {error && (
         <p role="alert" className="fine" style={{ color: 'var(--red)', margin: 0 }}>{error}</p>

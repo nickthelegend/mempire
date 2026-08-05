@@ -384,6 +384,15 @@ export function GemShop({ onClose }: { onClose: () => void }) {
   // on a token swap would answer a question the player did not ask.
   const [tab, setTab] = useState<'swap' | 'bundles'>('bundles');
 
+  // Escape closes this, as it closes the wallet picker and the card sheet.
+  // It did not, and a dialog that ignores the key every other dialog honours
+  // reads as broken rather than as different.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex', justifyContent: 'center' }}>
       <div aria-hidden onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'var(--scrim)' }} />
