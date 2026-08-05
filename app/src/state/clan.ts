@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Crest } from '../components/ClanCrest';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiPost } from '../lib/api';
 
 /**
  * Clans.
@@ -139,13 +139,24 @@ export interface ClanDraft {
  * here ("needs 240 deck power — yours is 180").
  */
 async function call<T>(
-  path: string, init?: RequestInit,
+  path: string, init?: RequestInit, action?: string,
 ): Promise<{ data: T | null; error: string | null; offline: boolean }> {
   try {
-    const res = await apiFetch(path, {
-      ...init,
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    });
+    /*
+     * A write carries a signature; a read does not.
+     *
+     * `action` must be the exact string the route was registered with on the
+     * server, because the signature covers it — a signature captured for one
+     * clan route cannot then be replayed against another. Getting it wrong is
+     * a 401, not a silent success, which is the failure mode you want.
+     */
+    const res = action
+      ? await apiPost(path, action, init?.body ? JSON.parse(init.body as string) : {},
+        (init?.method as 'POST' | 'PUT') ?? 'POST')
+      : await apiFetch(path, {
+        ...init,
+        headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+      });
     if (!res) {
       return {
         data: null,
@@ -214,7 +225,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>('/api/clans', {
       method: 'POST',
       body: JSON.stringify({ address, ...draft }),
-    });
+    }, 'clan.create');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },
@@ -224,7 +235,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}/join`, {
       method: 'POST',
       body: JSON.stringify({ address, power, memberName: name }),
-    });
+    }, 'clan.join');
     set({ busy: false, offline, error, mine: data ?? get().mine, preview: data ? null : get().preview });
     return error;
   },
@@ -236,7 +247,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { error, offline } = await call<{ ok: boolean }>(`/api/clans/${tag}/leave`, {
       method: 'POST',
       body: JSON.stringify({ address }),
-    });
+    }, 'clan.leave');
     set({ busy: false, offline, error, mine: error ? get().mine : null });
     return error;
   },
@@ -260,7 +271,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}/role`, {
       method: 'POST',
       body: JSON.stringify({ address, target, role }),
-    });
+    }, 'clan.role');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },
@@ -272,7 +283,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}/kick`, {
       method: 'POST',
       body: JSON.stringify({ address, target }),
-    });
+    }, 'clan.kick');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },
@@ -284,7 +295,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}/request`, {
       method: 'POST',
       body: JSON.stringify({ address, archetype, note }),
-    });
+    }, 'clan.request');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },
@@ -296,7 +307,7 @@ export const useClan = create<ClanState>((set, get) => ({
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}/lend`, {
       method: 'POST',
       body: JSON.stringify({ address, requestId }),
-    });
+    }, 'clan.lend');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },

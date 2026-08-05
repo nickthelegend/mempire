@@ -9,6 +9,7 @@ import {
   TrustWalletAdapter,
 } from '@solana/wallet-adapter-wallets';
 import { create } from 'zustand';
+import { guestAddress } from '../lib/identity';
 
 /**
  * Wallet connection on the official Solana wallet adapters.
@@ -34,19 +35,16 @@ const START_BALANCE = 12.4;
  * machine. The address is random but stable within the tab, so a mid-session
  * refresh keeps the same identity. Real wallets are untouched.
  */
-const GUEST_KEY = 'mempire_guest_addr';
-const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function guestAddress(): string {
-  try {
-    const saved = sessionStorage.getItem(GUEST_KEY);
-    if (saved) return saved;
-  } catch { /* private mode */ }
-  let addr = 'ANoN';
-  for (let i = 0; i < 40; i += 1) addr += B58[Math.floor(Math.random() * B58.length)];
-  try { sessionStorage.setItem(GUEST_KEY, addr); } catch { /* private mode */ }
-  return addr;
-}
+/*
+ * The guest's address is now a real ed25519 public key, generated in the
+ * browser and kept alongside its secret key — see lib/identity.ts.
+ *
+ * It used to be forty random base58 characters: a string shaped like a pubkey
+ * that nothing could sign for. That was fine while the API trusted whatever
+ * address it was handed, and became a lockout the moment it started demanding
+ * signatures — a guest would have had no ladder, no clan and no saved
+ * progress. A guest identity is now exactly as provable as a wallet one.
+ */
 
 /**
  * Ordered by how likely a Solana player is to have it.
@@ -116,8 +114,20 @@ interface WalletState {
   walletName: string;
   walletIcon: string | null;
   sol: number;
-  /** Guest has an address but no keypair, so it can never submit a transaction. */
+  /**
+   * Guest holds no funds and can never submit a transaction. It *can* sign a
+   * message — see lib/identity.ts — so it still has a provable identity to
+   * the API.
+   */
   isGuest: boolean;
+  /**
+   * The connected adapter's message signer, when it has one.
+   *
+   * Undefined for a guest, whose signing happens locally against the browser
+   * keypair, and for the handful of adapters that support transactions but
+   * not `signMessage`.
+   */
+  signMessage?: (msg: Uint8Array) => Promise<Uint8Array>;
   pickerOpen: boolean;
   openPicker: () => void;
   closePicker: () => void;
@@ -169,6 +179,13 @@ export const useWallet = create<WalletState>((set, get) => ({
         walletIcon: adapter.icon,
         sol: START_BALANCE,
         isGuest: false,
+        // Bound here rather than reached for at call time: `activeAdapter` is
+        // module state and a disconnect race would sign with the wrong wallet.
+        signMessage: typeof (adapter as { signMessage?: unknown }).signMessage === 'function'
+          ? (msg: Uint8Array) => (adapter as unknown as {
+            signMessage: (m: Uint8Array) => Promise<Uint8Array>;
+          }).signMessage(msg)
+          : undefined,
       });
       adapter.on('disconnect', () => get().disconnect());
     } catch (e) {
@@ -186,7 +203,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     set({
       connected: true, connecting: null, pickerOpen: false,
       address: guestAddress(), walletName: 'Guest', walletIcon: null,
-      sol: START_BALANCE, isGuest: true,
+      sol: START_BALANCE, isGuest: true, signMessage: undefined,
     });
   },
 

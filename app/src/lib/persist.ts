@@ -7,7 +7,7 @@ import type { MintedCard } from '../state/collection';
 import type { ChestSlot } from '../state/economy';
 import type { MatchResult } from '../state/match';
 import type { ShopOffer } from '../state/shop';
-import { apiFetch } from './api';
+import { apiFetch, apiPost } from './api';
 
 const SAVE_DEBOUNCE_MS = 900;
 
@@ -52,11 +52,7 @@ export function savePlayer(address: string, state: SavedState): void {
   if (!address) return;
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
-    void apiFetch(`/api/player/${address}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(state),
-    })
+    void apiPost(`/api/player/${address}`, 'player.put', state as unknown as Record<string, unknown>, 'PUT')
       .then((r) => { online = r?.ok ?? false; })
       .catch(() => { online = false; });
   }, SAVE_DEBOUNCE_MS);
@@ -65,11 +61,8 @@ export function savePlayer(address: string, state: SavedState): void {
 /** Records a settled match for the leaderboard. Never blocks the result screen. */
 export function recordMatch(address: string, result: MatchResult): void {
   if (!address) return;
-  void apiFetch(`/api/match/${address}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(result),
-  }).catch(() => { online = false; });
+  void apiPost(`/api/match/${address}`, 'match.post', result as unknown as Record<string, unknown>)
+    .catch(() => { online = false; });
 }
 
 export interface LeaderRow {

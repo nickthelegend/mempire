@@ -1,3 +1,4 @@
+import { requireWallet } from './auth.js';
 /**
  * Clans.
  *

@@ -64,8 +64,16 @@ so the next person does not have to re-derive them.
 | `e2e-security` | 8/8 · the exploits, refused |
 | AMM unit tests | 14/14 |
 | Client suites | 34/34 |
-| Live E2E, both sites, mobile + desktop | 90/92 |
+| Live E2E, both sites, mobile + desktop | **92/92** |
 
-The two E2E failures are the same check on two viewports: the Clan tab shows an
-offline placeholder because the API is not deployed. Ranked and the leaderboard
-are dark for the same reason.
+The API is deployed at `mempire-api-19110f59a37d.herokuapp.com`, so clans,
+ranked and the leaderboard are live. Every mutating route demands an ed25519
+signature over a timestamped, per-action message; verified against the running
+service that a correct signature is accepted, and that a cross-action replay, a
+signature for someone else's address, and an expired signature are each
+refused with 401.
+
+Guest identity is now a real ed25519 keypair generated in the browser, so a
+guest can prove who they are exactly as a wallet can. Its secret key is stored
+unencrypted, which is appropriate for what it guards — a devnet ladder position
+and a clan tag — and must never be used for anything holding value.

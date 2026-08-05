@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiPost } from '../lib/api';
 import {
   LEAGUES, STARTING_TROPHIES, applyMatch, leagueFor, leagueProgress, nextLeague,
   type League, type Outcome, type TrophyChange,
@@ -110,11 +110,9 @@ export const useLadder = create<LadderState>((set, get) => ({
 
     // Fire-and-forget: the result screen must never wait on the ladder service.
     if (address) {
-      void apiFetch(`/api/ladder/${address}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ opponentTrophies, outcome }),
-      })
+      // Signed: the server rejects an unsigned ladder update, and rightly —
+      // an unauthenticated one let anyone set anyone's rating.
+      void apiPost(`/api/ladder/${address}`, 'ladder.post', { opponentTrophies, outcome })
         .then((r) => (r?.ok ? r.json() : null))
         .then((d) => {
           // The server sees both sides, so it is the authority. Reconcile quietly.

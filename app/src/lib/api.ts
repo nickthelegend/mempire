@@ -22,6 +22,8 @@ const onLocalhost = typeof window !== 'undefined'
   && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
 
 /** The API origin, or null when this build has no backend to talk to. */
+import { signAction } from './identity';
+
 export const API_BASE: string | null = configured
   || (onLocalhost ? 'http://localhost:8787' : null);
 
@@ -43,6 +45,39 @@ export async function apiFetch(
   } catch {
     return null;
   }
+}
+
+/**
+ * A signed write.
+ *
+ * Every mutating route on the API demands an ed25519 signature over a
+ * timestamped, per-action message — `action` here must match the one the route
+ * is registered with, or the signature verifies against different bytes and
+ * the server returns 401.
+ *
+ * Returns null both when there is no backend and when this identity cannot
+ * sign, so a caller's existing "stay local" path covers both without a second
+ * branch. It deliberately does NOT fall back to sending unsigned: that is a
+ * guaranteed 401, and a silent 401 looks to a player like the game quietly
+ * forgot their progress.
+ */
+export async function apiPost(
+  path: string,
+  action: string,
+  body: Record<string, unknown>,
+  method: 'POST' | 'PUT' = 'POST',
+): Promise<Response | null> {
+  if (!API_BASE) return null;
+  const { useWallet } = await import('../state/wallet');
+  const w = useWallet.getState();
+  if (!w.address) return null;
+  const signed = await signAction(w.address, action, w.signMessage);
+  if (!signed) return null;
+  return apiFetch(path, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...body, ...signed }),
+  });
 }
 
 /** The matchmaker socket URL, or null when there is no backend. */

@@ -26,10 +26,10 @@ let leaderboard;
 let ladder;
 
 const app = express();
-// Railway terminates TLS at its edge, so req.ip was the proxy for every
-// client — one shared limiter bucket, and one noisy player 429s the whole
-// playerbase. One hop only: trusting the whole chain makes the key a
-// spoofable X-Forwarded-For.
+// Heroku terminates TLS at its router, so without this req.ip is the router
+// for every client — one shared limiter bucket, and one noisy player 429s the
+// whole playerbase. One hop only: trusting the whole chain would make the key
+// a spoofable X-Forwarded-For.
 app.set('trust proxy', 1);
 // Locked to the deployed app's origin in production; open in development.
 app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
