@@ -332,6 +332,34 @@ async function main() {
       `n=${acc.checkpoints} hash=${acc.lastHash}`);
   }
 
+  // The chest rail, created and delegated *before* the match ends.
+  //
+  // `end_log` credits the win's entitlement on the rollup — the one place it
+  // can see both the log and the rail at once — and afterwards the log is back
+  // on base layer. A rail created later has missed its moment, which is why
+  // the app calls `ensureChestRail` at match start, not at reward time.
+  const [rail] = PublicKey.findProgramAddressSync(
+    [Buffer.from('chests'), playerA.publicKey.toBuffer()], programId,
+  );
+  {
+    if (!(await baseConn.getAccountInfo(rail))) {
+      const sig = await baseA.methods.initChests()
+        .accounts({ chests: rail, owner: playerA.publicKey, systemProgram: SystemProgram.programId })
+        .rpc();
+      record('init_chests', sig);
+    }
+    let st = await routerStatus(rail);
+    if (st?.isDelegated !== true) {
+      const sig = await baseA.methods.delegateChests()
+        .accounts({ owner: playerA.publicKey, chests: rail, validator: null })
+        .rpc();
+      record('delegate_chests', sig);
+      await sleep(3500);
+      st = await routerStatus(rail);
+    }
+    check('chest rail is delegated before the match ends', st?.isDelegated === true, st?.fqdn);
+  }
+
   console.log('\n═══ 7. rollup: unseal, then commit + undelegate ═══');
   {
     const sig = await erA.methods.unsealLog()
@@ -348,9 +376,13 @@ async function main() {
     check('the seal is closed', perm === null || perm.data.length === 0,
       perm ? `${perm.data.length} bytes left` : 'closed, rent refunded to the log');
 
+    // Naming the winner's rail is what turns the win into a chest. It is
+    // optional in the program so a first-ever match still settles without one,
+    // but Anchor cannot infer an omitted optional — present or null, it is
+    // named explicitly.
     const endSig = await erA.methods.endLog(0, new anchor.BN('987654321'))
       .accounts({
-        payer: playerA.publicKey, log,
+        payer: playerA.publicKey, log, winnerChests: rail,
         magicContext: MAGIC_CONTEXT_ID, magicProgram: MAGIC_PROGRAM_ID,
       })
       .rpc();
@@ -390,26 +422,8 @@ async function main() {
 
   // ═══ CHESTS ════════════════════════════════════════════════════════════════
   console.log('\n═══ 9. the VRF chest lifecycle ═══');
-  const [rail] = PublicKey.findProgramAddressSync(
-    [Buffer.from('chests'), playerA.publicKey.toBuffer()], programId,
-  );
   {
-    if (!(await baseConn.getAccountInfo(rail))) {
-      const sig = await baseA.methods.initChests()
-        .accounts({ chests: rail, owner: playerA.publicKey, systemProgram: SystemProgram.programId })
-        .rpc();
-      record('init_chests', sig);
-    }
-    let st = await routerStatus(rail);
-    if (st?.isDelegated !== true) {
-      const sig = await baseA.methods.delegateChests()
-        .accounts({ owner: playerA.publicKey, chests: rail, validator: null })
-        .rpc();
-      record('delegate_chests', sig);
-      await sleep(3500);
-      st = await routerStatus(rail);
-    }
-    check('the chest rail is on a rollup', st?.isDelegated === true, st?.fqdn);
+    const st = await routerStatus(rail);
 
     const chestEr = new Connection(st?.fqdn ?? erUrl, { commitment: 'confirmed' });
     const chestProg = progFor(playerA, chestEr);

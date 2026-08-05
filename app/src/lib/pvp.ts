@@ -16,6 +16,13 @@ export interface MatchedPayload {
   role: 0 | 1;
   seed: number;
   startAt: number;
+  /**
+   * The server's own clock when it sent this, so a client can measure how far
+   * its wall clock is out and step the sim against the shared one instead.
+   * Optional: an older server does not send it, and no correction is better
+   * than a wrong correction.
+   */
+  serverNow?: number;
   opponent: {
     address: string; name: string | null; power: number; deck: MatchCard[];
     /** Ladder rating, so the winner can be scored without a second round trip. */

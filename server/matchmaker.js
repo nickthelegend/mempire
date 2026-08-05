@@ -158,7 +158,17 @@ export function registerMatchmaker(server) {
             nextMatchId += 1;
             // Order-independent seed: neither player benefits from being first.
             const seed = (fnv(`${id}`) ^ fnv(String(msg.deckHash ?? '')) ^ fnv(String(waiting.deckHash ?? ''))) >>> 0;
+            // `startAt` is an instant on the *server's* clock, and each client
+            // used to compare it against its own `Date.now()`. A wallet whose
+            // machine is thirty seconds off then targets a tick six hundred
+            // ahead of its opponent, the state hashes diverge, and a staked
+            // match voids — for nothing but an unsynchronised clock, which is
+            // ordinary on desktops that have been asleep.
+            //
+            // `serverNow` is stamped alongside it so each client can measure
+            // its own offset and step against the same shared clock.
             const startAt = Date.now() + 2200; // both clients count down to this
+            const serverNow = Date.now();
             const m = {
               players: [waiting.ws, ws],
               addr: [waiting.address, msg.address],
@@ -171,14 +181,14 @@ export function registerMatchmaker(server) {
             ws.matchId = id;
 
             send(waiting.ws, {
-              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, format,
+              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, serverNow, format,
               opponent: {
                 address: msg.address, name: msg.name ?? null,
                 power: msg.power ?? 0, deck: msg.deck, trophies,
               },
             });
             send(ws, {
-              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, format,
+              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, serverNow, format,
               opponent: {
                 address: waiting.address, name: waiting.name ?? null,
                 power: waiting.power ?? 0, deck: waiting.deck, trophies: waiting.trophies ?? 0,

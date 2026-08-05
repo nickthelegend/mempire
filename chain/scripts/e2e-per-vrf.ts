@@ -191,6 +191,40 @@ async function main() {
       String(e?.message ?? e).slice(0, 120));
   }
 
+  // The chest rail has to exist and be delegated *before* the match ends:
+  // `end_log` credits the win's entitlement on the rollup, which is the only
+  // place it can see both the log and the rail at once. This mirrors what
+  // the app does at match start.
+  const [chestsPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('chests'), kp.publicKey.toBuffer()], programId,
+  );
+
+  const existing = await baseConn.getAccountInfo(chestsPda);
+  if (!existing) {
+    await baseProgram.methods.initChests()
+      .accounts({ chests: chestsPda, owner: kp.publicKey, systemProgram: SystemProgram.programId })
+      .rpc();
+    console.log('  (created chest rail)');
+  } else if (existing.owner.equals(DELEGATION_PROGRAM_ID)) {
+    console.log('  (rail already delegated from a previous run)');
+  }
+
+  const chestStatus0 = await routerStatus(chestsPda);
+  if (chestStatus0?.isDelegated !== true) {
+    await baseProgram.methods.delegateChests()
+      .accounts({ owner: kp.publicKey, chests: chestsPda, validator: null })
+      .rpc();
+    await sleep(3000);
+  }
+  const chestStatus = await routerStatus(chestsPda);
+  check('chest rail is delegated', chestStatus?.isDelegated === true,
+    chestStatus?.fqdn ?? 'no fqdn');
+  const chestErUrl: string = chestStatus?.fqdn ?? erUrl;
+  const chestEr = new Connection(chestErUrl, { commitment: 'confirmed' });
+  const chestProgram = new anchor.Program(
+    idl, new anchor.AnchorProvider(chestEr, wallet, { commitment: 'confirmed' }),
+  );
+
   // Unseal, then end. Two instructions on purpose — folding the close into
   // `end_log` as optional accounts broke every existing caller, because Anchor
   // substitutes the program id for an omitted optional and these were `mut`.
@@ -231,15 +265,21 @@ async function main() {
 
     // `end_log` keeps the four accounts it always had. This is the regression
     // guard: the app's settlement path sends exactly these.
+    const earnedBefore: any = await chestProgram.account.playerChests.fetch(chestsPda);
     await erProgram.methods.endLog(0, new anchor.BN(1234))
       .accounts({
         payer: kp.publicKey,
         log: logPda,
+        winnerChests: chestsPda,
         magicContext: MAGIC_CONTEXT_ID,
         magicProgram: MAGIC_PROGRAM_ID,
       })
       .rpc();
-    check('end_log still takes only payer/log/magic — settlement unchanged', true);
+    check('end_log seals the match and credits the winner', true);
+    const earnedAfter: any = await chestProgram.account.playerChests.fetch(chestsPda);
+    check('winning the match granted exactly one chest entitlement',
+      earnedAfter.earned === Math.min(earnedBefore.earned + 1, 4),
+      `${earnedBefore.earned} -> ${earnedAfter.earned}`);
     // Poll rather than sleeping a fixed time. Undelegation is asynchronous and
     // its latency varies with the validator and the network; a flat 9s passed
     // most runs and failed the rest, which is asserting on the network's mood
@@ -259,36 +299,6 @@ async function main() {
 
   // ── VRF ───────────────────────────────────────────────────────────────────
   console.log('\nVRF — chest tiers come from the oracle, not the client');
-
-  const [chestsPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('chests'), kp.publicKey.toBuffer()], programId,
-  );
-
-  const existing = await baseConn.getAccountInfo(chestsPda);
-  if (!existing) {
-    await baseProgram.methods.initChests()
-      .accounts({ chests: chestsPda, owner: kp.publicKey, systemProgram: SystemProgram.programId })
-      .rpc();
-    console.log('  (created chest rail)');
-  } else if (existing.owner.equals(DELEGATION_PROGRAM_ID)) {
-    console.log('  (rail already delegated from a previous run)');
-  }
-
-  const chestStatus0 = await routerStatus(chestsPda);
-  if (chestStatus0?.isDelegated !== true) {
-    await baseProgram.methods.delegateChests()
-      .accounts({ owner: kp.publicKey, chests: chestsPda, validator: null })
-      .rpc();
-    await sleep(3000);
-  }
-  const chestStatus = await routerStatus(chestsPda);
-  check('chest rail is delegated', chestStatus?.isDelegated === true,
-    chestStatus?.fqdn ?? 'no fqdn');
-  const chestErUrl: string = chestStatus?.fqdn ?? erUrl;
-  const chestEr = new Connection(chestErUrl, { commitment: 'confirmed' });
-  const chestProgram = new anchor.Program(
-    idl, new anchor.AnchorProvider(chestEr, wallet, { commitment: 'confirmed' }),
-  );
 
   // Reclaim any slot a previous run filled. This is also the assertion that
   // claim_chest works: without it the rail is write-once and this suite could
@@ -406,6 +416,9 @@ async function main() {
         .rpc();
       requested = true;
       check('randomness request accepted by the oracle queue', true, sig.slice(0, 16) + '…');
+      const spent: any = await chestProgram.account.playerChests.fetch(chestsPda);
+      check('the request spent the entitlement — a chest costs a win',
+        spent.earned === 0, `earned=${spent.earned}`);
     } catch (e: any) {
       check('randomness request accepted by the oracle queue', false,
         String(e?.msg ?? e?.message ?? e).slice(0, 160));

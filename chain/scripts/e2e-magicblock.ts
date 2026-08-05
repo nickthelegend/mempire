@@ -108,7 +108,7 @@ async function main() {
   console.log('0. create + join a real match (base layer)');
   const cfg0 = await accounts.config.fetch(configPda);
   const cards = await accounts.card.all();
-  const mine = cards.filter((c: any) => c.account.owner.equals(admin.publicKey) && !c.account.inMatch);
+  const mine = cards.filter((c: any) => c.account.owner.equals(admin.publicKey) && c.account.lockedBy.equals(anchor.web3.PublicKey.default));
   if (mine.length < 8) {
     console.log(`  need 8 unlocked cards owned by admin, have ${mine.length} — run e2e-devnet.ts first`);
     process.exit(1);

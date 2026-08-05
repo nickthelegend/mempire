@@ -428,19 +428,43 @@ export async function closeSessionEr(
   await closeSession(adapter, erProgram(adapter, er.conn), log);
 }
 
+/**
+ * Rollup. Seals the result, then commits and undelegates the log.
+ *
+ * `winnerChests` is the rail the chest entitlement is credited to. The program
+ * takes it as an optional account and skips the grant when it is absent, so
+ * settlement never depends on a reward account existing — but we pass it
+ * whenever the winner's rail is already delegated, which `ensureChestRail` at
+ * match start makes the normal case.
+ */
 export async function endLogEr(
-  adapter: Adapter | null, matchId: number, winner: number, finalHash: bigint,
+  adapter: Adapter | null,
+  matchId: number,
+  winner: number,
+  finalHash: bigint,
+  winnerAddress?: PublicKey,
 ): Promise<TxResult & { commitSignature: string | null; undelegated: boolean }> {
   const wallet = requireSigner(adapter);
   const log = matchLogPda(matchId);
   const er = await resolveEr(log);
   if (!er) throw new Error('match log is not delegated to a rollup');
 
+  // Only send the rail if it is actually on this rollup. Naming an account the
+  // rollup does not hold fails the whole transaction, and a missed chest is
+  // worth far less than a match that cannot be settled.
+  let winnerChests: PublicKey | null = null;
+  if (winner < 2 && winnerAddress) {
+    const rail = chestsPda(winnerAddress);
+    const railEr = await resolveEr(rail).catch(() => null);
+    if (railEr && railEr.conn.rpcEndpoint === er.conn.rpcEndpoint) winnerChests = rail;
+  }
+
   const signature = await erProgram(wallet, er.conn).methods
     .endLog(winner, new BN(finalHash.toString()))
     .accounts({
       payer: wallet.publicKey!,
       log,
+      winnerChests,
       magicProgram: MAGIC_PROGRAM_ID,
       magicContext: MAGIC_CONTEXT_ID,
     } as any)

@@ -51,7 +51,7 @@
 pub mod chests;
 
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{transfer, Transfer};
+use anchor_lang::system_program::{self, transfer, Transfer};
 use ephemeral_rollups_sdk::access_control::instructions::{
     CloseEphemeralPermissionCpi, CreateEphemeralPermissionCpi, UpdateEphemeralPermissionCpi,
 };
@@ -81,6 +81,13 @@ declare_id!("3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N");
 /// player. Fixed at creation: a delegated account must not resize on the rollup.
 pub const MAX_PLAYS: usize = 128;
 const DECK_SIZE: u8 = 8;
+
+/// Ceiling on unspent chest entitlements.
+///
+/// Wins accrue faster than anyone opens chests, and an unbounded counter is a
+/// balance nobody reconciles. Four is the number of slots on the rail, so a
+/// player at the cap already has every slot's worth waiting.
+pub const MAX_UNSPENT_CHESTS: u16 = 4;
 
 /// Members of the log's ephemeral permission: exactly the two seats.
 ///
@@ -301,12 +308,33 @@ pub mod mempire_rollup {
     /// deliberately does not depend on the permission: the worst case is the
     /// seal's rent staying behind on the rollup, and the pot still settles.
     pub fn unseal_log(ctx: Context<Permission>) -> Result<()> {
+        let log = &ctx.accounts.log;
+
+        // Only a seat may unseal.
+        //
+        // Sealing is the whole point of running on a *permissioned* rollup: the
+        // sim runs two ticks behind the input that produced it, so anyone who
+        // can read the log faster than the sim consumes it sees the opponent's
+        // card before it resolves on screen. Unsealed by a stranger, that is
+        // not a leak of history — it is a spectator reading your hand, on a
+        // match with SOL on it.
+        //
+        // Deliberately not also gated on `ended`. Closing the permission has to
+        // happen *before* `end_log`, because the permission is rollup-local and
+        // `end_log` undelegates the account out from under it — requiring the
+        // match to be over would strand the permission's rent every game. A
+        // seat unsealing early gains nothing anyway: both seats are already
+        // members and can read every play.
+        require!(
+            log.players.contains(ctx.accounts.payer.key),
+            RollupError::NotAPlayer
+        );
+
         if ctx.accounts.permission.owner != &PERMISSION_PROGRAM_ID
             || ctx.accounts.permission.data_is_empty()
         {
             return Ok(());
         }
-        let log = &ctx.accounts.log;
         let match_id = log.match_id.to_le_bytes();
         let seeds: &[&[u8]] = &[b"log", match_id.as_ref(), &[log.bump]];
         CloseEphemeralPermissionCpi {
@@ -359,6 +387,17 @@ pub mod mempire_rollup {
         let log = &ctx.accounts.log;
         require!(
             session_signer != log.players[0] && session_signer != log.players[1],
+            RollupError::BadSession
+        );
+        // Nor may it be the key the *other* seat is already using. `seat_for`
+        // resolves a signer by scanning seats in order, so one key registered
+        // to both seats makes attribution depend on array position rather than
+        // on who signed. Nobody can exploit that without the other seat's
+        // secret, but a signature whose meaning depends on iteration order is
+        // not something to leave in a program that settles money.
+        require!(
+            session_signer != log.session_signers[0]
+                && session_signer != log.session_signers[1],
             RollupError::BadSession
         );
 
@@ -483,6 +522,38 @@ pub mod mempire_rollup {
             );
         }
 
+        // Grant the winner their one chest, here and nowhere else.
+        //
+        // It has to happen inside this instruction: the log is delegated to
+        // the rollup right up until the `commit_and_undelegate` below, and the
+        // chest rails live on the rollup too, so this is the only moment both
+        // are readable in one transaction. Afterwards the log is on the base
+        // layer and the rails are not, and no instruction can see both.
+        //
+        // Optional, and deliberately not fatal when absent.
+        //
+        // A player's rail is created lazily, so the very first match a wallet
+        // ever wins can end before the rail exists — and settlement failing
+        // because a *reward* account was missing would be a far worse defect
+        // than the one this is fixing. When the account is supplied it must be
+        // the winner's, which is the part that actually matters: a wrong rail
+        // is refused, never credited.
+        //
+        // Residual: a loser who hand-builds `end_log` without the account
+        // denies the winner one chest. They gain nothing by it, and the pot is
+        // untouched — worth accepting to keep settlement unconditional.
+        if winner < 2 {
+            let expected = ctx.accounts.log.players[winner as usize];
+            if let Some(chests) = ctx.accounts.winner_chests.as_mut() {
+                require_keys_eq!(chests.owner, expected, RollupError::NotAPlayer);
+                // Capped rather than saturating at u16: entitlements are meant
+                // to be spent, and an unbounded balance is a backlog nobody
+                // reconciles.
+                chests.earned = (chests.earned + 1).min(MAX_UNSPENT_CHESTS);
+                chests.exit(&crate::ID)?;
+            }
+        }
+
         {
             let log = &mut ctx.accounts.log;
             log.ended = true;
@@ -537,7 +608,33 @@ pub mod mempire_rollup {
         c.pending_nonce = 0;
         c.requested_at = 0;
         c.opened = 0;
+        c.earned = 0;
         c.bump = ctx.bumps.chests;
+        Ok(())
+    }
+
+
+    /// Base layer. Reclaims a chest rail so it can be recreated.
+    ///
+    /// Exists because `PlayerChests` gained the `earned` counter, and a rail
+    /// written under the previous layout is a fixed-size account two bytes
+    /// short of what the new struct deserialises — every read of it fails, and
+    /// `init_chests` will not touch an address that already exists. Without a
+    /// way out, a wallet that had ever opened a chest could never open another.
+    ///
+    /// Owner-only and base-layer-only: the account must be undelegated first
+    /// (`commit_chests`), so this can never race a live roll. `AccountInfo`
+    /// rather than `Account<PlayerChests>` on purpose — the whole point is to
+    /// close accounts that no longer deserialise.
+    pub fn close_chests(ctx: Context<CloseChests>) -> Result<()> {
+        let rail = &ctx.accounts.chests;
+        let owner = &ctx.accounts.owner;
+
+        let lamports = rail.lamports();
+        **rail.try_borrow_mut_lamports()? = 0;
+        **owner.to_account_info().try_borrow_mut_lamports()? += lamports;
+        rail.assign(&system_program::ID);
+        rail.resize(0)?;
         Ok(())
     }
 
@@ -582,10 +679,19 @@ pub mod mempire_rollup {
                 c.slots[idx].state == STATE_EMPTY,
                 RollupError::SlotNotEmpty
             );
+            // A chest costs a win. Until this check existed the loop
+            // request → claim → request minted drops indefinitely, and the
+            // rule that made them scarce lived only in the client.
+            require!(c.earned > 0, RollupError::NoChestEarned);
         }
 
         let nonce = {
             let c = &mut ctx.accounts.chests;
+            // Spent up front, not on the callback. A request that the oracle
+            // never answers is recovered through the timeout path, which
+            // refunds the entitlement — whereas charging on delivery would
+            // let a player cancel and re-request on a roll they could see.
+            c.earned -= 1;
             c.nonce = c.nonce.saturating_add(1);
             c.pending_slot = slot_index;
             c.pending_nonce = c.nonce;
@@ -705,6 +811,12 @@ pub mod mempire_rollup {
         if idx < CHEST_SLOTS && c.slots[idx].state == STATE_PENDING {
             c.slots[idx] = Chest::default();
         }
+        // Give the entitlement back. `request_chest` spends it on the way in,
+        // so an oracle that never answered would otherwise cost the player the
+        // win they earned. This is not a free re-roll: the drop was never
+        // revealed, and the timeout is long enough that stalling deliberately
+        // is not a strategy.
+        c.earned = (c.earned + 1).min(MAX_UNSPENT_CHESTS);
         c.pending_slot = u8::MAX;
         c.pending_nonce = 0;
         c.requested_at = 0;
@@ -717,8 +829,18 @@ pub mod mempire_rollup {
     /// send the callback to an account that is no longer on the rollup, and the
     /// player would lose the chest they were waiting on.
     pub fn commit_chests(ctx: Context<CommitChests>) -> Result<()> {
-        require!(ctx.accounts.chests.idle(), RollupError::RequestInFlight);
-        ctx.accounts.chests.exit(&crate::ID)?;
+        // Refuse while a roll is outstanding — undelegating mid-flight sends
+        // the oracle's callback to an account that is no longer here. Read by
+        // hand rather than through `Account<T>` so a stale-layout rail can
+        // still be brought home; one that cannot be parsed cannot have a live
+        // request either, since nothing could have written one.
+        {
+            let data = ctx.accounts.chests.try_borrow_data()?;
+            if let Ok(rail) = PlayerChests::try_deserialize(&mut &data[..]) {
+                require!(rail.owner == ctx.accounts.owner.key(), RollupError::NotAPlayer);
+                require!(rail.idle(), RollupError::RequestInFlight);
+            }
+        }
         MagicIntentBundleBuilder::new(
             ctx.accounts.owner.to_account_info(),
             ctx.accounts.magic_context.to_account_info(),
@@ -856,6 +978,17 @@ pub struct EndLog<'info> {
         bump = log.bump,
     )]
     pub log: Account<'info, MatchLog>,
+    /// The winner's chest rail, so the win can pay out an entitlement.
+    ///
+    /// Optional in the struct and required by the instruction whenever there
+    /// is a winner — a draw has nobody to pay, and making it `Option` is what
+    /// lets a draw be ended without inventing an account to satisfy the type.
+    #[account(
+        mut,
+        seeds = [b"chests", winner_chests.owner.as_ref()],
+        bump = winner_chests.bump,
+    )]
+    pub winner_chests: Option<Account<'info, PlayerChests>>,
 }
 
 /// Opening or closing a session. Wallet-only: the `player` here must be a seat,
@@ -947,6 +1080,17 @@ pub struct InitChests<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseChests<'info> {
+    /// CHECK: PDA checked by seeds; deliberately untyped so a rail written
+    /// under an older layout — which is the reason this instruction exists —
+    /// can still be closed.
+    #[account(mut, seeds = [b"chests", owner.key().as_ref()], bump)]
+    pub chests: AccountInfo<'info>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
 }
 
 #[delegate]
@@ -1052,13 +1196,13 @@ pub struct CancelChest<'info> {
 pub struct CommitChests<'info> {
     #[account(mut)]
     pub owner: Signer<'info>,
-    #[account(
-        mut,
-        seeds = [b"chests", chests.owner.as_ref()],
-        bump = chests.bump,
-        has_one = owner,
-    )]
-    pub chests: Account<'info, PlayerChests>,
+    /// CHECK: the PDA seeds bind this to `owner`, which is the same guarantee
+    /// `has_one` gave. Untyped on purpose: undelegating is how an account
+    /// written under a previous layout gets back to base layer to be fixed,
+    /// and a typed account would refuse to deserialise exactly then — leaving
+    /// the rail stranded on the rollup with no way home.
+    #[account(mut, seeds = [b"chests", owner.key().as_ref()], bump)]
+    pub chests: AccountInfo<'info>,
 }
 
 #[error_code]
@@ -1067,6 +1211,8 @@ pub enum RollupError {
     NotAPlayer,
     #[msg("match already ended")]
     AlreadyEnded,
+    #[msg("no unopened chest earned; win a match first")]
+    NoChestEarned,
     #[msg("match has not ended yet")]
     NotEnded,
     #[msg("session key is invalid, expired, or would collide with a seat")]

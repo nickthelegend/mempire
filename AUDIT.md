@@ -1,4 +1,4 @@
-# Audit — 4 Aug 2026
+# Audit — 4 Aug 2026, closed out 6 Aug
 
 Five parallel audits of the whole repo. Findings are recorded here **whether or
 not they are fixed**, because a known unfixed defect that nobody wrote down is
@@ -21,29 +21,31 @@ Severity is by what an attacker gains, not by how hard it was to spot.
 | A4 | `state/match.ts` | **HIGH** A relay outage settled BOTH clients as the loser. Now voids. |
 | A6 | `state/match.ts` | **HIGH** A draw was committed as "seat 1 won". |
 | A7 | `sim/engine.ts` | **MEDIUM** The state hash omitted phase, targets, level, trait and maxHp. |
+| C6 | `mempire` `unlock_deck` | **HIGH** Cleared the lock on any account that deserialised as a `Card`, so settling one match freed a deck out of another still-running one — the power bracket, bypassed. `in_match: bool` is now `locked_by: Pubkey` and unlocking skips anything this match does not hold. |
+| C7 | `mempire-rollup` `unseal_log` | **HIGH** No seat check: a stranger could open a live match's permission and read both hands two ticks before they resolved. Now seat-only. |
+| C8 | `mempire-rollup` `open_session` | **HIGH** Accepted a session key equal to a seat. Now refuses a seat key *and* the other seat's session key, so attribution never depends on iteration order. |
+| C9 | `mempire-rollup` `request_chest` | **HIGH** Nothing consumed an earned chest — request → claim → request minted drops forever, with the one-per-match rule living only in the client. Wins now grant an `earned` entitlement that a roll spends. |
+| C10 | `mempire` `ClaimUnstake` | **MEDIUM** `treasury_tokens` was constrained on `.mint` alone, so the unstaker passed their own account and refunded their own fee. Now tied to `config.treasury`. |
+| C11 | `mempire` `create_match` | **MEDIUM** No cancel path: an unjoined match stranded the stake and locked eight cards forever. `cancel_match` refunds the creator and releases the deck. |
+| C12 | `mempire` `init_config` | **MEDIUM** Whoever front-ran the first call owned rake, fees and prices permanently. Now bound to the program's upgrade authority. |
+| A5 | `state/match.ts` | **HIGH** Both clients stepped `(Date.now() - startAt)` against their *own* wall clocks, so ordinary drift on a laptop that had been asleep desynced the sim and voided a staked match. The matchmaker now stamps `serverNow` and each client corrects for its offset. |
 | E1 | `lib/audio.ts`, `components/CardFrame.tsx` | **LOW** Every sound and every card image was fetched 2–3 times and the duplicates cancelled — 48 aborted requests a session on mobile, now zero. |
 
 ## Open — chain
 
-Real, and none of them is pot theft. Recorded with severity and exploit path
-so the next person does not have to re-derive them.
+None. Every finding above is fixed, deployed to devnet, and has a test in
+`e2e-security.ts` that attempts the original exploit and asserts the refusal.
 
-| # | Where | Severity | Defect |
-|---|---|---|---|
-| C6 | `mempire/src/lib.rs:732` `unlock_deck` | **HIGH** | Clears `in_match` on any account that deserialises as a `Card`, with no check it belongs to this match. Frees a locked deck, bypassing the power bracket. |
-| C7 | `mempire-rollup/src/lib.rs:279` `unseal_log` | **HIGH** | No seat check and no `!ended` check — any third party can unseal a live match, exposing plays before they resolve. |
-| C8 | `mempire-rollup/src/lib.rs:319` `open_session` | **HIGH** | Accepts a session key equal to the *other* seat's key; `seat_for` then attributes the victim's plays to the attacker's seat and voids the match on demand. |
-| C9 | `mempire-rollup/src/lib.rs:539` `request_chest` | **HIGH** | Nothing consumes an earned chest. Loop request → claim to farm unlimited chests; the one-per-match rule exists only in the client. |
-| C10 | `mempire/src/lib.rs:995` `ClaimUnstake` | **MEDIUM** | `treasury_tokens` constrained on `.mint` only, never tied to `config.treasury`. The unstaker passes their own account and refunds their own fee. |
-| C11 | `mempire/src/lib.rs:293` `create_match` | **MEDIUM** | No cancel path for an `Open` match: an unjoined match strands the stake and locks 8 cards forever. |
-| C12 | `mempire/src/lib.rs:60` `init_config` | **MEDIUM** | Not bound to the upgrade authority. Whoever front-runs the first call owns rake, fees and prices permanently. |
+Two migrations were needed and are kept for the record: `migrate-cards.ts`
+(`Card` grew 31 bytes when `in_match` became `locked_by`) and
+`migrate-chests.ts` (`PlayerChests` grew 2 bytes for `earned`). Both are
+idempotent and owner-signed.
 
 ## Open — client
 
 | # | Where | Severity | Defect |
 |---|---|---|---|
 | A2 | `state/wallet.ts:26` | **KNOWN** | The stake and payout shown are a local number, not chain state. This is now what the game claims: the SOL tier is presentation, and the escrow that used to back it (A1) is removed because nothing could settle it. Wiring join/settle/timeout end-to-end is the work that makes the stake real. |
-| A5 | `state/match.ts:549` | **HIGH** | Tick target derives from unsynchronised `Date.now()` with 400ms of slack; ordinary clock skew voids a staked match. |
 
 ## Clean — verified, not assumed
 

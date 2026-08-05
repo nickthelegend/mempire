@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { PublicKey } from '@solana/web3.js';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
   checkpointEr, closeLogTx, closeSessionEr, delegateLogTx, endLogEr, fetchLog,
@@ -6,6 +7,7 @@ import {
   matchLogPda, playCardEr, readableChainError,
 } from '../chain/erActions';
 import { createMatchTx } from '../chain/actions';
+import { ensureChestRail } from '../chain/erActions';
 import { IS_LOCALNET, resolveEr } from '../chain/magicblock';
 import { useChain } from './chain';
 import { signer } from './wallet';
@@ -56,6 +58,8 @@ interface ErMatchState {
   lastError: string | null;
   lastSignature: string | null;
   commitSignature: string | null;
+  /** The two seats, kept so settlement can name the winner's chest rail. */
+  seats: [string, string] | null;
 
   /** Base layer: create + delegate. Safe to call once per match. */
   begin: (
@@ -103,17 +107,25 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   lastError: null,
   lastSignature: null,
   commitSignature: null,
+  seats: null,
 
   begin: async (adapter, matchId, players) => {
     if (!adapter) { set({ phase: 'off' }); return; }
     set({
       phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false, sessioned: false,
-      lastError: null, commitSignature: null,
+      lastError: null, commitSignature: null, seats: players,
       logAddress: matchLogPda(matchId).toBase58(),
     });
     try {
       await initLogTx(adapter, matchId, players);
       await delegateLogTx(adapter, matchId, IS_LOCALNET);
+
+      // Create and delegate this wallet's chest rail now rather than after the
+      // win. `end_log` credits the entitlement on the rollup, where it can see
+      // both the log and the rail in one transaction, and that is only true
+      // while the match is still delegated — a rail created afterwards has
+      // missed its moment. Non-fatal: settlement does not depend on it.
+      void ensureChestRail(adapter).catch(() => { /* chest is granted next win */ });
       // Placement is the router's call — confirm it before claiming 'live'.
       const er = await resolveEr(matchLogPda(matchId));
       if (!er) throw new Error('router did not place the log on a rollup');
@@ -215,7 +227,13 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
         try { await unsealLogEr(adapter, matchId); } catch { /* rent stays behind */ }
         set({ sealed: false });
       }
-      const r = await endLogEr(adapter, matchId, winner, finalHash);
+      // The winner's chest rail, so the win actually pays out an entitlement.
+      // `end_log` treats it as optional and skips the grant when it is absent,
+      // so a wallet whose rail does not exist yet still settles normally.
+      const seats = get().seats;
+      const winnerAddress =
+        winner < 2 && seats ? new PublicKey(seats[winner]) : undefined;
+      const r = await endLogEr(adapter, matchId, winner, finalHash, winnerAddress);
       // 'committed' means the log is readable on base layer — the only state in
       // which settle_from_log can succeed.
       set({

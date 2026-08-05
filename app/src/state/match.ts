@@ -155,6 +155,26 @@ async function rollChestOnchain(): Promise<void> {
 
 /** Human matches step against the wall clock so two clients stay in lockstep. */
 let humanStartAt = 0;
+
+/**
+ * How far this machine's wall clock is behind the matchmaker's, in ms.
+ *
+ * Both clients step the sim against `tick = (now - startAt) / 50ms`, where
+ * `startAt` is an instant on the *server's* clock. Comparing that to a local
+ * `Date.now()` means a machine thirty seconds out targets a tick six hundred
+ * ahead of its opponent; the state hashes diverge on the first checkpoint and
+ * a staked match voids over nothing but an unsynchronised clock — which is
+ * ordinary on a laptop that has been asleep.
+ *
+ * Measured once from the matched message, then applied everywhere the match
+ * asks what time it is.
+ */
+let clockSkew = 0;
+
+/** The shared clock both clients agree on: local time, corrected. */
+function sharedNow(): number {
+  return Date.now() + clockSkew;
+}
 /**
  * SOL escrowed for a human match that has not settled yet. Every abnormal exit
  * between escrow and settlement — opponent vanishing before the start, the sim
@@ -564,7 +584,7 @@ function stepOne(sim: SimState): void {
 function tickHuman(): void {
   const sim = useMatch.getState().sim;
   if (!sim || sim.phase === 'ended') return;
-  const target = Math.floor((Date.now() - humanStartAt) / TICK_MS);
+  const target = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
   let steps = 0;
   while (sim.tick < target && steps < 6) {
     stepOne(sim);
@@ -705,6 +725,14 @@ function beginHumanBattle(
   hashes = [];
   humanStartAt = m.startAt;
 
+  // The message spent one network leg in flight, so the server's clock has
+  // moved on by roughly that much since it was stamped. Half the round trip is
+  // the standard estimate and it is not measurable from one message, so this
+  // uses the conservative floor: assume the message was instant, which makes
+  // the correction err small rather than overshoot. Anything left is far below
+  // the tick that matters, and vastly below the clock drift this exists for.
+  clockSkew = typeof m.serverNow === 'number' ? m.serverNow - Date.now() : 0;
+
   useMatch.setState({
     status: 'found',
     mode: 'human',
@@ -715,7 +743,7 @@ function beginHumanBattle(
   // Both clients hold on 'found' until the shared start instant, then step
   // against the same clock. The interval runs at half a tick so a late timer
   // callback still lands inside the right tick window.
-  const untilStart = Math.max(0, m.startAt - Date.now());
+  const untilStart = Math.max(0, m.startAt - sharedNow());
   queueTimers.push(setTimeout(() => {
     if (useMatch.getState().status !== 'found') return;
     useMatch.setState({ status: 'battle', sim, version: 0, crowns: [0, 0], shock: null });

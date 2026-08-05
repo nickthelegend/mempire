@@ -157,7 +157,7 @@ pub mod mempire {
         card.level = 1;
         card.pending_unstake_tokens = 0;
         card.unstake_ready_at = 0;
-        card.in_match = false;
+        card.locked_by = Pubkey::default();
         card.bump = ctx.bumps.card;
 
         let cfg = &mut ctx.accounts.config;
@@ -172,11 +172,70 @@ pub mod mempire {
         Ok(())
     }
 
+
+    /// One-time: rewrite a `Card` written under the pre-`locked_by` layout.
+    ///
+    /// `in_match: bool` became `locked_by: Pubkey` so settlement could tell
+    /// *which* match a lock belongs to. That is 31 bytes wider and shifts
+    /// `bump`, so an account written under the old shape no longer
+    /// deserialises — and a card that cannot be read cannot be staked into,
+    /// battled with, or unstaked from. The alternative to this instruction is
+    /// telling every existing holder their staked tokens are unreachable.
+    ///
+    /// Owner-signed, and a no-op on anything already the new size, so running
+    /// it twice is harmless. The lock is cleared: the old layout recorded only
+    /// *that* a card was locked, never to what, so there is nothing to carry
+    /// over — and a stranded lock with no match to release it is precisely the
+    /// bug this field exists to prevent.
+    pub fn migrate_card(ctx: Context<MigrateCard>) -> Result<()> {
+        const OLD_LEN: usize = 8 + 108;
+        let info = &ctx.accounts.card;
+
+        if info.data_len() >= Card::SIZE {
+            return Ok(());
+        }
+        require!(info.data_len() == OLD_LEN, MempireError::BadCardLayout);
+
+        // Read the two trailing fields before the account grows under us.
+        let bump = {
+            let data = info.try_borrow_data()?;
+            // owner, at offset 8 + 8, must be the signer — the seeds alone do
+            // not bind this account to anyone.
+            let owner = Pubkey::try_from(&data[16..48]).unwrap();
+            require_keys_eq!(owner, ctx.accounts.owner.key(), MempireError::NotCardOwner);
+            data[8 + 107]
+        };
+
+        let rent = Rent::get()?;
+        let needed = rent.minimum_balance(Card::SIZE);
+        let have = info.lamports();
+        if needed > have {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.owner.to_account_info(),
+                        to: info.to_account_info(),
+                    },
+                ),
+                needed - have,
+            )?;
+        }
+        info.resize(Card::SIZE)?;
+
+        let mut data = info.try_borrow_mut_data()?;
+        // `locked_by` = default, then `bump` at its new home. Everything before
+        // offset 106 is unchanged and stays exactly where it was.
+        data[8 + 106..8 + 138].fill(0);
+        data[8 + 138] = bump;
+        Ok(())
+    }
+
     /// Stake coin tokens into the card's vault. USD value snapshots at the
     /// current oracle price — levels never flicker with the market.
     pub fn stake(ctx: Context<StakeTokens>, amount_tokens: u64) -> Result<()> {
         require!(amount_tokens > 0, MempireError::ZeroAmount);
-        require!(!ctx.accounts.card.in_match, MempireError::CardLocked);
+        require!(!ctx.accounts.card.is_locked(), MempireError::CardLocked);
 
         token::transfer(
             CpiContext::new(
@@ -216,7 +275,7 @@ pub mod mempire {
     /// Level drops immediately — no battling on power you're withdrawing.
     pub fn request_unstake(ctx: Context<RequestUnstake>, amount_tokens: u64) -> Result<()> {
         let card = &mut ctx.accounts.card;
-        require!(!card.in_match, MempireError::CardLocked);
+        require!(!card.is_locked(), MempireError::CardLocked);
         require!(card.pending_unstake_tokens == 0, MempireError::UnstakePending);
         require!(
             amount_tokens > 0 && amount_tokens <= card.staked_tokens,
@@ -296,7 +355,12 @@ pub mod mempire {
         stake_lamports: u64,
         deck_hash: [u8; 32],
     ) -> Result<()> {
-        let power = validate_and_lock_deck(ctx.remaining_accounts, &ctx.accounts.player.key())?;
+        let match_key = ctx.accounts.match_account.key();
+        let power = validate_and_lock_deck(
+            ctx.remaining_accounts,
+            &ctx.accounts.player.key(),
+            &match_key,
+        )?;
 
         system_program::transfer(
             CpiContext::new(
@@ -339,7 +403,12 @@ pub mod mempire {
         ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>,
         deck_hash: [u8; 32],
     ) -> Result<()> {
-        let power = validate_and_lock_deck(ctx.remaining_accounts, &ctx.accounts.player.key())?;
+        let match_key = ctx.accounts.match_account.key();
+        let power = validate_and_lock_deck(
+            ctx.remaining_accounts,
+            &ctx.accounts.player.key(),
+            &match_key,
+        )?;
 
         let stake = ctx.accounts.match_account.stake_lamports;
         system_program::transfer(
@@ -369,6 +438,48 @@ pub mod mempire {
         m.power[1] = power;
         m.state = MatchState::Active as u8;
         m.deadline = Clock::get()?.unix_timestamp + ctx.accounts.config.match_timeout_secs;
+        Ok(())
+    }
+
+    /// Withdraw a match nobody joined: stake back, deck released.
+    ///
+    /// Without this an `Open` match was a one-way door. Nobody is obliged to
+    /// join, and if nobody did, the creator's stake sat in the match account
+    /// and eight cards stayed locked with no instruction anywhere that could
+    /// free them — every unmatched queue entry permanently burned a deck.
+    ///
+    /// Only the creator, only while still `Open`, so this can never touch a
+    /// live match or a pot that has two contributors. No rake: no game was
+    /// played, so there is nothing to take a cut of.
+    pub fn cancel_match<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CancelMatch<'info>>,
+    ) -> Result<()> {
+        {
+            let m = &ctx.accounts.match_account;
+            require!(m.state == MatchState::Open as u8, MempireError::BadMatchState);
+            require!(
+                m.players[0] == ctx.accounts.player.key(),
+                MempireError::NotAPlayer
+            );
+        }
+
+        // Return exactly the stake, not the whole balance: the rest is the
+        // account's rent, and it is `close`d to the player below anyway.
+        let stake = ctx.accounts.match_account.stake_lamports;
+        let m_info = ctx.accounts.match_account.to_account_info();
+        **m_info.try_borrow_mut_lamports()? -= stake;
+        **ctx.accounts.player.to_account_info().try_borrow_mut_lamports()? += stake;
+
+        unlock_deck(ctx.remaining_accounts, &ctx.accounts.match_account.key())?;
+
+        let m = &mut ctx.accounts.match_account;
+        m.state = MatchState::Settled as u8;
+        m.winner = 3;
+        emit!(MatchCancelled {
+            match_id: m.id,
+            player: ctx.accounts.player.key(),
+            refunded: stake,
+        });
         Ok(())
     }
 
@@ -422,7 +533,7 @@ pub mod mempire {
             **to.try_borrow_mut_lamports()? += payout;
         }
 
-        unlock_deck(ctx.remaining_accounts)?;
+        unlock_deck(ctx.remaining_accounts, &ctx.accounts.match_account.key())?;
 
         let m = &mut ctx.accounts.match_account;
         m.state = MatchState::Settled as u8;
@@ -483,7 +594,7 @@ pub mod mempire {
         **ctx.accounts.treasury.try_borrow_mut_lamports()? += rake;
         **ctx.accounts.winner_account.try_borrow_mut_lamports()? += payout;
 
-        unlock_deck(ctx.remaining_accounts)?;
+        unlock_deck(ctx.remaining_accounts, &ctx.accounts.match_account.key())?;
 
         let m = &mut ctx.accounts.match_account;
         m.state = MatchState::Settled as u8;
@@ -758,7 +869,7 @@ pub mod mempire {
             **to.try_borrow_mut_lamports()? += payout;
         }
 
-        unlock_deck(ctx.remaining_accounts)?;
+        unlock_deck(ctx.remaining_accounts, &ctx.accounts.match_account.key())?;
 
         let m = &mut ctx.accounts.match_account;
         m.state = MatchState::Settled as u8;
@@ -780,6 +891,7 @@ pub mod mempire {
 fn validate_and_lock_deck<'a>(
     accounts: &'a [AccountInfo<'a>],
     player: &Pubkey,
+    match_key: &Pubkey,
 ) -> Result<u32> {
     require!(accounts.len() == DECK_SIZE, MempireError::BadDeck);
     let mut mints: Vec<Pubkey> = Vec::with_capacity(DECK_SIZE);
@@ -787,23 +899,33 @@ fn validate_and_lock_deck<'a>(
     for acc in accounts {
         let mut card: Account<Card> = Account::try_from(acc)?;
         require!(card.owner == *player, MempireError::NotCardOwner);
-        require!(!card.in_match, MempireError::CardLocked);
+        require!(!card.is_locked(), MempireError::CardLocked);
         require!(
             !mints.contains(&card.coin_mint),
             MempireError::DuplicateCoin
         );
         mints.push(card.coin_mint);
         power += card.level as u32;
-        card.in_match = true;
+        card.locked_by = *match_key;
         card.exit(&crate::ID)?;
     }
     Ok(power)
 }
 
-fn unlock_deck<'a>(accounts: &'a [AccountInfo<'a>]) -> Result<()> {
+/// Release the decks this match locked — and only those.
+///
+/// The skip is deliberate rather than an error: settlement passes both decks
+/// as remaining accounts, and a caller can put anything in that list. A card
+/// locked into another live match, or a card that is not this match's, is
+/// left exactly as it was. Failing the whole instruction instead would let
+/// anyone append one foreign account and block a legitimate settlement.
+fn unlock_deck<'a>(accounts: &'a [AccountInfo<'a>], match_key: &Pubkey) -> Result<()> {
     for acc in accounts {
         if let Ok(mut card) = Account::<Card>::try_from(acc) {
-            card.in_match = false;
+            if card.locked_by != *match_key {
+                continue;
+            }
+            card.locked_by = Pubkey::default();
             card.exit(&crate::ID)?;
         }
     }
@@ -856,11 +978,26 @@ pub struct Card {
     pub level: u8,
     pub pending_unstake_tokens: u64,
     pub unstake_ready_at: i64,
-    pub in_match: bool,
+    /// The match this card is locked into, or the default key when free.
+    ///
+    /// This used to be a bare `in_match: bool`, and a bool cannot answer the
+    /// question `unlock_deck` actually has to ask. Settlement takes the deck
+    /// as remaining accounts, so with only a flag it would clear the lock on
+    /// any account that happened to deserialise as a `Card` — including a
+    /// card locked into a *different, still-running* match. A player could
+    /// settle one match and free their heavy deck out of another, which is
+    /// the power bracket bypassed. Naming the match makes the check possible.
+    pub locked_by: Pubkey,
     pub bump: u8,
 }
 impl Card {
-    pub const SIZE: usize = 8 + 8 + 32 + 32 + 1 + 8 + 8 + 1 + 8 + 8 + 1 + 1;
+    pub const SIZE: usize = 8 + 8 + 32 + 32 + 1 + 8 + 8 + 1 + 8 + 8 + 32 + 1;
+
+    /// Locked into some match. Kept as a method so no caller has to remember
+    /// that "free" is spelled `Pubkey::default()`.
+    pub fn is_locked(&self) -> bool {
+        self.locked_by != Pubkey::default()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -948,6 +1085,20 @@ pub struct InitConfig<'info> {
     pub admin: Signer<'info>,
     /// CHECK: fee destination chosen by the admin
     pub treasury: UncheckedAccount<'info>,
+
+    /// The program's own account and its ProgramData, used to prove the
+    /// signer is the upgrade authority.
+    ///
+    /// `config` is a fixed PDA with no init constraint beyond being unwritten,
+    /// so whoever called this first owned the rake, the fees and the prices
+    /// permanently — and a deployment is public the moment the transaction
+    /// lands. Anchor's `constraint` on `program.programdata_address()?` is the
+    /// standard way to say "only whoever can upgrade this program".
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ MempireError::NotUpgradeAuthority)]
+    pub program: Program<'info, crate::program::Mempire>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(admin.key()) @ MempireError::NotUpgradeAuthority)]
+    pub program_data: Account<'info, ProgramData>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -1070,7 +1221,17 @@ pub struct ClaimUnstake<'info> {
     pub vault: Account<'info, TokenAccount>,
     #[account(mut, constraint = owner_tokens.mint == card.coin_mint)]
     pub owner_tokens: Account<'info, TokenAccount>,
-    #[account(mut, constraint = treasury_tokens.mint == card.coin_mint)]
+    /// The unstake fee's destination.
+    ///
+    /// `owner` is constrained as well as `mint`. With only the mint checked,
+    /// the unstaker could pass one of their own token accounts and the fee
+    /// would be paid straight back to them — a 0% unstake fee for anyone who
+    /// read the IDL.
+    #[account(
+        mut,
+        constraint = treasury_tokens.mint == card.coin_mint @ MempireError::WrongTreasury,
+        constraint = treasury_tokens.owner == config.treasury @ MempireError::WrongTreasury,
+    )]
     pub treasury_tokens: Account<'info, TokenAccount>,
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -1107,6 +1268,30 @@ pub struct JoinMatch<'info> {
     #[account(mut)]
     pub player: Signer<'info>,
     pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct MigrateCard<'info> {
+    /// CHECK: untyped on purpose — the whole point is that this account does
+    /// not deserialise as a `Card` yet. Ownership is verified by reading the
+    /// owner field out of the raw bytes.
+    #[account(mut, owner = crate::ID)]
+    pub card: AccountInfo<'info>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CancelMatch<'info> {
+    #[account(
+        mut,
+        seeds = [b"match", match_account.id.to_le_bytes().as_ref()],
+        bump = match_account.bump,
+    )]
+    pub match_account: Account<'info, MatchAccount>,
+    #[account(mut)]
+    pub player: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -1275,6 +1460,13 @@ pub struct MatchSettled {
     pub rake: u64,
 }
 
+#[event]
+pub struct MatchCancelled {
+    pub match_id: u64,
+    pub player: Pubkey,
+    pub refunded: u64,
+}
+
 #[error_code]
 pub enum MempireError {
     #[msg("the two players reported different winners; the match voids")]
@@ -1321,4 +1513,10 @@ pub enum MempireError {
     StaleTick,
     #[msg("match has not ended on the rollup yet")]
     MatchNotEnded,
+    #[msg("fee account is not the treasury named in config")]
+    WrongTreasury,
+    #[msg("signer is not the program's upgrade authority")]
+    NotUpgradeAuthority,
+    #[msg("card account is not a recognised layout")]
+    BadCardLayout,
 }

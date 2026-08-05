@@ -14,6 +14,62 @@
   ],
   "instructions": [
     {
+      "name": "cancel_match",
+      "docs": [
+        "Withdraw a match nobody joined: stake back, deck released.",
+        "",
+        "Without this an `Open` match was a one-way door. Nobody is obliged to",
+        "join, and if nobody did, the creator's stake sat in the match account",
+        "and eight cards stayed locked with no instruction anywhere that could",
+        "free them — every unmatched queue entry permanently burned a deck.",
+        "",
+        "Only the creator, only while still `Open`, so this can never touch a",
+        "live match or a pot that has two contributors. No rake: no game was",
+        "played, so there is nothing to take a cut of."
+      ],
+      "discriminator": [
+        142,
+        136,
+        247,
+        45,
+        92,
+        112,
+        180,
+        83
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "player",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "checkpoint",
       "docs": [
         "Records a state-hash checkpoint. ER.",
@@ -232,6 +288,14 @@
         },
         {
           "name": "treasury_tokens",
+          "docs": [
+            "The unstake fee's destination.",
+            "",
+            "`owner` is constrained as well as `mint`. With only the mint checked,",
+            "the unstaker could pass one of their own token accounts and the fee",
+            "would be paid straight back to them — a 0% unstake fee for anyone who",
+            "read the IDL."
+          ],
           "writable": true
         },
         {
@@ -641,6 +705,23 @@
           "name": "treasury"
         },
         {
+          "name": "program",
+          "docs": [
+            "The program's own account and its ProgramData, used to prove the",
+            "signer is the upgrade authority.",
+            "",
+            "`config` is a fixed PDA with no init constraint beyond being unwritten,",
+            "so whoever called this first owned the rake, the fees and the prices",
+            "permanently — and a deployment is public the moment the transaction",
+            "lands. Anchor's `constraint` on `program.programdata_address()?` is the",
+            "standard way to say \"only whoever can upgrade this program\"."
+          ],
+          "address": "BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -833,6 +914,55 @@
           }
         }
       ]
+    },
+    {
+      "name": "migrate_card",
+      "docs": [
+        "One-time: rewrite a `Card` written under the pre-`locked_by` layout.",
+        "",
+        "`in_match: bool` became `locked_by: Pubkey` so settlement could tell",
+        "*which* match a lock belongs to. That is 31 bytes wider and shifts",
+        "`bump`, so an account written under the old shape no longer",
+        "deserialises — and a card that cannot be read cannot be staked into,",
+        "battled with, or unstaked from. The alternative to this instruction is",
+        "telling every existing holder their staked tokens are unreachable.",
+        "",
+        "Owner-signed, and a no-op on anything already the new size, so running",
+        "it twice is harmless. The lock is cleared: the old layout recorded only",
+        "*that* a card was locked, never to what, so there is nothing to carry",
+        "over — and a stranded lock with no match to release it is precisely the",
+        "bug this field exists to prevent."
+      ],
+      "discriminator": [
+        81,
+        142,
+        179,
+        122,
+        50,
+        113,
+        84,
+        184
+      ],
+      "accounts": [
+        {
+          "name": "card",
+          "docs": [
+            "not deserialise as a `Card` yet. Ownership is verified by reading the",
+            "owner field out of the raw bytes."
+          ],
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "mint_card",
@@ -1819,6 +1949,19 @@
       ]
     },
     {
+      "name": "MatchCancelled",
+      "discriminator": [
+        99,
+        86,
+        22,
+        122,
+        82,
+        247,
+        60,
+        113
+      ]
+    },
+    {
       "name": "MatchCreated",
       "discriminator": [
         151,
@@ -1968,6 +2111,21 @@
       "code": 6021,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
+    },
+    {
+      "code": 6022,
+      "name": "WrongTreasury",
+      "msg": "fee account is not the treasury named in config"
+    },
+    {
+      "code": 6023,
+      "name": "NotUpgradeAuthority",
+      "msg": "signer is not the program's upgrade authority"
+    },
+    {
+      "code": 6024,
+      "name": "BadCardLayout",
+      "msg": "card account is not a recognised layout"
     }
   ],
   "types": [
@@ -2013,8 +2171,19 @@
             "type": "i64"
           },
           {
-            "name": "in_match",
-            "type": "bool"
+            "name": "locked_by",
+            "docs": [
+              "The match this card is locked into, or the default key when free.",
+              "",
+              "This used to be a bare `in_match: bool`, and a bool cannot answer the",
+              "question `unlock_deck` actually has to ask. Settlement takes the deck",
+              "as remaining accounts, so with only a flag it would clear the lock on",
+              "any account that happened to deserialise as a `Card` — including a",
+              "card locked into a *different, still-running* match. A player could",
+              "settle one match and free their heavy deck out of another, which is",
+              "the power bracket bypassed. Naming the match makes the check possible."
+            ],
+            "type": "pubkey"
           },
           {
             "name": "bump",
@@ -2211,6 +2380,26 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "refunded",
+            "type": "u64"
           }
         ]
       }

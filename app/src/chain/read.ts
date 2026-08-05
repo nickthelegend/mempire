@@ -87,7 +87,10 @@ export interface ChainCard {
   level: number;
   pendingUnstakeTokens: number;
   unstakeReadyAt: number;
+  /** True while the card is locked into a match. */
   inMatch: boolean;
+  /** The match holding the lock, or null when free. */
+  lockedBy: string | null;
 }
 
 function toCard(address: PublicKey, a: any): ChainCard {
@@ -102,7 +105,15 @@ function toCard(address: PublicKey, a: any): ChainCard {
     level: num(a.level),
     pendingUnstakeTokens: num(a.pendingUnstakeTokens),
     unstakeReadyAt: num(a.unstakeReadyAt),
-    inMatch: Boolean(a.inMatch),
+    // The chain replaced the `in_match` flag with the key of the match that
+    // holds the lock, so settlement can refuse to free a card belonging to
+    // some other, still-running match. `inMatch` stays in this shape because
+    // every screen only ever asked the yes/no question.
+    inMatch: !!a.lockedBy && !a.lockedBy.equals(PublicKey.default),
+    lockedBy:
+      a.lockedBy && !a.lockedBy.equals(PublicKey.default)
+        ? a.lockedBy.toBase58()
+        : null,
   };
 }
 

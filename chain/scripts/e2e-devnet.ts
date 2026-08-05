@@ -120,7 +120,7 @@ async function main() {
   check('Card PDA created', Number(cardAcct.id) === cardId, `id ${cardAcct.id}`);
   check('owner recorded', cardAcct.owner.toBase58() === admin.publicKey.toBase58());
   check('level starts at 1', Number(cardAcct.level) === 1);
-  check('not locked in a match', cardAcct.inMatch === false);
+  check('not locked in a match', cardAcct.lockedBy.equals(anchor.web3.PublicKey.default));
 
   const expectedArch = archetypeForMint(eligible.mint);
   check(

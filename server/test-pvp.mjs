@@ -87,6 +87,13 @@ async function main() {
   check('seats are opposite', ma.role === 0 && mb.role === 1, `A=${ma.role} B=${mb.role}`);
   check('identical seed', ma.seed === mb.seed, `seed ${ma.seed}`);
   check('identical start time', ma.startAt === mb.startAt);
+  // Both clients need the server's own clock to correct their local drift
+  // against, or a machine with a wrong clock steps the sim out of step and
+  // voids a staked match on a hash mismatch.
+  check('both are told the matchmaker clock',
+    typeof ma.serverNow === 'number' && typeof mb.serverNow === 'number'
+      && Math.abs(ma.serverNow - mb.serverNow) < 50,
+    `${ma.serverNow} / ${mb.serverNow}`);
   check('opponent deck delivered', mb.opponent.deck.length === 8 && mb.opponent.name === 'alice');
 
   // ── input relay ────────────────────────────────────────────────────────

@@ -262,6 +262,68 @@
       ]
     },
     {
+      "name": "close_chests",
+      "docs": [
+        "Base layer. Reclaims a chest rail so it can be recreated.",
+        "",
+        "Exists because `PlayerChests` gained the `earned` counter, and a rail",
+        "written under the previous layout is a fixed-size account two bytes",
+        "short of what the new struct deserialises — every read of it fails, and",
+        "`init_chests` will not touch an address that already exists. Without a",
+        "way out, a wallet that had ever opened a chest could never open another.",
+        "",
+        "Owner-only and base-layer-only: the account must be undelegated first",
+        "(`commit_chests`), so this can never race a live roll. `AccountInfo`",
+        "rather than `Account<PlayerChests>` on purpose — the whole point is to",
+        "close accounts that no longer deserialise."
+      ],
+      "discriminator": [
+        225,
+        193,
+        147,
+        213,
+        161,
+        196,
+        88,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "chests",
+          "docs": [
+            "under an older layout — which is the reason this instruction exists —",
+            "can still be closed."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_log",
       "docs": [
         "Base layer. Reclaims the log's rent once the match is over.",
@@ -381,13 +443,16 @@
         {
           "name": "owner",
           "writable": true,
-          "signer": true,
-          "relations": [
-            "chests"
-          ]
+          "signer": true
         },
         {
           "name": "chests",
+          "docs": [
+            "`has_one` gave. Untyped on purpose: undelegating is how an account",
+            "written under a previous layout gets back to base layer to be fixed,",
+            "and a typed account would refuse to deserialise exactly then — leaving",
+            "the rail stranded on the rollup with no way home."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -404,8 +469,7 @@
               },
               {
                 "kind": "account",
-                "path": "chests.owner",
-                "account": "PlayerChests"
+                "path": "owner"
               }
             ]
           }
@@ -866,6 +930,38 @@
                 "kind": "account",
                 "path": "log.match_id",
                 "account": "MatchLog"
+              }
+            ]
+          }
+        },
+        {
+          "name": "winner_chests",
+          "docs": [
+            "The winner's chest rail, so the win can pay out an entitlement.",
+            "",
+            "Optional in the struct and required by the instruction whenever there",
+            "is a winner — a draw has nobody to pay, and making it `Option` is what",
+            "lets a draw be ended without inventing an account to satisfy the type."
+          ],
+          "writable": true,
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  104,
+                  101,
+                  115,
+                  116,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "winner_chests.owner",
+                "account": "PlayerChests"
               }
             ]
           }
@@ -1831,71 +1927,76 @@
     },
     {
       "code": 6002,
+      "name": "NoChestEarned",
+      "msg": "no unopened chest earned; win a match first"
+    },
+    {
+      "code": 6003,
       "name": "NotEnded",
       "msg": "match has not ended yet"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "BadSession",
       "msg": "session key is invalid, expired, or would collide with a seat"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "WrongQueue",
       "msg": "oracle queue is not a delegated (ephemeral) queue"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "BadSlot",
       "msg": "chest slot index out of range"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "RequestInFlight",
       "msg": "a randomness request is already in flight"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "NoRequestInFlight",
       "msg": "no randomness request is in flight"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "RequestNotStale",
       "msg": "the in-flight request has not timed out yet"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "SlotNotEmpty",
       "msg": "chest slot is not empty"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "SlotNotFilled",
       "msg": "chest slot has nothing to claim"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "PermissionAccountsMissing",
       "msg": "permission accounts must all be supplied together"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "BadDeckIndex",
       "msg": "deck index out of range"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "BadWinner",
       "msg": "invalid winner value"
     }
@@ -2165,6 +2266,19 @@
               "Lifetime chests filled. Purely for display and reconciliation."
             ],
             "type": "u32"
+          },
+          {
+            "name": "earned",
+            "docs": [
+              "Unspent chest entitlements — wins that have not been rolled yet.",
+              "",
+              "This is what makes a chest cost something. Without it `request_chest`",
+              "only checked that the rail was idle and the slot empty, so anyone could",
+              "loop request → claim → request and mint drops forever; \"one chest per",
+              "win\" lived in the client, where it was a suggestion. Granted by",
+              "`end_log` to the seat that actually won, spent by `request_chest`."
+            ],
+            "type": "u16"
           },
           {
             "name": "bump",

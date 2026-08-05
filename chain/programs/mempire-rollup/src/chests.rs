@@ -95,12 +95,20 @@ pub struct PlayerChests {
     pub requested_at: u64,
     /// Lifetime chests filled. Purely for display and reconciliation.
     pub opened: u32,
+    /// Unspent chest entitlements — wins that have not been rolled yet.
+    ///
+    /// This is what makes a chest cost something. Without it `request_chest`
+    /// only checked that the rail was idle and the slot empty, so anyone could
+    /// loop request → claim → request and mint drops forever; "one chest per
+    /// win" lived in the client, where it was a suggestion. Granted by
+    /// `end_log` to the seat that actually won, spent by `request_chest`.
+    pub earned: u16,
     pub bump: u8,
 }
 
 impl PlayerChests {
     pub const SIZE: usize =
-        8 + 32 + (CHEST_SLOTS * Chest::SIZE) + 8 + 1 + 8 + 8 + 4 + 1;
+        8 + 32 + (CHEST_SLOTS * Chest::SIZE) + 8 + 1 + 8 + 8 + 4 + 2 + 1;
 
     pub fn idle(&self) -> bool {
         self.pending_slot == u8::MAX
