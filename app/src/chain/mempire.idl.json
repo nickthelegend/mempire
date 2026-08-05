@@ -1861,106 +1861,111 @@
   "errors": [
     {
       "code": 6000,
+      "name": "ResultDisputed",
+      "msg": "the two players reported different winners; the match voids"
+    },
+    {
+      "code": 6001,
       "name": "FeeTooHigh",
       "msg": "fee exceeds allowed maximum"
     },
     {
-      "code": 6001,
+      "code": 6002,
       "name": "CoinNotEligible",
       "msg": "coin does not meet the liquidity floor"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "CoinTooYoung",
       "msg": "coin is younger than the minimum age"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "NoHoldings",
       "msg": "wallet holds none of this coin"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "ZeroAmount",
       "msg": "amount must be greater than zero"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "CardLocked",
       "msg": "card is locked in a match or cooldown"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "UnstakePending",
       "msg": "an unstake is already pending"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "NothingToClaim",
       "msg": "nothing to claim"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "CooldownActive",
       "msg": "unstake cooldown still active"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "BadDeck",
       "msg": "deck must be exactly 8 owned, unlocked cards"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "NotCardOwner",
       "msg": "card not owned by player"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "DuplicateCoin",
       "msg": "deck may contain each coin only once"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "BadMatchState",
       "msg": "match is not in the required state"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "SelfMatch",
       "msg": "cannot battle yourself"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "PowerMismatch",
       "msg": "deck power outside the tier band"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "BadWinner",
       "msg": "invalid winner value"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "NotAPlayer",
       "msg": "signer is not a match player"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "TooEarly",
       "msg": "deadline has not passed"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
     }
@@ -2285,6 +2290,23 @@
           {
             "name": "winner",
             "type": "u8"
+          },
+          {
+            "name": "claims",
+            "docs": [
+              "What each seat says the result was. 3 = has not said.",
+              "",
+              "A single seat used to be able to set `winner` outright, and",
+              "`settle_from_log` paid it verbatim — so the first player to call",
+              "`end_match_log` took the pot without a card being played. Both seats",
+              "now record their own claim and settlement requires them to agree."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
           },
           {
             "name": "bump",
