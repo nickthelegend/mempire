@@ -466,19 +466,35 @@ export function stepSim(state: SimState, inputs: InputEvent[]): void {
 // ── Hash & clone ─────────────────────────────────────────────────────────────
 export function hashState(state: SimState): number {
   const h = new Fnv1a();
+  // `phase` and `nextUnitId` were both omitted. Two clients in different
+  // phases — one in overtime, one not — agreed on the hash until the
+  // difference happened to move a unit, which can be dozens of ticks later.
+  // `nextUnitId` is the cheapest possible canary: it diverges the instant the
+  // two sides have spawned a different number of units, whatever the reason.
   h.int(state.tick).int(state.rngState).int(state.winner + 3);
+  h.int(state.phase === 'regulation' ? 0 : state.phase === 'overtime' ? 1 : 2);
+  h.int(state.nextUnitId);
   for (const p of state.players) {
     h.int(p.elixirFP);
     for (const c of p.cycle) h.int(c);
   }
   for (const u of state.units) {
-    h.int(u.id).int(u.owner).int(u.archetype).int(u.x).int(u.y).int(u.hp).int(u.cooldown);
+    // Targets and state were omitted, so two clients could have the same units
+    // in the same places attacking different things — sticky targeting means
+    // that stays invisible until the damage lands somewhere different.
+    // `level`, `trait` and `maxHp` are what every stat is derived from: if
+    // they ever disagree the two sims are not running the same game at all,
+    // and that is worth catching on the first checkpoint rather than the
+    // first death.
+    h.int(u.id).int(u.owner).int(u.archetype).int(u.x).int(u.y).int(u.hp)
+      .int(u.cooldown).int(u.maxHp).int(u.level).int(u.trait)
+      .int(u.targetUnit).int(u.targetTower).int(u.state === 'advance' ? 0 : 1);
   }
   for (const t of state.towers) {
     h.int(t.hp).int(t.cooldown).int(t.awake ? 1 : 0);
   }
   for (const s of state.spells) {
-    h.int(s.owner).int(s.x).int(s.y).int(s.explodeTick);
+    h.int(s.owner).int(s.x).int(s.y).int(s.explodeTick).int(s.level);
   }
   return h.digest();
 }

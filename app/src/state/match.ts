@@ -367,15 +367,23 @@ export const useMatch = create<MatchStore>((set, get) => ({
         }
       },
       onSocketLost: () => {
-        // My own connection died mid-match. The server has already handed the
-        // opponent a forfeit win, so pretending otherwise here would let one
-        // pot pay out twice. Settle the mirror image: a loss.
+        // My own connection died mid-match.
+        //
+        // This used to settle a loss, on the reasoning that the server had
+        // already given the opponent a forfeit win. That holds when one
+        // client drops. It does not hold when the *relay* drops — then both
+        // clients get this callback, both settle themselves the loser, and
+        // nobody is paid at all.
+        //
+        // This client cannot tell the two cases apart from here, and the
+        // asymmetric guess is the one that can lose the whole pot. Void
+        // instead: the design already treats an unresolvable match that way,
+        // and an opponent who is genuinely still connected settles normally
+        // through their own forfeit path.
         const s = get();
         if (s.status === 'battle' && s.sim && s.sim.phase !== 'ended') {
-          s.sim.phase = 'ended';
-          s.sim.winner = (1 - s.perspective) as 0 | 1;
           clearTimers();
-          settle();
+          settleVoid('the connection dropped mid-match');
         } else if (s.status === 'queuing' || s.status === 'found') {
           refundEscrow();
           fallBack();
@@ -785,7 +793,13 @@ function settle(): void {
   // The final hash is the last checkpoint, which is what settlement records.
   if (sim.phase === 'ended') {
     const finalHash = hashes.length ? hashes[hashes.length - 1] : 0;
-    const winner = sim.winner === null ? 2 : (sim.winner === perspective ? 0 : 1);
+    // 0 = seat 0 won, 1 = seat 1 won, 2 = draw. This read `sim.winner === null`,
+    // but `winner` is never null — it is -1 while the match runs and -2 for a
+    // draw. So a draw fell through to the ternary, compared -2 against the
+    // perspective, and committed "seat 1 won". Both clients then wrote
+    // contradictory winners for the same drawn match, which under the new
+    // 2-of-2 settlement is a dispute that voids rather than splits.
+    const winner = sim.winner === -2 ? 2 : (sim.winner === perspective ? 0 : 1);
     void useErMatch.getState().finish(signer(), winner, BigInt(finalHash >>> 0));
   }
   stopMusic();
