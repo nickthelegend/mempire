@@ -502,7 +502,7 @@ export function Cards() {
         </div>
         <button
           onClick={() => setGemShop(true)}
-          aria-label="Buy $MEMPIRE"
+          aria-label="Get Crowns"
           className="btn-3d"
           style={{
             marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
@@ -513,7 +513,7 @@ export function Cards() {
           }}
         >
           <Token size={17} />
-          {/* $MEMPIRE arrives from chests, lending and purchases — all of which happen
+          {/* Crowns arrive from chests, lending and purchases — all of which happen
               elsewhere on the screen, so the counter has to announce itself. */}
           <span
             ref={gemRef as React.RefObject<HTMLSpanElement>}

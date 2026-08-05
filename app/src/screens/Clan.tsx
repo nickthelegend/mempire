@@ -191,7 +191,7 @@ function Browse() {
       )}
 
       <p className="fine" style={{ textAlign: 'center', fontSize: 12 }}>
-        You hold {gems} $MEMPIRE · one clan per wallet
+        You hold {gems} Crowns · one clan per wallet
       </p>
 
       <ClanSheet onJoin={doJoin} />
@@ -223,7 +223,7 @@ function Home() {
   const doLend = async (id: string) => {
     const err = await lend(address, id);
     setLocalError(err);
-    // The server awards the $MEMPIRE; mirroring it locally keeps the counter honest
+    // The server awards the Crowns; mirroring it locally keeps the counter honest
     // without a second round trip.
     if (!err) addGems(5);
   };

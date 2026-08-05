@@ -6,7 +6,7 @@ const TIPS = [
   'Drag a card onto your half of the arena to deploy it.',
   'Fell a tower to earn a crown. Three crowns ends it early.',
   'Win a battle, earn a chest. Only four fit at a time.',
-  '$MEMPIRE buys time and cosmetics. It never buys stats.',
+  'Crowns buy time and cosmetics. They never buy stats.',
   'A coin needs $25k liquidity and 48 hours to become a card.',
   'The house takes 10% of every pot, and says so up front.',
 ];

@@ -1,5 +1,14 @@
 /**
- * The $MEMPIRE coin.
+ * A Crown — the game's soft currency.
+
+ * Deliberately NOT $MEMPIRE. That is a real SPL token with a real pool, and
+ * a currency the game *spends* has to be stable: if the traded price ran up
+ * 50x, a chest skip would cost forty dollars and nobody would spend it; if it
+ * went to zero the economy would be denominated in nothing. Either way the
+ * balance is set by traders rather than by the game. Crowns are earned and
+ * spent in-game and never leave it. $MEMPIRE is tradable and lives on the
+ * Swap screen.
+ *
  *
  * This used to be the 💎 emoji, which had two problems worth fixing rather
  * than living with. It rendered as whatever diamond the player's OS shipped —
@@ -97,7 +106,7 @@ export function Token({
 }
 
 /**
- * An amount of $MEMPIRE: the number and the coin, kept together.
+ * An amount of Crowns: the number and the coin, kept together.
  *
  * Wrapped in one nowrap span on purpose — "1,200" and its coin landing on
  * different lines is the kind of thing that only shows up on the one narrow
@@ -122,7 +131,7 @@ export function TokenAmount({
       }}
     >
       {amount.toLocaleString()}
-      <Token size={size} dim={dim} title={`${amount.toLocaleString()} $MEMPIRE`} />
+      <Token size={size} dim={dim} title={`${amount.toLocaleString()} Crowns`} />
     </span>
   );
 }

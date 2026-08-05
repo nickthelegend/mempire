@@ -21,7 +21,7 @@ function fmtLeft(ms: number): string {
  * Daily card offers.
  *
  * Both prices are shown because the two currencies serve different players: a
- * $MEMPIRE price spends what winning already earned, a SOL price is the impulse buy.
+ * A Crown price spends what winning already earned; a SOL price is the impulse buy.
  * The rotation clock is visible so waiting is a real choice against rerolling.
  */
 export function Shop() {
@@ -43,7 +43,7 @@ export function Shop() {
   const buy = (mint: string, gemPrice: number, solPrice: number, withGems: boolean) => {
     click();
     if (withGems) {
-      if (!spendGems(gemPrice)) { play('error'); setError(`need ${gemPrice} $MEMPIRE`); return; }
+      if (!spendGems(gemPrice)) { play('error'); setError(`need ${gemPrice} Crowns`); return; }
     } else if (!wallet.spend(solPrice)) {
       play('error');
       setError(`need ${fmtSol(solPrice)}`);
@@ -109,7 +109,7 @@ export function Shop() {
                 <span style={{ display: 'flex', gap: 5 }}>
                   <button
                     onClick={() => buy(o.mint, gemPrice, solPrice, true)}
-                    aria-label={`Buy ${tickerOf(coin)} for ${gemPrice} $MEMPIRE`}
+                    aria-label={`Buy ${tickerOf(coin)} for ${gemPrice} Crowns`}
                     className="btn-3d"
                     style={{
                       minHeight: 44, padding: '0 10px', borderRadius: 9,
@@ -165,7 +165,7 @@ export function Shop() {
           <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
         )}
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
-          You hold {gems} $MEMPIRE · offers refresh every 24h
+          You hold {gems} Crowns · offers refresh every 24h
           {/* The bags section can be live-onchain while the Shop stays simulated;
               saying so here beats letting the badge above imply otherwise. */}
           {chainMode === 'onchain' && ' · shop purchases are simulated on devnet'}

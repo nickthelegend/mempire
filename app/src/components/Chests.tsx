@@ -294,7 +294,7 @@ function Slot({ chest, onOpened }: {
         <button
           onClick={() => { click(); skipUnlock(chest.id); }}
           disabled={gems < cost}
-          aria-label={`Skip ${fmtLeft(remaining)} for ${cost} $MEMPIRE`}
+          aria-label={`Skip ${fmtLeft(remaining)} for ${cost} Crowns`}
           className="btn-3d"
           style={{
             ...ACTION,
@@ -360,17 +360,29 @@ export function ChestRail() {
 }
 
 /**
- * The + on the $MEMPIRE balance.
+ * The + on the Crowns balance.
  *
- * Two ways to get more, and the real one leads. Swapping trades USDC against
- * the live constant-product pool and settles onchain; the bundles are the
- * arcade convenience and say plainly that they are simulated. Putting the pool
- * behind a link on a sheet named after a real mint made the simulated path
- * look like the only path, which is backwards.
+ * Two currencies, kept apart on purpose.
+ *
+ * **Crowns** are the game's soft currency. They skip chest timers, found
+ * clans and buy cosmetics, they are earned by playing, and they never leave
+ * the game. **$MEMPIRE** is a real SPL token with a real constant-product
+ * pool against USDC.
+ *
+ * They were the same thing for one commit and that was a mistake: a currency
+ * the game *spends* has to be stable, and a traded token's price is set by
+ * traders. Run it up 50x and a chest skip costs forty dollars so nobody
+ * spends it; drop it to zero and the economy is denominated in nothing.
+ * Either way the game's balance stops being the game's to set.
+ *
+ * So Crowns lead here — they are what the + is for — and $MEMPIRE is offered
+ * beside them as the separate, tradable thing it is.
  */
 export function GemShop({ onClose }: { onClose: () => void }) {
   const { gems, buyGems } = useEconomy();
-  const [tab, setTab] = useState<'swap' | 'bundles'>('swap');
+  // Crowns first: this sheet is reached from the Crowns balance, so opening
+  // on a token swap would answer a question the player did not ask.
+  const [tab, setTab] = useState<'swap' | 'bundles'>('bundles');
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex', justifyContent: 'center' }}>
@@ -378,12 +390,12 @@ export function GemShop({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Get $MEMPIRE"
+        aria-label="Get Crowns"
         className="panel sheet"
         style={{ gap: 10 }}
       >
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <h2 className="display" style={{ fontSize: 24 }}>$MEMPIRE</h2>
+          <h2 className="display" style={{ fontSize: 24 }}>Crowns</h2>
           {/* The balance is the coin, not a SOL amount — gold lettering here
               would read as "you hold this much SOL", which is the one thing it
               never means. */}
@@ -399,8 +411,8 @@ export function GemShop({ onClose }: { onClose: () => void }) {
           <button onClick={() => { click(); onClose(); }} aria-label="Close" className="icon-btn" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
         </div>
 
-        <div role="tablist" aria-label="How to get $MEMPIRE" style={{ display: 'flex', gap: 6 }}>
-          {([['swap', 'Swap'], ['bundles', 'Bundles']] as const).map(([id, label]) => (
+        <div role="tablist" aria-label="How to get Crowns" style={{ display: 'flex', gap: 6 }}>
+          {([['bundles', 'Crowns'], ['swap', '$MEMPIRE']] as const).map(([id, label]) => (
             <button
               key={id}
               role="tab"
@@ -427,15 +439,17 @@ export function GemShop({ onClose }: { onClose: () => void }) {
         {tab === 'swap' ? (
           <>
             <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
-              Trade USDC against the live pool. Real curve, real signature.
+              <strong>$MEMPIRE is a separate, tradable token</strong> — not
+              Crowns. Traded against USDC on a live constant-product pool.
+              It buys no stats and no Crowns; it is the project&apos;s token.
             </p>
             <SwapPanel compact />
           </>
         ) : (
         <>
         <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
-          $MEMPIRE skips chest timers, enters tournaments and buys cosmetics.
-          It never buys stats — card power comes only from staking real tokens.
+          Crowns skip chest timers, found clans and buy cosmetics. They never
+          buy stats — card power comes only from staking a card&apos;s own coin.
         </p>
         {GEM_BUNDLES.map((b) => (
           <button

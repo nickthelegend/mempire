@@ -86,7 +86,7 @@ export const useShop = create<ShopState>((set, get) => ({
   reroll: (spendGems) => {
     const used = get().rerollsUsed;
     if (used >= FREE_REROLLS) {
-      if (!spendGems(REROLL_GEM_COST)) return `need ${REROLL_GEM_COST} $MEMPIRE to reroll`;
+      if (!spendGems(REROLL_GEM_COST)) return `need ${REROLL_GEM_COST} Crowns to reroll`;
     }
     // exclude what is already on the shelf so a reroll always changes something
     const shown = new Set(get().offers.map((o) => o.mint));

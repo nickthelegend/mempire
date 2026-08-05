@@ -15,7 +15,7 @@ const TABS = [
   { to: '/empire', label: 'Empire', icon: '/art/tab_empire.png' },
 ];
 // Swap is deliberately not a tab. It is a thing you do *to* your balance, not
-// a place you go, so it lives behind the + on the $MEMPIRE pill — next to the
+// a place you go, so it lives behind the + on the Crowns pill — next to the
 // number it changes. Five tabs also give each one room the six never had.
 
 /**
