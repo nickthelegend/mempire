@@ -112,11 +112,26 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
     }
   }
 
+  // Every grid on this panel, sized so it can never be wider than its parent.
+  //
+  // Two defaults conspire here. A grid *item* is `min-width: auto`, so it
+  // refuses to shrink below its own min-content; and an `auto` grid *track*
+  // is sized to its items' min-content, so one unbreakable row widens the
+  // track and the overflow escapes the panel. `minmax(0, 1fr)` caps the
+  // track at the container, and `minWidth: 0` lets the grid itself shrink
+  // when it is in turn an item of the grid above.
+  //
+  // This never showed on the full-width /swap route — it has 398px of room.
+  // It only appeared inside the Crowns sheet, which is 61px narrower.
+  const NARROW = {
+    display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', minWidth: 0,
+  } as const;
+
   const inLabel = buying ? 'USDC' : '$MEMPIRE';
   const outLabel = buying ? '$MEMPIRE' : 'USDC';
 
   return (
-    <div style={{ display: 'grid', gap: compact ? 11 : 14 }}>
+    <div style={{ ...NARROW, gap: compact ? 11 : 14 }}>
       {!compact && (
         <header>
           <h1 style={{ margin: 0 }}>SWAP</h1>
@@ -129,7 +144,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
       )}
 
       {poolFailed && (
-        <div className="well" role="alert" style={{ padding: 12, borderRadius: 10 }}>
+        <div className="well" role="alert" style={{ ...NARROW, padding: 12, borderRadius: 10 }}>
           <strong>The pool is unreachable.</strong>
           <p className="fine" style={{ margin: '4px 0 0', color: 'var(--dim)' }}>
             No quote is shown rather than a stale one. Check your connection and retry.
@@ -138,8 +153,10 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
       )}
 
       {/* ── you pay ────────────────────────────────────────────────────── */}
-      <div className="well" style={{ padding: 12, borderRadius: 12, display: 'grid', gap: 6 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div className="well" style={{ ...NARROW, padding: 12, borderRadius: 12, gap: 6 }}>
+        {/* wraps rather than blows out: "balance 1,234.5678 USDC · max" is a
+            long string next to a label, and both refuse to shrink */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
           <span className="label">You pay</span>
           <button
             type="button"
@@ -189,12 +206,12 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
       </button>
 
       {/* ── you receive ────────────────────────────────────────────────── */}
-      <div className="well" style={{ padding: 12, borderRadius: 12, display: 'grid', gap: 6 }}>
+      <div className="well" style={{ ...NARROW, padding: 12, borderRadius: 12, gap: 6 }}>
         <span className="label">You receive</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <span
             className="display"
-            style={{ flex: 1, fontSize: 26, color: q ? 'var(--text)' : 'var(--dim)' }}
+            style={{ flex: 1, minWidth: 0, fontSize: 26, color: q ? 'var(--text)' : 'var(--dim)' }}
           >
             {q ? fmt(q.amountOut, 4) : '0.0'}
           </span>
@@ -204,7 +221,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
 
       {/* ── the costs, stated ──────────────────────────────────────────── */}
       {q && (
-        <div className="well" style={{ padding: 12, borderRadius: 10, display: 'grid', gap: 5 }}>
+        <div className="well" style={{ ...NARROW, padding: 12, borderRadius: 10, gap: 5 }}>
           <Row label="Rate">
             1 {inLabel} = {fmt((q.amountOut * UNIT) / amountIn, 6)} {outLabel}
           </Row>
@@ -304,8 +321,16 @@ function Row({ label, children, warn }: {
 }) {
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
-      <span className="fine" style={{ color: 'var(--dim)' }}>{label}</span>
-      <span className="fine" style={{ color: warn ? 'var(--red)' : 'var(--text)', textAlign: 'right' }}>
+      <span className="fine" style={{ color: 'var(--dim)', flexShrink: 0 }}>{label}</span>
+      <span
+        className="fine"
+        style={{
+          color: warn ? 'var(--red)' : 'var(--text)', textAlign: 'right',
+          // "1 USDC = 0.00012345 $MEMPIRE" is longer than the row is wide in
+          // the sheet; let it wrap instead of pushing the row past the panel.
+          minWidth: 0, wordBreak: 'break-word',
+        }}
+      >
         {children}
       </span>
     </div>
