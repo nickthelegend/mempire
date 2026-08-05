@@ -12,18 +12,24 @@ Severity is by what an attacker gains, not by how hard it was to spot.
 |---|---|---|
 | S1 | `server/*` | **CRITICAL** No auth of any kind. Every route identified its caller by a wallet address in the URL — an address the API itself publishes via `/api/ladder` and `/api/clans/:tag`. Anyone could set any player's Elo, grant themselves crowns, or kick a whole clan roster. Now every mutating route requires an ed25519 signature over a timestamped, per-action message. |
 | S2 | `server/index.js` | **HIGH** Rate limiter keyed on `req.ip` with `trust proxy` off, so behind Railway's edge every player shared one bucket and six writes/sec from one client 429'd everybody. |
+| C1 | `mempire` `end_match_log` | **CRITICAL** A single signer set the winner and `settle_from_log` paid it — first to call took the pot without playing. Now each seat records a claim and settlement requires agreement; disagreement voids. |
+| C2 | `mempire` `claim_timeout` | **CRITICAL** A loser could stall past the deadline and claim the pot. Now only pays the claimer, and the third-party grace path is gone. |
+| C3 | `mempire-amm` `delegate_pool` | **CRITICAL** Permissionless with a caller-chosen validator. Removed with `commit_pool` — a rollup buys an AMM nothing. |
+| C4/C5 | `delegate_log`, `delegate_match_log` | **CRITICAL/HIGH** Permissionless. Both now require the payer to be a player. Proved by `e2e-security.ts`. |
+| A1 | `state/match.ts` | **CRITICAL** Escrowed lamports nothing could settle, refund or time out. Removed until the settle path exists. |
+| A3 | `state/match.ts` | **CRITICAL** Relayed opponent deck was unvalidated; an out-of-range archetype made every card free on both clients, hashing identically so no desync fired. |
+| A4 | `state/match.ts` | **HIGH** A relay outage settled BOTH clients as the loser. Now voids. |
+| A6 | `state/match.ts` | **HIGH** A draw was committed as "seat 1 won". |
+| A7 | `sim/engine.ts` | **MEDIUM** The state hash omitted phase, targets, level, trait and maxHp. |
+| E1 | `lib/audio.ts`, `components/CardFrame.tsx` | **LOW** Every sound and every card image was fetched 2–3 times and the duplicates cancelled — 48 aborted requests a session on mobile, now zero. |
 
-## Open — chain, value at risk
+## Open — chain
 
-These are why the on-chain match flow must not be presented as trustless yet.
+Real, and none of them is pot theft. Recorded with severity and exploit path
+so the next person does not have to re-derive them.
 
 | # | Where | Severity | Defect |
 |---|---|---|---|
-| C1 | `mempire/src/lib.rs:608` `end_match_log` | **CRITICAL** | Accepts an arbitrary `winner` from a *single* player signer, and `settle_from_log` pays it verbatim. First player to call takes the pot without a card being played. |
-| C2 | `mempire/src/lib.rs:453` `claim_timeout` | **CRITICAL** | `winner_account` need only be one of the two players, never the claimer. A loser refuses to sign `settle`, waits out the timeout, and takes the pot. |
-| C3 | `mempire-amm/src/lib.rs:348` `delegate_pool` | **CRITICAL** | Permissionless, with a caller-supplied validator. An attacker delegates the pool to a validator they run and commits forged reserves — or simply freezes all LP funds. |
-| C4 | `mempire-rollup/src/lib.rs:172` `delegate_log` | **CRITICAL** | Same shape: permissionless with a caller-chosen validator. |
-| C5 | `mempire/src/lib.rs:527` `delegate_match_log` | **HIGH** | No signer authorisation; re-delegating a settled log forces the match down the timeout path into C2. |
 | C6 | `mempire/src/lib.rs:732` `unlock_deck` | **HIGH** | Clears `in_match` on any account that deserialises as a `Card`, with no check it belongs to this match. Frees a locked deck, bypassing the power bracket. |
 | C7 | `mempire-rollup/src/lib.rs:279` `unseal_log` | **HIGH** | No seat check and no `!ended` check — any third party can unseal a live match, exposing plays before they resolve. |
 | C8 | `mempire-rollup/src/lib.rs:319` `open_session` | **HIGH** | Accepts a session key equal to the *other* seat's key; `seat_for` then attributes the victim's plays to the attacker's seat and voids the match on demand. |
@@ -36,13 +42,8 @@ These are why the on-chain match flow must not be presented as trustless yet.
 
 | # | Where | Severity | Defect |
 |---|---|---|---|
-| A1 | `state/match.ts:286` | **CRITICAL** | `openOnchainMatch` escrows real lamports at queue time; `settleTx`, `joinMatchTx` and `claimTimeoutTx` are never called anywhere in the app. Every on-chain match strands its escrow permanently. |
-| A2 | `state/wallet.ts:26` | **CRITICAL** | The stake and payout shown to the player are a local zustand number seeded to 12.4, unrelated to the escrow in A1. The SOL the UI reports moving is simulated. |
-| A3 | `state/match.ts:620` | **CRITICAL** | The relayed opponent deck is cast from JSON with only a length check. An `archetype ≥ 6` makes elixir cost `NaN`, so every card is free — on **both** clients, hashing identically, so no desync is ever detected. |
-| A4 | `state/match.ts:359` | **HIGH** | A relay outage delivers `onSocketLost` to both clients and each settles itself the loser. Neither is paid. |
+| A2 | `state/wallet.ts:26` | **KNOWN** | The stake and payout shown are a local number, not chain state. This is now what the game claims: the SOL tier is presentation, and the escrow that used to back it (A1) is removed because nothing could settle it. Wiring join/settle/timeout end-to-end is the work that makes the stake real. |
 | A5 | `state/match.ts:549` | **HIGH** | Tick target derives from unsynchronised `Date.now()` with 400ms of slack; ordinary clock skew voids a staked match. |
-| A6 | `state/match.ts:730` | **HIGH** | A draw (`winner === -2`) is committed to the log as `winner: 1`. Both clients write contradictory results. |
-| A7 | `sim/engine.ts:467` | **MEDIUM** | `hashState` omits `phase`, targets, `level`, `trait` and `maxHp`, so a split timeline can run 40 ticks before a checkpoint notices. |
 
 ## Clean — verified, not assumed
 
@@ -52,3 +53,19 @@ These are why the on-chain match flow must not be presented as trustless yet.
 - **Rake arithmetic.** `rake + payout == pot` exactly in all three payout paths. No double-settlement; all paths require `Active` and set `Settled`.
 - **Unstaking.** `has_one = owner` plus a PDA-authority vault; no cross-player unstake, and the 72h two-step cannot be replayed.
 - **NoSQL injection, ReDoS, committed secrets, Dockerfile.** All clean — Express 5's `simple` query parser yields only strings, regex metacharacters are escaped, `.env` is untracked in both git and Docker, and the image runs non-root with a healthcheck.
+
+## Verified against the deployed programs — 5 Aug
+
+| Suite | |
+|---|---|
+| `e2e-amm` | 18/18 · real USDC, real curve |
+| `e2e-per-vrf` | 21/21 · delegation, seal, oracle callback |
+| `e2e-full-flow` | 32/32 · 16 real transactions |
+| `e2e-security` | 8/8 · the exploits, refused |
+| AMM unit tests | 14/14 |
+| Client suites | 34/34 |
+| Live E2E, both sites, mobile + desktop | 90/92 |
+
+The two E2E failures are the same check on two viewports: the Clan tab shows an
+offline placeholder because the API is not deployed. Ranked and the leaderboard
+are dark for the same reason.

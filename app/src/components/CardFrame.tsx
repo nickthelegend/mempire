@@ -21,16 +21,32 @@ export function CardArtWell({
   badgeSize?: number;
 }) {
   const [artFailed, setArtFailed] = useState(false);
-  const [keyed, setKeyed] = useState<string | null>(null);
+  // undefined = still keying, null = not keyed (use the raw file), string = cut-out
+  const [resolved, setResolved] = useState<string | null | undefined>(undefined);
   const coin = coinByMint(mint);
   const art = coin?.cardArt;
 
-  // Chroma-keyed art is shown as a cut-out over the card's own coloured well,
-  // which reads far better than a pasted rectangle. Un-keyed art is used as-is.
+  /*
+   * Chroma-keyed art is shown as a cut-out over the card's own coloured well,
+   * which reads far better than a pasted rectangle. Un-keyed art is used
+   * as-is.
+   *
+   * Nothing renders until the key resolves, and that is the point. This used
+   * to render `src={keyed ?? art}`, so the raw PNG went on screen while
+   * `keyedUrl` fetched the *same URL* to key it — two requests for one file,
+   * both in flight before either could populate the cache, and the browser
+   * cancelled one. Twenty-two aborted requests a session on desktop and
+   * thirty-five on mobile, which is the connection that can least afford it.
+   *
+   * `resolved` distinguishes three states that `keyed` alone could not:
+   * undefined is still working, null is "this image is not keyed, use it
+   * raw", and a string is the cut-out. Without the middle case an un-keyed
+   * card would wait forever for a key that is never coming.
+   */
   useEffect(() => {
     if (!art) return;
     let alive = true;
-    void keyedUrl(art).then((u) => { if (alive && u) setKeyed(u); });
+    void keyedUrl(art).then((u) => { if (alive) setResolved(u); });
     return () => { alive = false; };
   }, [art]);
 
@@ -48,9 +64,9 @@ export function CardArtWell({
       filter: dim ? 'saturate(.35) brightness(.75)' : undefined,
     }}
     >
-      {art && !artFailed ? (
+      {art && !artFailed && resolved !== undefined ? (
         <img
-          src={keyed ?? art}
+          src={resolved ?? art}
           alt=""
           aria-hidden
           draggable={false}
@@ -61,7 +77,7 @@ export function CardArtWell({
             width: '100%', height: '100%',
             // A cut-out is `contain` so the whole character is visible; a
             // full-bleed render is `cover` so it fills the well.
-            objectFit: keyed ? 'contain' : 'cover',
+            objectFit: resolved ? 'contain' : 'cover',
             // The art is drawn head-up, so bias the crop toward the top: a
             // centred crop on a 3:4 portrait cuts the face off in a wide slot.
             objectPosition: '50% 18%',
