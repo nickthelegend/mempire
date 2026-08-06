@@ -535,7 +535,13 @@ async function main() {
       const { execSync: exec } = await import('node:child_process');
       let settled = false;
       let detail = 'no reading';
-      for (let i = 0; i < 60; i += 1) {
+      // Settlement is not fast: each seat records a claim on the rollup, the
+      // log has to commit and undelegate back to base layer, and only then can
+      // either client call `settle_from_log`. Measured at two to five minutes
+      // on devnet. A five-minute window was reporting a failure for matches
+      // that settled correctly a minute later — the test was wrong, not the
+      // chain.
+      for (let i = 0; i < 150; i += 1) {
         await sleep(5000);
         try {
           const out = exec(
