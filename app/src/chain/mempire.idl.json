@@ -1464,6 +1464,63 @@
       ]
     },
     {
+      "name": "set_treasury",
+      "docs": [
+        "Admin: point fees and rake at a different treasury.",
+        "",
+        "`init_config` runs once against a fixed PDA, so without this the",
+        "treasury chosen on day one is the treasury forever. On devnet that",
+        "treasury was the admin wallet — which meant rake and payout landed in",
+        "the same account and no test could tell them apart, so the rake split",
+        "was asserted only by arithmetic and never by observation.",
+        "",
+        "Gated on `config.admin` via `has_one`, and the admin cannot change:",
+        "this moves where fees go, not who decides."
+      ],
+      "discriminator": [
+        57,
+        97,
+        196,
+        95,
+        195,
+        206,
+        106,
+        136
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "admin",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "treasury"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "settle",
       "docs": [
         "Settlement: both players sign the same final state hash (the lockstep",
@@ -1999,6 +2056,19 @@
         213,
         240
       ]
+    },
+    {
+      "name": "TreasuryChanged",
+      "discriminator": [
+        252,
+        2,
+        55,
+        56,
+        106,
+        205,
+        227,
+        47
+      ]
     }
   ],
   "errors": [
@@ -2131,6 +2201,11 @@
       "code": 6025,
       "name": "AlreadyClaimed",
       "msg": "this seat has already recorded its result"
+    },
+    {
+      "code": 6026,
+      "name": "TreasuryUnchanged",
+      "msg": "the treasury is already that address"
     }
   ],
   "types": [
@@ -2584,6 +2659,22 @@
           {
             "name": "level",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryChanged",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "previous",
+            "type": "pubkey"
+          },
+          {
+            "name": "next",
+            "type": "pubkey"
           }
         ]
       }

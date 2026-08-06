@@ -11,7 +11,14 @@ COPY package.json package-lock.json ./
 # `npm ci` rather than `install`: it installs exactly the lockfile and fails if
 # the two have drifted, which is the behaviour you want in a build that nobody
 # is watching.
-RUN npm ci --omit=dev --ignore-scripts
+# `npm install`, not `npm ci`.
+#
+# `@solana/codecs` — a transitive of spl-token — declares a peer dependency on
+# `typescript >= 5`, which npm resolves to the TypeScript 7 platform packages.
+# Those land in the tree but not in a lockfile generated with `--omit=dev`, so
+# `npm ci` refuses the whole install over a type-checker the server never runs.
+# Resolving in the container costs a few seconds and cannot drift.
+RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime
@@ -23,6 +30,9 @@ ENV NODE_ENV=production
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node *.js ./
+# The seeded coin registry the faucet hands out from. Not code, so it is not
+# caught by the *.js copy above, and the server refuses to start without it.
+COPY --chown=node:node devnet-coins.json ./
 
 # `wget` is in busybox already, so the healthcheck costs no extra layer.
 # Mongo may take a moment on cold start, hence the generous start period.

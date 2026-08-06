@@ -4,7 +4,7 @@ import {
   fetchCardsFor, fetchConfig, fetchRegisteredCoins, fetchSolBalance, fetchTokenBalances,
   type ChainCard, type ChainCoin, type ChainConfig,
 } from '../chain/read';
-import { CLUSTER, explorerUrl } from '../chain/provider';
+import { CLUSTER, canSign, explorerUrl } from '../chain/provider';
 import { useWallet } from './wallet';
 
 /**
@@ -94,7 +94,10 @@ export const useChain = create<ChainState>((set, get) => ({
   },
 
   loadWallet: async (owner, adapter) => {
-    const signable = adapter !== null;
+    // Not `adapter !== null` any more: a guest with no adapter can still sign
+    // on devnet through its own browser-held keypair, and calling that
+    // 'simulated' would have the badge understating what the session can do.
+    const signable = canSign(adapter);
     set({ loading: true, owner });
     try {
       if (!get().config) await get().init();

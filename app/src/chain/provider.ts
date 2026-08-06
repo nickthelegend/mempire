@@ -1,8 +1,12 @@
 import { AnchorProvider, Program, type Idl } from '@coral-xyz/anchor';
 import type { Adapter } from '@solana/wallet-adapter-base';
-import { Connection, PublicKey, type Transaction, type VersionedTransaction } from '@solana/web3.js';
+import {
+  Connection, Keypair, PublicKey,
+  type Transaction, type VersionedTransaction,
+} from '@solana/web3.js';
 import idl from './mempire.idl.json';
 import { PROGRAM_ID } from './pdas';
+import { guestSolanaSigner } from '../lib/identity';
 
 /**
  * The connection to the deployed program.
@@ -45,8 +49,39 @@ interface SigningWallet {
   signAllTransactions<T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]>;
 }
 
+/**
+ * The guest keypair, wrapped as something Anchor can sign with.
+ *
+ * Signs locally with no prompt, which is the point — but also means a guest
+ * never gets the "do you approve this?" moment a wallet gives them. Every
+ * caller that spends is behind an explicit button for exactly that reason.
+ *
+ * Returns null off devnet: an unencrypted browser key must not be handed
+ * anything that holds real value. See `guestSolanaSigner`.
+ */
+function guestSigningWallet(): SigningWallet | null {
+  const kp = guestSolanaSigner(CLUSTER);
+  if (!kp) return null;
+  // tweetnacl keeps the 64-byte expanded secret; web3.js wants the same shape.
+  const signer = Keypair.fromSecretKey(kp.secretKey);
+  const sign = <T extends Transaction | VersionedTransaction>(tx: T): T => {
+    if ('version' in tx) (tx as VersionedTransaction).sign([signer]);
+    else (tx as Transaction).partialSign(signer);
+    return tx;
+  };
+  return {
+    publicKey: signer.publicKey,
+    signTransaction: async (tx) => sign(tx),
+    signAllTransactions: async (txs) => txs.map(sign),
+  };
+}
+
 function asSigningWallet(adapter: Adapter | null): SigningWallet | null {
-  if (!adapter?.publicKey) return null;
+  // No adapter: fall back to the guest's own keypair, if this cluster allows
+  // it. That is what lets someone play a genuinely staked match without
+  // installing a wallet — the guest address is a real, fundable pubkey and was
+  // only ever short a way to sign a transaction with it.
+  if (!adapter?.publicKey) return guestSigningWallet();
   const a = adapter as unknown as Partial<SigningWallet>;
   if (typeof a.signTransaction !== 'function') return null;
   return {

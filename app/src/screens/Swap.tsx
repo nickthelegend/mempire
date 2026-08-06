@@ -5,7 +5,7 @@ import {
   MEMPIRE_MINT, POOL, UNIT, USDC_MINT, quote, readPool, swap, tokenBalance,
   type PoolState,
 } from '../chain/amm';
-import { explorerUrl } from '../chain/provider';
+import { canSign, explorerUrl } from '../chain/provider';
 import { useWallet } from '../state/wallet';
 import { signer } from '../state/wallet';
 
@@ -70,7 +70,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
           usdc: await tokenBalance(owner, USDC_MINT),
           mempire: await tokenBalance(owner, MEMPIRE_MINT),
         });
-      } catch { /* a guest address is not a real key; balances stay zero */ }
+      } catch { /* no token account yet — zero is the right answer */ }
     }
   }, [address]);
 
@@ -86,7 +86,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
 
   const held = buying ? balances.usdc : balances.mempire;
   const overBalance = amountIn > held && held > 0n;
-  const canSwap = !!q && !busy && amountIn > 0n && !overBalance && !!signer();
+  const canSwap = !!q && !busy && amountIn > 0n && !overBalance && canSign(signer());
 
   async function onSwap() {
     if (!q) return;
@@ -270,18 +270,19 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         aria-label={`Swap ${input || '0'} ${inLabel} for ${outLabel}`}
       >
         {busy ? <Spinner /> : null}
-        {busy ? ' Swapping…' : signer() ? 'Swap' : 'Connect a real wallet to swap'}
+        {busy ? ' Swapping…' : 'Swap'}
       </Pill>
 
-      {/* Guest mode simulates a wallet so the whole game is playable without
-          an extension — but a simulated wallet has no secret key, so it cannot
-          sign a transfer. Saying so beats a disabled button with no reason
-          next to a form that looks ready to use. */}
-      {!signer() && (
+      {/* A guest CAN swap now — its address is a real keypair held in this
+          browser, and on devnet it signs for itself. What it cannot do is
+          survive a cleared browser, so the warning is about custody rather
+          than capability. */}
+      {!signer() && canSign(null) && (
         <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-          You are playing as a guest. Guest mode simulates a wallet so the game
-          works without an extension, but it holds no keys — a real swap needs a
-          real signature. Everything else, including battles, works as a guest.
+          You are playing as a guest. Your address is a real keypair kept in
+          this browser, so swaps and staked matches work — but clearing site
+          data destroys it and there is no recovery phrase. Connect a wallet to
+          hold anything you would miss.
         </p>
       )}
 

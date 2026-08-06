@@ -144,7 +144,7 @@ export function WalletPicker() {
           onClick={connectGuest}
           mark={<GuestMark />}
           title="Play as Guest"
-          sub="Simulated wallet — full game, nothing onchain"
+          sub="A real keypair in this browser — plays and stakes onchain"
         />
 
         {error && (

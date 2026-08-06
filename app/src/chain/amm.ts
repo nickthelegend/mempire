@@ -140,9 +140,14 @@ export async function swap(
   minAmountOut: bigint,
   quoteToBase: boolean,
 ): Promise<string> {
-  if (!canSign(adapter) || !adapter?.publicKey) throw new NoSignerError();
-  const owner = adapter.publicKey;
+  // A guest signs through the provider with no adapter of its own, so the
+  // adapter's key cannot be the gate — `canSign` already accounts for both.
+  if (!canSign(adapter)) throw new NoSignerError();
   const prog = program(adapter);
+  // Same source as the signature itself, so the two can never disagree — a
+  // guest's key comes from the provider, a wallet's from the adapter.
+  const owner = adapter?.publicKey ?? (prog.provider as AnchorProvider).wallet.publicKey;
+  if (!owner) throw new NoSignerError();
 
   const userBase = getAssociatedTokenAddressSync(MEMPIRE_MINT, owner);
   const userQuote = getAssociatedTokenAddressSync(USDC_MINT, owner);

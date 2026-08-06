@@ -1,10 +1,10 @@
-import { BN } from '@coral-xyz/anchor';
+import { AnchorProvider, BN } from '@coral-xyz/anchor';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { canSign, getProgram } from './provider';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { canSign, getProgram, getProvider } from './provider';
 import {
   PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
 } from './pdas';
@@ -26,9 +26,21 @@ export class NoSignerError extends Error {
   constructor() { super('This wallet cannot sign — connect a real wallet to go onchain.'); }
 }
 
-function requireSigner(adapter: Adapter | null): Adapter {
-  if (!canSign(adapter) || !adapter?.publicKey) throw new NoSignerError();
-  return adapter;
+/**
+ * The public key that will sign, or throw.
+ *
+ * Returns a key rather than an adapter because there may not *be* an adapter:
+ * a guest signs with a browser-held keypair and has no wallet object at all.
+ * The old version demanded `adapter?.publicKey`, which meant every guest hit
+ * `NoSignerError` no matter what `canSign` said — the button did nothing, threw
+ * nothing a user could see, and the whole guest-signing path was dead on
+ * arrival.
+ */
+function requireSigner(adapter: Adapter | null): { publicKey: PublicKey } {
+  if (!canSign(adapter)) throw new NoSignerError();
+  const key = adapter?.publicKey ?? getProvider(adapter).wallet.publicKey;
+  if (!key) throw new NoSignerError();
+  return { publicKey: key };
 }
 
 /**
@@ -64,7 +76,7 @@ export interface TxResult { signature: string }
  */
 export async function mintCardTx(adapter: Adapter | null, mint: string): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const owner = wallet.publicKey!;
   const mintKey = new PublicKey(mint);
 
@@ -92,7 +104,7 @@ export async function stakeTx(
   adapter: Adapter | null, cardId: number, mint: string, rawAmount: bigint,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const owner = wallet.publicKey!;
   const mintKey = new PublicKey(mint);
   const vaultAuthority = vaultAuthorityPda(cardId);
@@ -122,7 +134,7 @@ export async function requestUnstakeTx(
   adapter: Adapter | null, cardId: number, rawAmount: bigint,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const signature = await program.methods
     .requestUnstake(new BN(rawAmount.toString()))
     .accounts({
@@ -139,7 +151,7 @@ export async function claimUnstakeTx(
   adapter: Adapter | null, cardId: number, mint: string,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const owner = wallet.publicKey!;
   const mintKey = new PublicKey(mint);
   const vaultAuthority = vaultAuthorityPda(cardId);
@@ -178,7 +190,7 @@ export async function createMatchTx(
   deckHash: Uint8Array,
 ): Promise<TxResult & { matchId: number; matchAddress: string }> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
 
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
@@ -209,7 +221,7 @@ export async function joinMatchTx(
   deckHash: Uint8Array,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
 
   const signature = await program.methods
     .joinMatch(Array.from(deckHash))
@@ -241,7 +253,7 @@ export async function settleTx(
   winner: number,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
@@ -263,7 +275,7 @@ export async function claimTimeoutTx(
   adapter: Adapter | null, matchId: number, winnerAccount: string,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
@@ -322,7 +334,7 @@ export async function cancelMatchTx(
   adapter: Adapter | null, matchId: number, deckCardIds: number[],
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const signature = await program.methods
     .cancelMatch()
     .accounts({
@@ -355,7 +367,7 @@ export async function settleFromLogTx(
   deckCardIds: number[],
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = getProgram(wallet);
+  const program = getProgram(adapter);
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
@@ -375,4 +387,71 @@ export async function settleFromLogTx(
     })))
     .rpc();
   return { signature };
+}
+
+/**
+ * Mint several cards in as few transactions as the wire allows.
+ *
+ * A staked match needs eight minted cards, and one-at-a-time that is eight
+ * wallet prompts and eight confirmations before a player can enter a single
+ * pot. Most people would give up at three, which made the whole staking path
+ * something the UI promised and almost nobody reached.
+ *
+ * `card` is a PDA over `config.next_card_id`, which the program increments per
+ * mint, so the ids inside one transaction have to be predicted rather than
+ * read — they are strictly sequential from whatever `next_card_id` is when the
+ * transaction is built, which is exactly what the loop below assumes. Any
+ * concurrent mint by someone else invalidates the batch, and the whole
+ * transaction fails rather than half-minting: `MINTS_PER_TX` is kept small so
+ * a retry is cheap.
+ *
+ * Returns one signature per transaction sent, and reports partial progress
+ * through `onProgress` so a long batch is not a frozen button.
+ */
+const MINTS_PER_TX = 3;
+
+export async function mintDeckTx(
+  adapter: Adapter | null,
+  mints: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ signatures: string[]; minted: number }> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(adapter);
+  const owner = wallet.publicKey!;
+  const signatures: string[] = [];
+  let minted = 0;
+
+  for (let i = 0; i < mints.length; i += MINTS_PER_TX) {
+    const chunk = mints.slice(i, i + MINTS_PER_TX);
+
+    // Re-read between chunks. The previous transaction moved `next_card_id`,
+    // and deriving the next batch from a stale config would collide with the
+    // cards we just created.
+    const cfg = await fetchConfig();
+    if (!cfg) throw new Error('Program config not found on this cluster');
+
+    const ixs = await Promise.all(chunk.map((m, k) => {
+      const mintKey = new PublicKey(m);
+      return program.methods
+        .mintCard()
+        .accounts({
+          config: configPda(),
+          coinInfo: coinPda(mintKey),
+          card: cardPda(cfg.nextCardId + k),
+          ownerTokens: getAssociatedTokenAddressSync(mintKey, owner),
+          owner,
+          treasury: new PublicKey(cfg.treasury),
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .instruction();
+    }));
+
+    const tx = new Transaction().add(...ixs);
+    const sig = await (program.provider as AnchorProvider).sendAndConfirm!(tx, []);
+    signatures.push(sig);
+    minted += chunk.length;
+    onProgress?.(minted, mints.length);
+  }
+
+  return { signatures, minted };
 }

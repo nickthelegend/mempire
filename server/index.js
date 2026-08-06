@@ -10,7 +10,9 @@ import cors from 'cors';
 import express from 'express';
 import { requireWallet } from './auth.js';
 import { MongoClient } from 'mongodb';
+import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
+import { registerFaucetRoutes } from './faucet.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -430,6 +432,15 @@ const server = await (async () => {
   // Both the ladder listing and every rank lookup sort on this.
   await ladder.createIndex({ trophies: -1 });
   registerClanRoutes(app, db);
+
+  // The starter kit. Reads the same seeded registry the client does, so the
+  // coins it hands out are exactly the ones the default deck is built from and
+  // the ones the program will accept a card for.
+  const devnetCoins = JSON.parse(
+    readFileSync(new URL('./devnet-coins.json', import.meta.url), 'utf8'),
+  ).coins;
+  registerFaucetRoutes(app, db, devnetCoins);
+
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
   registerMatchmaker(httpServer);

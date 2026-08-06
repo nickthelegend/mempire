@@ -88,6 +88,26 @@ pub mod mempire {
         Ok(())
     }
 
+
+    /// Admin: point fees and rake at a different treasury.
+    ///
+    /// `init_config` runs once against a fixed PDA, so without this the
+    /// treasury chosen on day one is the treasury forever. On devnet that
+    /// treasury was the admin wallet — which meant rake and payout landed in
+    /// the same account and no test could tell them apart, so the rake split
+    /// was asserted only by arithmetic and never by observation.
+    ///
+    /// Gated on `config.admin` via `has_one`, and the admin cannot change:
+    /// this moves where fees go, not who decides.
+    pub fn set_treasury(ctx: Context<SetTreasury>) -> Result<()> {
+        let previous = ctx.accounts.config.treasury;
+        let next = ctx.accounts.treasury.key();
+        require_keys_neq!(previous, next, MempireError::TreasuryUnchanged);
+        ctx.accounts.config.treasury = next;
+        emit!(TreasuryChanged { previous, next });
+        Ok(())
+    }
+
     /// Devnet mock oracle: the admin registers a coin with its liquidity and
     /// price. Mainnet replaces this with Jupiter/Pyth-fed data.
     pub fn register_coin(
@@ -1150,6 +1170,15 @@ pub struct RegisterCoin<'info> {
 }
 
 #[derive(Accounts)]
+pub struct SetTreasury<'info> {
+    #[account(mut, seeds = [b"config"], bump = config.bump, has_one = admin)]
+    pub config: Account<'info, Config>,
+    pub admin: Signer<'info>,
+    /// CHECK: any address the admin nominates; it only ever receives lamports.
+    pub treasury: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct SetPrice<'info> {
     #[account(seeds = [b"config"], bump = config.bump, has_one = admin)]
     pub config: Account<'info, Config>,
@@ -1490,6 +1519,12 @@ pub struct MatchSettled {
 }
 
 #[event]
+pub struct TreasuryChanged {
+    pub previous: Pubkey,
+    pub next: Pubkey,
+}
+
+#[event]
 pub struct MatchCancelled {
     pub match_id: u64,
     pub player: Pubkey,
@@ -1550,4 +1585,6 @@ pub enum MempireError {
     BadCardLayout,
     #[msg("this seat has already recorded its result")]
     AlreadyClaimed,
+    #[msg("the treasury is already that address")]
+    TreasuryUnchanged,
 }

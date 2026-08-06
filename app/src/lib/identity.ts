@@ -83,3 +83,41 @@ export async function signAction(
     return null;
   }
 }
+
+/**
+ * The guest keypair as a Solana transaction signer.
+ *
+ * # Why this exists
+ *
+ * A guest already holds a real ed25519 keypair with a real public key — the
+ * only thing separating it from a wallet was that nothing let it sign a
+ * *transaction*, only a message. So guest mode could read the chain, hold a
+ * ladder position and join a clan, but the moment a match wanted to escrow a
+ * stake it fell back to "playing for rating only". The address was real, the
+ * funds could be real, and the game refused anyway.
+ *
+ * Wiring it up means someone can open the site, get a fundable address, and
+ * play a genuinely on-chain staked match without installing anything.
+ *
+ * # Why it is devnet-only
+ *
+ * The secret key sits unencrypted in localStorage. That is an acceptable place
+ * to keep a devnet key guarding play funds and a ladder row. It is not an
+ * acceptable place to keep anything holding real value: any script on the page
+ * can read it, it does not survive a cleared browser, and there is no recovery
+ * phrase. So this returns null off devnet, and the UI routes those players to
+ * a real wallet instead of quietly giving them a worse one.
+ */
+export function guestSolanaSigner(cluster: string): {
+  publicKey: Uint8Array;
+  secretKey: Uint8Array;
+} | null {
+  if (cluster !== 'devnet') return null;
+  const kp = guestKeypair();
+  return { publicKey: kp.publicKey, secretKey: kp.secretKey };
+}
+
+/** Wipe the guest key. The only way to abandon a browser-held identity. */
+export function clearGuestIdentity(): void {
+  try { localStorage.removeItem(GUEST_SK); } catch { /* nothing to clear */ }
+}

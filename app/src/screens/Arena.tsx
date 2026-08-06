@@ -4,16 +4,17 @@ import { CardFrame } from '../components/CardFrame';
 import { Tutorial, resetTutorial, tutorialDone } from '../components/Tutorial';
 import { LeagueBadge } from '../components/LeagueBadge';
 import { Crowns, Pill } from '../components/ui';
-import { fmtSol } from '../lib/format';
+import { fmtSol, shortAddr } from '../lib/format';
 import { leagueFor } from '../lib/ranking';
 import { EASE_SNAP, usePulse } from '../lib/motion';
 import { FEES, useCollection } from '../state/collection';
 import { TIERS, useDeck } from '../state/deck';
 import { useLadder } from '../state/ladder';
 import { useMatch } from '../state/match';
-import { useWallet } from '../state/wallet';
+import { signer, useWallet } from '../state/wallet';
 import { useChain } from '../state/chain';
 import { fetchRecentSettlements, type ChainMatch } from '../chain/read';
+import { mintDeckTx, readableChainError } from '../chain/actions';
 
 /**
  * Recent settlements, read from the chain.
@@ -305,12 +306,19 @@ export function Arena() {
   const mintedDeck = deckCards.filter(
     (c) => c && chainCards.some((k) => k.mint === c.mint && !k.inMatch),
   ).length;
-  const stakeBlocker = wallet.isGuest || chainMode !== 'onchain'
-    ? 'Guest mode cannot sign, so nothing is escrowed'
+  const unmintedMints = deckCards
+    .filter((c) => c && !chainCards.some((k) => k.mint === c.mint))
+    .map((c) => c!.mint);
+  // A guest is no longer blocked by being a guest: its address is a real,
+  // fundable pubkey and it can sign for itself on devnet. What blocks anyone
+  // is the same three things — an unreachable cluster, a deck that is not
+  // minted, or not holding the tier.
+  const stakeBlocker = chainMode !== 'onchain'
+    ? 'The program is unreachable, so nothing is escrowed'
     : mintedDeck < 8
       ? `${8 - mintedDeck} of your cards are not minted onchain yet`
       : wallet.sol < tier.stakeSol
-        ? `You hold ${fmtSol(wallet.sol)} — not enough for this tier`
+        ? `You hold ${fmtSol(wallet.sol)} — fund ${shortAddr(wallet.address)} to stake this tier`
         : '';
   const canStake = stakeBlocker === '';
 
@@ -493,6 +501,17 @@ export function Arena() {
               ? 'Escrowed onchain — the winner is paid by the program.'
               : `${stakeBlocker} · this match counts for rating only.`}
           </span>
+          {/*
+            The one blocker the player can clear from here.
+
+            "3 of your cards are not minted onchain yet" is a true sentence and
+            a useless one if the only way to act on it is eight separate mints
+            on another screen. Batched three to a transaction, so a full deck is
+            three prompts rather than eight.
+          */}
+          {!canStake && unmintedMints.length > 0 && (
+            <MintDeckButton mints={unmintedMints} />
+          )}
         </div>
       </section>
 
@@ -555,6 +574,58 @@ export function Arena() {
       </section>
 
       {showTutorial && <Tutorial onDone={() => setShowTutorial(false)} />}
+    </div>
+  );
+}
+
+/**
+ * Mint the deck's missing cards, batched.
+ *
+ * Deliberately not a silent background job: minting spends real SOL per card
+ * and the player should be the one deciding to, with the count in front of
+ * them. Progress is reported per transaction because three confirmations on
+ * devnet is long enough that a static spinner reads as a hang.
+ */
+function MintDeckButton({ mints }: { mints: string[] }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'done'>('idle');
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const refresh = useChain((s) => s.refresh);
+
+  if (state === 'done') {
+    return (
+      <span className="fine" style={{ color: 'var(--teal)' }}>
+        Deck minted — this match will escrow.
+      </span>
+    );
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 4 }}>
+      <Pill
+        tone="blue"
+        disabled={state === 'busy'}
+        onClick={() => {
+          setState('busy');
+          setError(null);
+          void mintDeckTx(signer(), mints, (done) => setProgress(done))
+            .then(async () => {
+              await refresh();
+              setState('done');
+            })
+            .catch((e) => {
+              setError(readableChainError(e));
+              setState('idle');
+            });
+        }}
+      >
+        {state === 'busy'
+          ? `Minting ${progress}/${mints.length}…`
+          : `Mint ${mints.length} card${mints.length === 1 ? '' : 's'} to stake`}
+      </Pill>
+      {error && (
+        <span className="fine" style={{ color: 'var(--red-on-wood)' }}>{error}</span>
+      )}
     </div>
   );
 }

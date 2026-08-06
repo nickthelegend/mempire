@@ -386,31 +386,30 @@ async function main() {
     const expectedRake = Math.floor((pot * rakeBps) / 10_000);
     const expectedPayout = pot - expectedRake;
 
-    // On devnet the treasury and the winner are the same wallet, so the rake
-    // lands in the same account as the payout and the two cannot be measured
-    // apart. Assert what the setup can actually show, and say which case ran —
-    // an assertion that only holds because two accounts happen to be distinct
-    // is worse than no assertion, because it looks like it checked something.
-    const treasuryIsWinner = new PublicKey(cfg.treasury).equals(admin.publicKey);
+    // The treasury is a dedicated address now, so the split is observable
+    // rather than asserted. It used to be the admin wallet — the same account
+    // as the winner — which meant rake and payout landed together and no test
+    // could tell whether the rake had been taken at all.
     const credited = aPost - aPre;
+    const rakeTaken = treasuryPost - treasuryPre;
 
     // Settled by seat B, so seat A paid no transaction fee — its whole delta
     // is what the program sent it.
-    check('the winner was credited exactly what the program owes',
-      credited === (treasuryIsWinner ? pot : expectedPayout),
-      treasuryIsWinner
-        ? `+${(credited / LAMPORTS_PER_SOL).toFixed(6)} SOL = payout ${(expectedPayout / LAMPORTS_PER_SOL).toFixed(6)} + rake ${(expectedRake / LAMPORTS_PER_SOL).toFixed(6)} (treasury is the winner here)`
-        : `+${(credited / LAMPORTS_PER_SOL).toFixed(6)} SOL, expected ${(expectedPayout / LAMPORTS_PER_SOL).toFixed(6)}`);
+    check('the winner received pot minus rake, exactly',
+      credited === expectedPayout,
+      `+${(credited / LAMPORTS_PER_SOL).toFixed(6)} SOL, expected ${(expectedPayout / LAMPORTS_PER_SOL).toFixed(6)}`);
 
-    check('rake + payout is exactly the pot — nothing minted, nothing lost',
-      expectedRake + expectedPayout === pot,
-      `${(expectedRake / LAMPORTS_PER_SOL).toFixed(6)} + ${(expectedPayout / LAMPORTS_PER_SOL).toFixed(6)} = ${(pot / LAMPORTS_PER_SOL).toFixed(6)} SOL at ${rakeBps}bps`);
+    check('the treasury received the rake, exactly',
+      rakeTaken === expectedRake,
+      `+${(rakeTaken / LAMPORTS_PER_SOL).toFixed(6)} SOL at ${rakeBps}bps, expected ${(expectedRake / LAMPORTS_PER_SOL).toFixed(6)}`);
 
-    if (!treasuryIsWinner) {
-      check('the treasury took its rake',
-        treasuryPost - treasuryPre === expectedRake,
-        `+${((treasuryPost - treasuryPre) / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
-    }
+    check('rake + payout is the whole pot — nothing minted, nothing lost',
+      rakeTaken + credited === pot,
+      `${(rakeTaken / LAMPORTS_PER_SOL).toFixed(6)} + ${(credited / LAMPORTS_PER_SOL).toFixed(6)} = ${(pot / LAMPORTS_PER_SOL).toFixed(6)} SOL`);
+
+    check('the treasury is not the winner — the split is measurable',
+      !new PublicKey(cfg.treasury).equals(admin.publicKey),
+      new PublicKey(cfg.treasury).toBase58().slice(0, 12) + '…');
 
     const settledMatch: any = await accounts.matchAccount.fetch(match);
     check('the match is marked Settled', settledMatch.state === 2, `state=${settledMatch.state}`);

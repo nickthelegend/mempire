@@ -35,8 +35,7 @@ import { guestAddress } from '../lib/identity';
 
 const NETWORK = WalletAdapterNetwork.Devnet;
 
-/** Guest-only play money. A real wallet's balance comes from the chain. */
-const GUEST_BALANCE = 12.4;
+
 
 /**
  * Guest identity is per **tab** (sessionStorage), not per browser.
@@ -221,7 +220,8 @@ export const useWallet = create<WalletState>((set, get) => ({
     set({
       connected: true, connecting: null, pickerOpen: false,
       address: guestAddress(), walletName: 'Guest', walletIcon: null,
-      sol: GUEST_BALANCE, isGuest: true, signMessage: undefined,
+      // Zero until the chain reports otherwise — the address is real.
+      sol: 0, isGuest: true, signMessage: undefined,
     });
   },
 
@@ -262,13 +262,14 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   /**
-   * Overwrite the balance from chain. Guests are left alone — they have no
-   * chain balance, and zeroing them would take the demo away.
+   * Overwrite the balance with what the chain reports — for everyone.
+   *
+   * Guests are no longer excluded. A guest address is a real, fundable pubkey
+   * that signs for itself on devnet, so it has a genuine balance and showing
+   * it play money instead would be the same lie the hardcoded 12.4 was. An
+   * unfunded guest sees 0 SOL, which is true, and Practice is free.
    */
-  setChainBalance: (sol) => {
-    if (get().isGuest) return;
-    set({ sol: +sol.toFixed(4) });
-  },
+  setChainBalance: (sol) => set({ sol: +sol.toFixed(4) }),
 
   /**
    * Can this wallet afford `amount`, and take it if so.
@@ -279,14 +280,15 @@ export const useWallet = create<WalletState>((set, get) => ({
    * invented half would disappear at the next refresh. A Guest's balance is
    * play money with no chain behind it, so it is genuinely debited here.
    */
-  spend: (amount) => {
-    if (get().sol < amount) return false;
-    if (get().isGuest) set((s) => ({ sol: +(s.sol - amount).toFixed(4) }));
-    return true;
-  },
-  /** Credit play money. Real balances come back from the chain instead. */
-  receive: (amount) => {
-    if (!get().isGuest) return;
-    set((s) => ({ sol: +(s.sol + amount).toFixed(4) }));
-  },
+  /**
+   * Can this wallet afford `amount`.
+   *
+   * Purely a check now. Every balance in the app is the chain's, including a
+   * guest's, so the escrow instruction moves the lamports and the next
+   * `getBalance` reports it — deducting here as well would show the stake
+   * leaving twice, and the invented half would vanish on the next refresh.
+   */
+  spend: (amount) => get().sol >= amount,
+  /** Kept for unstaked matches, which move no real lamports to credit. */
+  receive: () => { /* the chain is the only source of a balance */ },
 }));

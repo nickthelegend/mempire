@@ -84,9 +84,19 @@ export class NoSignerError extends Error {
   constructor() { super('This wallet cannot sign — connect a real wallet to play onchain.'); }
 }
 
-function requireSigner(adapter: Adapter | null): Adapter {
-  if (!canSign(adapter) || !adapter?.publicKey) throw new NoSignerError();
-  return adapter;
+/**
+ * The key that will sign, or throw.
+ *
+ * A guest has no adapter — it signs with a browser-held keypair the provider
+ * knows about — so requiring `adapter.publicKey` would reject every guest
+ * regardless of what `canSign` reports. Ask the provider instead, which is the
+ * thing that actually does the signing.
+ */
+function requireSigner(adapter: Adapter | null): { publicKey: PublicKey } {
+  if (!canSign(adapter)) throw new NoSignerError();
+  const key = adapter?.publicKey ?? getProvider(adapter).wallet.publicKey;
+  if (!key) throw new NoSignerError();
+  return { publicKey: key };
 }
 
 /** The rollup program on base layer. */
@@ -110,7 +120,7 @@ export async function initLogTx(
   adapter: Adapter | null, matchId: number, players: [string, string],
 ): Promise<TxResult & { log: string }> {
   const wallet = requireSigner(adapter);
-  const program = baseProgram(wallet);
+  const program = baseProgram(adapter);
   const log = matchLogPda(matchId);
 
   const signature = await program.methods
@@ -138,7 +148,7 @@ export async function delegateLogTx(
   adapter: Adapter | null, matchId: number, localnet = false,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const program = baseProgram(wallet);
+  const program = baseProgram(adapter);
 
   const signature = await program.methods
     .delegateLog(new BN(matchId))
@@ -180,7 +190,7 @@ export async function playCardEr(
   const kp = sessionFor(matchId);
   const prog = kp
     ? new Program(rollupIdl as Idl, sessionProvider(er.conn, kp))
-    : erProgram(wallet, er.conn);
+    : erProgram(adapter, er.conn);
 
   const signature = await prog.methods
     .playCard(tick, deckIndex, x, y)
@@ -202,7 +212,7 @@ export async function checkpointEr(
   const kp = sessionFor(matchId);
   const prog = kp
     ? new Program(rollupIdl as Idl, sessionProvider(er.conn, kp))
-    : erProgram(wallet, er.conn);
+    : erProgram(adapter, er.conn);
 
   const signature = await prog.methods
     .checkpoint(tick, new BN(hash.toString()))
@@ -238,7 +248,7 @@ export async function sealLogEr(
   const er = await resolveEr(log);
   if (!er) throw new Error('match log is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const signature = await erProgram(adapter, er.conn).methods
     .sealLog()
     .accounts({
       payer: wallet.publicKey!,
@@ -272,7 +282,7 @@ export async function unsealLogEr(
   const er = await resolveEr(log);
   if (!er) throw new Error('match log is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const signature = await erProgram(adapter, er.conn).methods
     .unsealLog()
     .accounts({
       payer: wallet.publicKey!,
@@ -312,14 +322,14 @@ export async function ensureChestRail(adapter: Adapter | null): Promise<PublicKe
 
   const existing = await conn.getAccountInfo(rail);
   if (!existing) {
-    await baseProgram(wallet).methods
+    await baseProgram(adapter).methods
       .initChests()
       .accounts({ chests: rail, owner, systemProgram: SystemProgram.programId } as any)
       .rpc();
   }
   const status = await resolveEr(rail);
   if (!status) {
-    await baseProgram(wallet).methods
+    await baseProgram(adapter).methods
       .delegateChests()
       .accounts({ owner, chests: rail, validator: IS_LOCALNET ? LOCALNET_VALIDATOR : null } as any)
       .rpc();
@@ -343,7 +353,7 @@ export async function requestChestEr(
   const er = await resolveEr(rail);
   if (!er) throw new Error('chest rail is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const signature = await erProgram(adapter, er.conn).methods
     .requestChest(slotIndex, clientSeed & 0xff)
     .accounts({
       payer: owner, chests: rail, owner, oracleQueue: EPHEMERAL_QUEUE,
@@ -362,7 +372,7 @@ export async function claimChestEr(
   const er = await resolveEr(rail);
   if (!er) throw new Error('chest rail is not delegated to a rollup');
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const signature = await erProgram(adapter, er.conn).methods
     .claimChest(slotIndex)
     .accounts({ chests: rail, owner } as any)
     .rpc();
@@ -385,7 +395,7 @@ export async function readChestRail(
   const er = await resolveEr(rail);
   const conn = er ? er.conn : getConnection();
   try {
-    const acc: any = await (erProgram(wallet, conn).account as any)
+    const acc: any = await (erProgram(adapter, conn).account as any)
       .playerChests.fetch(rail);
     return {
       slots: acc.slots.map((s: any) => ({
@@ -410,11 +420,14 @@ export async function readChestRail(
 export async function openSessionEr(
   adapter: Adapter | null, matchId: number,
 ): Promise<boolean> {
-  const wallet = requireSigner(adapter);
+  // Called for the check, not the key — `openSession` resolves its own signer
+  // from the provider, and this refuses early rather than opening a rollup
+  // connection for a session that could never be authorised.
+  requireSigner(adapter);
   const log = matchLogPda(matchId);
   const er = await resolveEr(log);
   if (!er) return false;
-  return openSession(wallet, matchId, erProgram(wallet, er.conn), log);
+  return openSession(adapter, matchId, erProgram(adapter, er.conn), log);
 }
 
 /** Revokes it. Never throws — expiry is the backstop. */
@@ -459,7 +472,7 @@ export async function endLogEr(
     if (railEr && railEr.conn.rpcEndpoint === er.conn.rpcEndpoint) winnerChests = rail;
   }
 
-  const signature = await erProgram(wallet, er.conn).methods
+  const signature = await erProgram(adapter, er.conn).methods
     .endLog(winner, new BN(finalHash.toString()))
     .accounts({
       payer: wallet.publicKey!,
@@ -480,7 +493,7 @@ export async function closeLogTx(
   adapter: Adapter | null, matchId: number,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
-  const signature = await baseProgram(wallet).methods
+  const signature = await baseProgram(adapter).methods
     .closeLog()
     .accounts({ log: matchLogPda(matchId), payer: wallet.publicKey! } as any)
     .rpc();

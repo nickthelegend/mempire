@@ -92,12 +92,18 @@ export async function openSession(
   program: Program<Idl>,
   log: PublicKey,
 ): Promise<boolean> {
-  if (!adapter?.publicKey) return false;
+  // A guest has no adapter and still signs, through the provider. Taking the
+  // key from whichever of the two is present keeps this working for both —
+  // `adapter?.publicKey` alone silently returned false for every guest, so
+  // guests played every match with a wallet prompt per card.
+  const player = adapter?.publicKey
+    ?? (program.provider as { wallet?: { publicKey?: PublicKey } }).wallet?.publicKey;
+  if (!player) return false;
   const kp = Keypair.generate();
   try {
     await program.methods
       .openSession(kp.publicKey, new BN(SESSION_TTL_SECS))
-      .accounts({ log, player: adapter.publicKey } as never)
+      .accounts({ log, player } as never)
       .rpc();
     live = {
       matchId,

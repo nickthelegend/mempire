@@ -1,0 +1,168 @@
+/**
+ * Devnet starter kit: a little SOL and eight coins, once per address.
+ *
+ * # Why this exists
+ *
+ * "Your bags are your army" is the premise, and a wallet that has just arrived
+ * has no bags. `mint_card` requires holding the coin, so without this a new
+ * player cannot mint a single fighter, cannot field a legal deck, and can
+ * therefore never reach a staked match. Every screen worked and the game was
+ * unreachable.
+ *
+ * # What it can and cannot do
+ *
+ * It signs with `FAUCET_SECRET`, a key whose only power is spending what it
+ * holds. Deliberately NOT the admin key: that one is the program's upgrade
+ * authority, and a web server is the wrong place for it. Losing this key costs
+ * a refill and nothing else.
+ *
+ * # Abuse
+ *
+ * Devnet tokens are worth nothing, so the threat is not theft but drain — one
+ * script emptying the faucet so nobody else can start. Three guards: an
+ * ed25519 signature proving the caller controls the address, one claim per
+ * address ever (recorded in Mongo), and a per-IP rate limit. A determined
+ * attacker with many keypairs can still drain it; the answer to that is
+ * `setup-faucet.ts` refilling, not a harder puzzle for real players.
+ */
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddressSync,
+} from '@solana/spl-token';
+import bs58 from 'bs58';
+import { requireWallet } from './auth.js';
+
+const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com';
+
+/** Enough for eight mint fees (0.02 each), a 0.05 stake, rent and signatures. */
+const DRIP_SOL = 0.35;
+/** Whole tokens of each starter coin. One is enough to mint; more is friendlier. */
+const DRIP_TOKENS = 25;
+/** How many distinct coins a new player is handed. A legal deck is eight. */
+const STARTER_COINS = 8;
+
+function faucetKeypair() {
+  const secret = process.env.FAUCET_SECRET;
+  if (!secret) return null;
+  try {
+    return Keypair.fromSecretKey(bs58.decode(secret));
+  } catch {
+    return null;
+  }
+}
+
+export function registerFaucetRoutes(app, db, coins) {
+  const kp = faucetKeypair();
+  const conn = new Connection(RPC, 'confirmed');
+  const claims = db ? db.collection('faucet_claims') : null;
+
+  // The first eight coins in the registry are the ones the default deck uses,
+  // so a claimant can mint a legal deck immediately rather than shopping for
+  // which of sixty-six they happen to have been given.
+  const starters = coins.slice(0, STARTER_COINS);
+
+  app.get('/api/faucet', async (_req, res) => {
+    if (!kp) return res.json({ available: false, reason: 'faucet not configured' });
+    const sol = await conn.getBalance(kp.publicKey).catch(() => 0);
+    res.json({
+      available: sol > DRIP_SOL * LAMPORTS_PER_SOL * 2,
+      address: kp.publicKey.toBase58(),
+      dripSol: DRIP_SOL,
+      coins: starters.map((c) => c.ticker),
+      balanceSol: sol / LAMPORTS_PER_SOL,
+    });
+  });
+
+  app.post('/api/faucet', requireWallet('faucet'), async (req, res) => {
+    if (!kp) return res.status(503).json({ error: 'faucet not configured' });
+
+    const address = req.wallet;
+    let owner;
+    try {
+      owner = new PublicKey(address);
+    } catch {
+      return res.status(400).json({ error: 'not a valid address' });
+    }
+
+    // One claim per address, ever. Checked before anything is signed, and
+    // written before the transaction is sent — a double-spend of the faucet is
+    // worse than a claim that failed after being recorded, because the player
+    // can retry a failure and cannot un-drain a faucet.
+    if (claims) {
+      const prior = await claims.findOne({ _id: address });
+      if (prior) {
+        return res.status(409).json({
+          error: 'this address has already claimed',
+          claimedAt: prior.at,
+        });
+      }
+      await claims.insertOne({ _id: address, at: new Date() });
+    }
+
+    try {
+      /**
+       * Two transactions, not one.
+       *
+       * Eight coins is eight ATA creations plus eight transfers plus the SOL
+       * drip, and that packs to 1247 bytes against a 1232-byte limit — a
+       * failure that only appears once the whole starter kit is assembled, so
+       * a smaller test would have passed. Split four and four, SOL riding with
+       * the first.
+       *
+       * Not atomic, and that is survivable: the claim record is released on
+       * any failure, so a half-delivered kit is retried from the beginning and
+       * the idempotent ATA creation makes the repeat harmless.
+       */
+      const half = Math.ceil(starters.length / 2);
+      const batches = [starters.slice(0, half), starters.slice(half)];
+      const signatures = [];
+
+      for (const [i, batch] of batches.entries()) {
+        const tx = new Transaction();
+        if (i === 0) {
+          tx.add(SystemProgram.transfer({
+            fromPubkey: kp.publicKey,
+            toPubkey: owner,
+            lamports: Math.round(DRIP_SOL * LAMPORTS_PER_SOL),
+          }));
+        }
+        for (const c of batch) {
+          const mint = new PublicKey(c.mint);
+          const from = getAssociatedTokenAddressSync(mint, kp.publicKey);
+          const to = getAssociatedTokenAddressSync(mint, owner);
+          tx.add(createAssociatedTokenAccountIdempotentInstruction(
+            kp.publicKey, to, owner, mint,
+          ));
+          tx.add(createTransferInstruction(
+            from, to, kp.publicKey,
+            BigInt(DRIP_TOKENS) * BigInt(10) ** BigInt(c.decimals ?? 6),
+          ));
+        }
+
+        const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash();
+        tx.recentBlockhash = blockhash;
+        tx.feePayer = kp.publicKey;
+        tx.sign(kp);
+        const signature = await conn.sendRawTransaction(tx.serialize());
+        await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+        signatures.push(signature);
+      }
+
+      res.json({
+        ok: true,
+        signature: signatures[0],
+        signatures,
+        sol: DRIP_SOL,
+        coins: starters.map((c) => c.ticker),
+      });
+    } catch (e) {
+      // Release the claim so a network failure is not a permanent lockout —
+      // the only thing worse than an empty faucet is one that has recorded you
+      // as served when it has not served you.
+      if (claims) await claims.deleteOne({ _id: address }).catch(() => {});
+      res.status(502).json({ error: String(e?.message ?? e).slice(0, 200) });
+    }
+  });
+}

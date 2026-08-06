@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CardDetail } from '../components/CardDetail';
+import { StarterKit } from '../components/StarterKit';
 import { CardFrame } from '../components/CardFrame';
 import { ChainBadge } from '../components/ChainBadge';
 import { ChestRail, GemShop } from '../components/Chests';
@@ -525,6 +526,8 @@ export function Cards() {
           <span className="display display--sm" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
         </button>
       </header>
+
+      <StarterKit />
 
       <ChestRail />
 
