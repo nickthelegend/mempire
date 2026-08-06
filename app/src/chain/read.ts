@@ -208,3 +208,33 @@ export async function fetchTokenBalances(owner: string): Promise<Map<string, num
   }
   return out;
 }
+
+/** A match the program has already paid out. */
+export const MATCH_STATE_SETTLED = 2;
+
+/**
+ * Real settled matches, newest first.
+ *
+ * The Arena's "recent settlements" strip used to be six hardcoded names and
+ * amounts — `chad.sol won 0.45` — cycling on a timer. It looked exactly like a
+ * live feed of other players' matches and was a fabrication, on the one screen
+ * whose entire job is to convince someone the pot is real.
+ *
+ * This returns what actually settled. An empty list is a legitimate answer on
+ * a young devnet and the caller says so rather than inventing filler.
+ */
+export async function fetchRecentSettlements(limit = 12): Promise<ChainMatch[]> {
+  const program = getProgram();
+  const all = await accounts(program).matchAccount.all();
+  return all
+    .map((r: { publicKey: PublicKey; account: unknown }) => toMatch(r.publicKey, r.account))
+    // `winner` 0/1 is a result and 2 is a draw. 3 is what `cancel_match`
+    // writes for a match nobody joined — no game was played and no pot was
+    // won, so showing it as a settlement (and worse, as "a draw split the
+    // pot") would be inventing a match that never happened.
+    .filter((m: ChainMatch) => m.state === MATCH_STATE_SETTLED
+      && m.stakeSol > 0
+      && m.winner <= 2)
+    .sort((a: ChainMatch, b: ChainMatch) => b.id - a.id)
+    .slice(0, limit);
+}

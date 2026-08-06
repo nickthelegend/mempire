@@ -43,9 +43,29 @@ idempotent and owner-signed.
 
 ## Open — client
 
-| # | Where | Severity | Defect |
-|---|---|---|---|
-| A2 | `state/wallet.ts:26` | **KNOWN** | The stake and payout shown are a local number, not chain state. This is now what the game claims: the SOL tier is presentation, and the escrow that used to back it (A1) is removed because nothing could settle it. Wiring join/settle/timeout end-to-end is the work that makes the stake real. |
+None.
+
+**A2 is closed.** The stake is now real. `create_match` escrows on pairing,
+`join_match` matches it after the joining client has verified the match account
+itself, each seat records its own result with `end_match_log`, and
+`settle_from_log` pays the winner and releases both decks — proved end to end
+by `e2e-staked-match.ts`, which watches lamports leave two wallets and land
+back in one.
+
+Closing it surfaced two defects that made it impossible in the first place:
+`end_match_log` undelegated the log on the *first* claim (stranding the second
+seat), and its `!log.ended` guard then rejected that second claim anyway. Both
+fixed; the suite asserts the log survives one claim.
+
+Three things it deliberately does **not** do, each stated in the UI rather than
+hidden: a Guest stakes nothing (no keypair), a deck that is not fully minted
+stakes nothing (the program has nothing to lock), and a wallet without the tier
+in it stakes nothing. Those matches still run and still move rating, and the
+Arena says which of the three applies before you queue.
+
+Every failure path returns the money: `cancel_match` for a match nobody joined,
+`claim_timeout` for one that never resolved (surfaced as a "Claim my stake"
+button on Empire), and a disagreement voids and refunds.
 
 ## Clean — verified, not assumed
 

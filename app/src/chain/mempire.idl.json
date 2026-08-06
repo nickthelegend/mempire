@@ -2126,6 +2126,11 @@
       "code": 6024,
       "name": "BadCardLayout",
       "msg": "card account is not a recognised layout"
+    },
+    {
+      "code": 6025,
+      "name": "AlreadyClaimed",
+      "msg": "this seat has already recorded its result"
     }
   ],
   "types": [

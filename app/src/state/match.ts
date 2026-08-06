@@ -20,6 +20,7 @@ import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
 import { useChain } from './chain';
+import { useEscrow } from './escrow';
 import { useErMatch } from './erMatch';
 import {
   claimChestEr, ensureChestRail, readChestRail, requestChestEr,
@@ -157,6 +158,18 @@ async function rollChestOnchain(): Promise<void> {
 let humanStartAt = 0;
 
 /**
+ * Seat 1's half of the escrow handshake, parked until seat 0 relays the id.
+ *
+ * Seat 1 cannot derive the on-chain match id — it is `config.next_match_id` at
+ * the moment seat 0's transaction landed — so the join has to wait for the
+ * relay. Held here rather than in the store because it is a one-shot; the
+ * store carries the outcome.
+ */
+let pendingJoin: {
+  stakeSol: number; opponent: string; deck: number[]; hash: Uint8Array;
+} | null = null;
+
+/**
  * How far this machine's wall clock is behind the matchmaker's, in ms.
  *
  * Both clients step the sim against `tick = (now - startAt) / 50ms`, where
@@ -246,6 +259,43 @@ function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } | null {
     level: levels[(i * 3) % levels.length],
   }));
   return { player, bot };
+}
+
+/**
+ * The deck's on-chain card ids, in deck order, or null if it is not fully
+ * minted.
+ *
+ * `create_match` locks these eight accounts and `deckHash` commits to their
+ * order, so the order here has to be the order the player actually plays. A
+ * deck with even one un-minted card cannot be staked at all — the program has
+ * nothing to lock — which is the honest reason a match falls back to unstaked.
+ */
+function onchainDeckIds(): number[] | null {
+  const { cards } = useCollection.getState();
+  const { active } = useDeck.getState();
+  const chainCards = useChain.getState().cards;
+  const ids: number[] = [];
+  for (const id of active) {
+    const c = cards.find((x) => x.id === id);
+    if (!c) return null;
+    const onchain = chainCards.find((k) => k.mint === c.mint && !k.inMatch);
+    if (!onchain) return null;
+    ids.push(onchain.id);
+  }
+  return ids.length === 8 ? ids : null;
+}
+
+/** FNV-1a over the deck's mints, in order — the commitment the program stores. */
+function deckHashBytes(deck: MatchCard[]): Uint8Array {
+  const out = new Uint8Array(32);
+  let h = 0x811c9dc5;
+  const text = deck.map((c) => c.coinId).join(',');
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  new DataView(out.buffer).setUint32(0, h, true);
+  return out;
 }
 
 export const useMatch = create<MatchStore>((set, get) => ({
@@ -368,6 +418,30 @@ export const useMatch = create<MatchStore>((set, get) => ({
         beginHumanBattle(m, player, tier.stakeSol, deck.tier, rush);
       },
       onUnavailable: fallBack,
+      onChain: (msg) => {
+        if (msg.stage === 'failed') {
+          // The opponent could not stake. Nothing of ours is committed yet at
+          // this point, so the match simply plays unstaked — and says so.
+          pendingJoin = null;
+          useEscrow.setState({
+            phase: 'failed',
+            lastError: `opponent could not stake${msg.reason ? `: ${msg.reason}` : ''}`,
+          });
+          return;
+        }
+        if (msg.stage === 'opened' && msg.onchainMatchId !== null && pendingJoin) {
+          const p = pendingJoin;
+          pendingJoin = null;
+          void useEscrow.getState().join(
+            signer(), msg.onchainMatchId, p.stakeSol, p.opponent, p.deck, p.hash,
+          );
+        }
+        if (msg.stage === 'joined' && msg.onchainMatchId !== null) {
+          // Seat 0 learns its stake was matched, and only now spends a
+          // transaction on the log.
+          void useEscrow.getState().prepareLog(signer(), msg.onchainMatchId);
+        }
+      },
       onInput: (ev) => queueRemoteInput(ev),
       onDesync: () => settleVoid('the two sims diverged'),
       onOpponentLeft: () => {
@@ -629,10 +703,25 @@ function beginBotFlow(
 }
 
 /** Refund a tracked human-match escrow exactly once. */
+/**
+ * Give back whatever this match took, on both layers.
+ *
+ * The local half is play money for Guests. The on-chain half matters far more:
+ * seat 0 escrows the moment it is paired, and if the opponent never joins, the
+ * stake sits in an `Open` match with eight cards locked behind it until
+ * somebody calls `cancel_match`. Nobody else will. Any path that abandons a
+ * match has to come through here.
+ */
 function refundEscrow(): void {
-  if (humanEscrowSol <= 0) return;
-  useWallet.getState().receive(humanEscrowSol);
-  humanEscrowSol = 0;
+  if (humanEscrowSol > 0) {
+    useWallet.getState().receive(humanEscrowSol);
+    humanEscrowSol = 0;
+  }
+  pendingJoin = null;
+  const escrow = useEscrow.getState();
+  if (escrow.phase === 'waiting' || escrow.phase === 'opening') {
+    void escrow.withdraw(signer());
+  }
 }
 
 /**
@@ -694,6 +783,47 @@ function beginHumanBattle(
   }
   humanEscrowSol = stakeSol;
   play('coin');
+
+  /**
+   * The real escrow.
+   *
+   * Runs only for a ranked, staked match with a wallet that can sign and a
+   * fully-minted deck; anything else plays for the ladder alone and the Arena
+   * says so. Not awaited: a create/join round trip is seconds of wallet
+   * prompts and confirmations, and the match must start on the shared clock
+   * both clients already agreed on. The escrow store carries the outcome, and
+   * settlement checks it before claiming anything was paid.
+   *
+   * Seat 0 opens and relays the id; seat 1 waits for that relay, verifies the
+   * match account itself, and matches the stake. Neither can be made to stake
+   * by the other: the id is a hint, the chain is the authority.
+   */
+  const escrow = useEscrow.getState();
+  escrow.reset();
+  const canStake = stakeSol > 0
+    && useChain.getState().mode === 'onchain'
+    && signer() !== null;
+  const chainDeck = canStake ? onchainDeckIds() : null;
+  if (canStake && chainDeck) {
+    const hash = deckHashBytes(myDeck);
+    if (m.role === 0) {
+      void escrow.open(signer(), tierIdx, stakeSol, chainDeck, hash)
+        .then((id) => (id === null ? null : escrow.prepareLog(signer(), id)));
+    } else {
+      pendingJoin = {
+        stakeSol, opponent: m.opponent.address, deck: chainDeck, hash,
+      };
+    }
+  } else if (stakeSol > 0) {
+    // Say which of the three reasons it was, rather than silently playing an
+    // unstaked match that the UI labelled with a stake.
+    useEscrow.setState({
+      phase: 'failed',
+      lastError: !canStake
+        ? 'this session cannot sign — playing for the ladder only'
+        : 'your deck is not fully minted onchain — playing for the ladder only',
+    });
+  }
 
   const oppDeck = sanitiseDeck(m.opponent.deck);
   if (!oppDeck) {
@@ -829,6 +959,14 @@ function settle(): void {
     // 2-of-2 settlement is a dispute that voids rather than splits.
     const winner = sim.winner === -2 ? 2 : (sim.winner === perspective ? 0 : 1);
     void useErMatch.getState().finish(signer(), winner, BigInt(finalHash >>> 0));
+
+    // The money. Each seat records its own result; whichever of them finds the
+    // log home with both claims in it triggers the payout. Not awaited — the
+    // result screen shows immediately and the escrow badge reports where the
+    // pot got to.
+    if (useEscrow.getState().matchId !== null) {
+      void useEscrow.getState().finish(signer(), winner, BigInt(finalHash >>> 0));
+    }
   }
   stopMusic();
   const wallet = useWallet.getState();
@@ -837,14 +975,26 @@ function settle(): void {
   const won = sim.winner === perspective;
   const rakePct = draw ? FEES.tieRakePct : FEES.rakePct;
   const rakeSol = +(pot * (rakePct / 100)).toFixed(4);
+  /**
+   * Credit locally only when nothing was actually escrowed.
+   *
+   * When the stake IS on chain, the program pays the winner and the wallet
+   * balance is re-read from `getBalance` — crediting here as well would show
+   * the pot twice, once real and once invented, and the invented half would
+   * vanish on the next refresh. The payout figure is still computed either way
+   * because the result screen states it.
+   */
+  const onchainStake = useEscrow.getState().matchId !== null;
   let payoutSol = 0;
   if (draw) {
     payoutSol = +((pot - rakeSol) / 2).toFixed(4);
-    wallet.receive(payoutSol);
+    if (!onchainStake) wallet.receive(payoutSol);
   } else if (won) {
     payoutSol = +(pot - rakeSol).toFixed(4);
-    wallet.receive(payoutSol);
+    if (!onchainStake) wallet.receive(payoutSol);
   }
+  // Whatever happened, re-read the balance rather than trusting arithmetic.
+  if (onchainStake) void useChain.getState().refresh();
   play(won || draw ? 'victory' : 'defeat');
   // A win earns a chest. Full slots deliberately award nothing — that pressure
   // is what makes the skip-timer purchase land. Practice earns nothing at all,

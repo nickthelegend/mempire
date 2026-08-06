@@ -233,6 +233,37 @@ export function registerMatchmaker(server) {
           break;
         }
 
+        /**
+         * Escrow handshake, relayed verbatim.
+         *
+         * Seat 0 opens the match on Solana and has to tell seat 1 which match
+         * id to join — there is no other channel between two browsers, and the
+         * id is only knowable after the create transaction lands.
+         *
+         * Deliberately not validated beyond its shape and not acted on: the
+         * relay must never become a second authority on an escrow the chain
+         * already owns. Both clients verify the match account themselves
+         * before staking anything, so a lying peer costs nothing but a
+         * refused join.
+         */
+        case 'chain': {
+          const m = matches.get(ws.matchId);
+          if (!m || m.done) return;
+          const stage = String(msg.stage ?? '');
+          if (!['opened', 'joined', 'failed'].includes(stage)) return;
+          const matchAccount = typeof msg.matchAccount === 'string'
+            ? msg.matchAccount.slice(0, 64) : null;
+          send(opponentOf(m, ws), {
+            t: 'chain',
+            stage,
+            onchainMatchId: Number.isFinite(Number(msg.onchainMatchId))
+              ? Number(msg.onchainMatchId) : null,
+            matchAccount,
+            reason: typeof msg.reason === 'string' ? msg.reason.slice(0, 120) : null,
+          });
+          break;
+        }
+
         case 'hash': {
           const m = matches.get(ws.matchId);
           if (!m || m.done) return;

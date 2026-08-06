@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { LeagueBadge, TrophyDelta } from '../components/LeagueBadge';
+import { EscrowBadge } from '../components/EscrowBadge';
 import { RollupBadge } from '../components/RollupBadge';
 import { CardArtWell } from '../components/CardFrame';
 import { ArchetypeIcon, MoneyRow, Pill } from '../components/ui';
@@ -467,10 +468,13 @@ export function Battle() {
             {match.practice ? 'practice · no stake' : fmtSol(match.stakeSol * 2)}
           </span>
         </div>
-        {/* Which layer this match is running on — a rollup badge belongs next to
-            the pot, because both are claims about what is real. */}
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+        {/* Which layer this match is running on, and where its money is. Both
+            belong next to the pot, because both are claims about what is real —
+            and "0.1 SOL" printed above a match that escrowed nothing is exactly
+            the claim this pair exists to keep honest. */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap' }}>
           <RollupBadge />
+          {!match.practice && <EscrowBadge compact />}
         </div>
         {/* A third row, not an absolute overlay — it was landing on top of the
             crown score for the entire double-elixir phase and all of overtime. */}

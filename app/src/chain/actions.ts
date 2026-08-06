@@ -5,7 +5,9 @@ import {
 } from '@solana/spl-token';
 import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { canSign, getProgram } from './provider';
-import { cardPda, coinPda, configPda, matchPda, vaultAuthorityPda } from './pdas';
+import {
+  PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
+} from './pdas';
 import { fetchConfig } from './read';
 
 /**
@@ -274,6 +276,103 @@ export async function claimTimeoutTx(
       winnerAccount: new PublicKey(winnerAccount),
       treasury: new PublicKey(cfg.treasury),
     } as any)
+    .rpc();
+  return { signature };
+}
+
+/** The base program's own match-log PDA — the one `settle_from_log` reads. */
+export function baseLogPda(matchId: number): PublicKey {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigUint64(0, BigInt(matchId), true);
+  return PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode('log'), b], PROGRAM_ID,
+  )[0];
+}
+
+/** Read a match account, or null if it does not exist yet. */
+export async function readMatch(matchId: number): Promise<{
+  id: number; state: number; players: string[]; stakeLamports: number;
+  winner: number; deadline: number;
+} | null> {
+  const program = getProgram(null);
+  try {
+    const m = await (program.account as any).matchAccount.fetch(matchPda(matchId));
+    return {
+      id: Number(m.id),
+      state: Number(m.state),
+      players: (m.players as PublicKey[]).map((p) => p.toBase58()),
+      stakeLamports: Number(m.stakeLamports),
+      winner: Number(m.winner),
+      deadline: Number(m.deadline),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Withdraw a match nobody joined. Refunds the stake and releases the deck.
+ *
+ * The counterpart to `createMatchTx`: if the opponent's join never lands —
+ * they closed the tab, their wallet refused, their RPC was down — the creator
+ * is otherwise left with a stake in a match that will never start and eight
+ * cards locked behind it.
+ */
+export async function cancelMatchTx(
+  adapter: Adapter | null, matchId: number, deckCardIds: number[],
+): Promise<TxResult> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(wallet);
+  const signature = await program.methods
+    .cancelMatch()
+    .accounts({
+      matchAccount: matchPda(matchId),
+      player: wallet.publicKey!,
+    } as any)
+    .remainingAccounts(deckCardIds.map((id) => ({
+      pubkey: cardPda(id), isWritable: true, isSigner: false,
+    })))
+    .rpc();
+  return { signature };
+}
+
+/**
+ * Pay the pot from the committed log. One signature, either player.
+ *
+ * This is what makes the stake real without needing both wallets awake at the
+ * same instant: each seat records its own result with `endMatchLogEr`, and
+ * whichever of them gets here first triggers the payout. The program refuses
+ * unless both claims are present and agree, so calling it early is a no-op
+ * rather than a way to take the pot.
+ *
+ * The eight-plus-eight deck accounts ride along so settlement releases both
+ * decks in the same transaction that moves the money.
+ */
+export async function settleFromLogTx(
+  adapter: Adapter | null,
+  matchId: number,
+  players: [string, string],
+  deckCardIds: number[],
+): Promise<TxResult> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(wallet);
+  const cfg = await fetchConfig();
+  if (!cfg) throw new Error('Program config not found on this cluster');
+
+  const signature = await program.methods
+    .settleFromLog()
+    .accounts({
+      config: configPda(),
+      matchAccount: matchPda(matchId),
+      matchLog: baseLogPda(matchId),
+      settler: wallet.publicKey!,
+      playerA: new PublicKey(players[0]),
+      playerB: new PublicKey(players[1]),
+      treasury: new PublicKey(cfg.treasury),
+    } as any)
+    .remainingAccounts(deckCardIds.map((id) => ({
+      pubkey: cardPda(id), isWritable: true, isSigner: false,
+    })))
     .rpc();
   return { signature };
 }

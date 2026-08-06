@@ -12,11 +12,42 @@ import { TIERS, useDeck } from '../state/deck';
 import { useLadder } from '../state/ladder';
 import { useMatch } from '../state/match';
 import { useWallet } from '../state/wallet';
+import { useChain } from '../state/chain';
+import { fetchRecentSettlements, type ChainMatch } from '../chain/read';
 
-const FEED = [
-  ['chad.sol', '0.45'], ['ser_liquidator', '1.80'], ['anon_4231', '0.09'],
-  ['wagmi_warlord', '9.00'], ['rekt_ranger', '0.45'], ['moon_marchesa', '1.80'],
-];
+/**
+ * Recent settlements, read from the chain.
+ *
+ * This strip used to be six invented names and amounts on a rotating timer,
+ * which is the single most dishonest thing the app could have done: a fake
+ * feed of other people's winnings, on the screen whose whole job is to make
+ * the pot feel real. It now shows matches the program actually paid, and an
+ * empty devnet gets an empty state that says so.
+ */
+function useSettlementFeed(): { rows: ChainMatch[]; loading: boolean } {
+  const [rows, setRows] = useState<ChainMatch[]>([]);
+  const [loading, setLoading] = useState(true);
+  const mode = useChain((s) => s.mode);
+
+  useEffect(() => {
+    let live = true;
+    if (mode === 'offline') { setLoading(false); return () => { live = false; }; }
+    const load = () => {
+      fetchRecentSettlements(12)
+        .then((m) => { if (live) { setRows(m); setLoading(false); } })
+        .catch(() => { if (live) setLoading(false); });
+    };
+    load();
+    // Slow on purpose: settlements are rare and this is decoration, not state
+    // the player acts on. A tight poll would spend RPC quota to no end.
+    const t = setInterval(load, 45_000);
+    return () => { live = false; clearInterval(t); };
+  }, [mode]);
+
+  return { rows, loading };
+}
+
+const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 
 export function Logo({ width = 260 }: { width?: number }) {
   return (
@@ -231,6 +262,7 @@ export function Arena() {
   const nav = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [feedIdx, setFeedIdx] = useState(0);
+  const settlements = useSettlementFeed();
   // First connect only; replay lives in the account menu.
   const [showTutorial, setShowTutorial] = useState(false);
   useEffect(() => {
@@ -251,11 +283,36 @@ export function Arena() {
     [deck.active, cards],
   );
 
+  // Every hook has to run on every render, so these live above the
+  // not-connected early return rather than beside the value they feed.
+  const chainMode = useChain((s) => s.mode);
+  const chainCards = useChain((s) => s.cards);
+
   if (!wallet.connected) return <ConnectHero />;
 
   const tier = TIERS[deck.tier];
   const pot = tier.stakeSol * 2;
   const queueing = match.status === 'queuing' || match.status === 'found';
+
+  /**
+   * Can this player actually stake, and if not, which of the three reasons.
+   *
+   * Checked here so the Arena can say it *before* a match, rather than the
+   * player discovering afterwards that the pot they were shown was decorative.
+   * The deck check mirrors `onchainDeckIds`: eight cards, each minted and not
+   * already locked into another match.
+   */
+  const mintedDeck = deckCards.filter(
+    (c) => c && chainCards.some((k) => k.mint === c.mint && !k.inMatch),
+  ).length;
+  const stakeBlocker = wallet.isGuest || chainMode !== 'onchain'
+    ? 'Guest mode cannot sign, so nothing is escrowed'
+    : mintedDeck < 8
+      ? `${8 - mintedDeck} of your cards are not minted onchain yet`
+      : wallet.sol < tier.stakeSol
+        ? `You hold ${fmtSol(wallet.sol)} — not enough for this tier`
+        : '';
+  const canStake = stakeBlocker === '';
 
   // The gap and the wordmark are sized to land this screen inside one 812px
   // viewport — the common iPhone. The battle deck is the last row, and a new
@@ -411,31 +468,73 @@ export function Arena() {
           </div>
         )}
 
-        <div className="panel" style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span className="label">Pot</span>
-          <span className="money" style={{ fontSize: 22 }}>{fmtSol(pot)}</span>
-          <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--dim-on-wood)', textAlign: 'right', lineHeight: 1.25 }}>
-            you stake {fmtSol(tier.stakeSol)}<br />
-            winner takes {100 - FEES.rakePct}%
+        <div className="panel" style={{ padding: '8px 12px', display: 'grid', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span className="label">Pot</span>
+            <span className="money" style={{ fontSize: 22 }}>{fmtSol(pot)}</span>
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--dim-on-wood)', textAlign: 'right', lineHeight: 1.25 }}>
+              you stake {fmtSol(tier.stakeSol)}<br />
+              winner takes {100 - FEES.rakePct}%
+            </span>
+          </div>
+          {/*
+            Whether that pot is real, said before the match rather than after.
+
+            A stake needs three things: a wallet that can sign, a deck that is
+            actually minted onchain, and enough SOL. Without all three the match
+            still runs and still moves rating — it just does not move money, and
+            a pot figure printed over a match that escrows nothing is the exact
+            thing this line exists to stop.
+          */}
+          <span className="fine" style={{
+            color: canStake ? 'var(--teal)' : 'var(--dim-on-wood)', lineHeight: 1.3,
+          }}>
+            {canStake
+              ? 'Escrowed onchain — the winner is paid by the program.'
+              : `${stakeBlocker} · this match counts for rating only.`}
           </span>
         </div>
       </section>
 
-      {/* live feed */}
+      {/* live feed — real settlements only */}
       <section aria-label="Recent settlements" className="well" style={{ padding: '9px 12px', overflow: 'hidden' }}>
-        <div key={feedIdx} style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'feedIn 400ms var(--ease-snap)' }}>
-          <span style={{
-            width: 8, height: 8, borderRadius: '50%', background: 'var(--teal)',
-            boxShadow: '0 0 8px var(--teal)', flexShrink: 0,
-          }}
-          />
-          <span style={{ fontSize: 13, color: 'var(--dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <strong style={{ color: 'var(--text)' }}>{FEED[feedIdx % FEED.length][0]}</strong> won
-          </span>
-          <span className="money" style={{ marginLeft: 'auto', fontSize: 14, whiteSpace: 'nowrap' }}>
-            +{FEED[feedIdx % FEED.length][1]}
-          </span>
-        </div>
+        {settlements.rows.length > 0 ? (
+          (() => {
+            const row = settlements.rows[feedIdx % settlements.rows.length];
+            const winnerAddr = row.winner <= 1 ? row.players[row.winner] : null;
+            const payout = row.stakeSol * 2 * (1 - FEES.rakePct / 100);
+            return (
+              <div key={feedIdx} style={{ display: 'flex', alignItems: 'center', gap: 8, animation: 'feedIn 400ms var(--ease-snap)' }}>
+                <span style={{
+                  width: 8, height: 8, borderRadius: '50%', background: 'var(--teal)',
+                  boxShadow: '0 0 8px var(--teal)', flexShrink: 0,
+                }}
+                />
+                <span style={{ fontSize: 13, color: 'var(--dim)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <strong style={{ color: 'var(--text)' }}>
+                    {winnerAddr ? short(winnerAddr) : 'a draw'}
+                  </strong>
+                  {winnerAddr ? ' won' : ' split the pot'}
+                </span>
+                <span className="money" style={{ marginLeft: 'auto', fontSize: 14, whiteSpace: 'nowrap' }}>
+                  +{fmtSol(winnerAddr ? payout : payout / 2)}
+                </span>
+              </div>
+            );
+          })()
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%', background: 'var(--dim)', flexShrink: 0,
+            }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--dim)' }}>
+              {settlements.loading
+                ? 'reading settled matches…'
+                : 'no staked matches have settled yet — be the first'}
+            </span>
+          </div>
+        )}
         <style>{'@keyframes feedIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}'}</style>
       </section>
 

@@ -19,12 +19,24 @@ import { guestAddress } from '../lib/identity';
  * icon (a base64 SVG the adapter ships) plus real readyState detection —
  * including Wallet Standard wallets the browser announces at runtime.
  *
- * The SOL balance stays simulated on devnet so anyone can play the full game
- * without a funded wallet; the address and the connection are real.
+ * Balances: real for a real wallet, simulated for a Guest.
+ *
+ * A connected wallet now shows what the chain says it holds, refreshed after
+ * every transaction. It used to show a hardcoded 12.4 SOL for everybody, which
+ * made the Arena's stake tiers a fiction — the game would happily let you
+ * "stake 5 SOL" from an empty wallet, and the number never moved when a match
+ * paid out because nothing had been paid.
+ *
+ * A Guest keeps a simulated balance on purpose: guest mode exists so the whole
+ * game is playable with no wallet and no funds, and a guest cannot stake
+ * anything anyway. `isGuest` is what the Arena reads to decide whether a tier
+ * is real money or a scoreboard.
  */
 
 const NETWORK = WalletAdapterNetwork.Devnet;
-const START_BALANCE = 12.4;
+
+/** Guest-only play money. A real wallet's balance comes from the chain. */
+const GUEST_BALANCE = 12.4;
 
 /**
  * Guest identity is per **tab** (sessionStorage), not per browser.
@@ -137,6 +149,8 @@ interface WalletState {
   disconnect: () => void;
   spend: (amount: number) => boolean;
   receive: (amount: number) => void;
+  /** Replace the balance with what the chain reports. No-op for a Guest. */
+  setChainBalance: (sol: number) => void;
 }
 
 export const useWallet = create<WalletState>((set, get) => ({
@@ -177,7 +191,11 @@ export const useWallet = create<WalletState>((set, get) => ({
         address: pk.toBase58(),
         walletName: adapter.name as string,
         walletIcon: adapter.icon,
-        sol: START_BALANCE,
+        // Zero until the chain says otherwise — `useChainSync` fills this in
+        // from `getBalance` a moment later. Showing a made-up number in the
+        // meantime is how the old build ended up letting an empty wallet
+        // enter a 5 SOL match.
+        sol: 0,
         isGuest: false,
         // Bound here rather than reached for at call time: `activeAdapter` is
         // module state and a disconnect race would sign with the wrong wallet.
@@ -203,7 +221,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     set({
       connected: true, connecting: null, pickerOpen: false,
       address: guestAddress(), walletName: 'Guest', walletIcon: null,
-      sol: START_BALANCE, isGuest: true, signMessage: undefined,
+      sol: GUEST_BALANCE, isGuest: true, signMessage: undefined,
     });
   },
 
@@ -221,7 +239,7 @@ export const useWallet = create<WalletState>((set, get) => ({
           address: a.publicKey.toBase58(),
           walletName: a.name as string,
           walletIcon: a.icon,
-          sol: START_BALANCE,
+          sol: 0,
           isGuest: false,
         });
         a.on('disconnect', () => get().disconnect());
@@ -243,10 +261,32 @@ export const useWallet = create<WalletState>((set, get) => ({
     });
   },
 
+  /**
+   * Overwrite the balance from chain. Guests are left alone — they have no
+   * chain balance, and zeroing them would take the demo away.
+   */
+  setChainBalance: (sol) => {
+    if (get().isGuest) return;
+    set({ sol: +sol.toFixed(4) });
+  },
+
+  /**
+   * Can this wallet afford `amount`, and take it if so.
+   *
+   * A real wallet is only *checked*. Its balance belongs to the chain: the
+   * escrow instruction moves the lamports and the next `getBalance` reports
+   * it, so deducting here as well would show the stake leaving twice and the
+   * invented half would disappear at the next refresh. A Guest's balance is
+   * play money with no chain behind it, so it is genuinely debited here.
+   */
   spend: (amount) => {
     if (get().sol < amount) return false;
-    set((s) => ({ sol: +(s.sol - amount).toFixed(4) }));
+    if (get().isGuest) set((s) => ({ sol: +(s.sol - amount).toFixed(4) }));
     return true;
   },
-  receive: (amount) => set((s) => ({ sol: +(s.sol + amount).toFixed(4) })),
+  /** Credit play money. Real balances come back from the chain instead. */
+  receive: (amount) => {
+    if (!get().isGuest) return;
+    set((s) => ({ sol: +(s.sol + amount).toFixed(4) }));
+  },
 }));

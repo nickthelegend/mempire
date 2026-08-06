@@ -5,6 +5,7 @@ import {
   type ChainCard, type ChainCoin, type ChainConfig,
 } from '../chain/read';
 import { CLUSTER, explorerUrl } from '../chain/provider';
+import { useWallet } from './wallet';
 
 /**
  * Onchain state, and the app's honesty about whether it has any.
@@ -110,6 +111,11 @@ export const useChain = create<ChainState>((set, get) => ({
         error: null,
         mode: get().config ? (signable ? 'onchain' : 'simulated') : 'offline',
       });
+      // Push it into the wallet store so the Arena's stake tiers, the Empire
+      // header and every "can you afford this" check read the real number.
+      // Reading the balance and then not using it is how a wallet with 0.01
+      // SOL was shown as holding 12.4.
+      useWallet.getState().setChainBalance(solBalance);
     } catch (e) {
       set({
         loading: false,
@@ -130,6 +136,7 @@ export const useChain = create<ChainState>((set, get) => ({
         fetchConfig(),
       ]);
       set({ cards, balances, solBalance, config: config ?? get().config });
+      useWallet.getState().setChainBalance(solBalance);
     } catch {
       // A failed refresh leaves the last good read in place rather than blanking
       // the collection — stale is better than empty here.

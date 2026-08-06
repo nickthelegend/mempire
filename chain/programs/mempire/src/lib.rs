@@ -760,7 +760,6 @@ pub mod mempire {
         let seat = {
             let signer = ctx.accounts.payer.key();
             let log = &ctx.accounts.match_log;
-            require!(!log.ended, MempireError::BadMatchState);
             if signer == log.players[0] {
                 0usize
             } else if signer == log.players[1] {
@@ -777,20 +776,50 @@ pub mod mempire {
         // required playing exactly zero cards. A result is only a result when
         // both seats say the same thing; settlement checks that, and a
         // disagreement voids and refunds rather than paying either claim.
-        let log = &mut ctx.accounts.match_log;
-        log.claims[seat] = winner;
-        log.last_hash = final_hash;
-        // `ended` means "no further plays", which is true as soon as one seat
-        // has called it — the other can still record its own claim.
-        log.ended = true;
+        // One claim per seat, and `ended` cannot be the guard.
+        //
+        // The check used to be `!log.ended` — but the first claim *sets*
+        // `ended`, so it rejected the second seat and settlement could never
+        // reach the agreement it requires. What actually needs preventing is a
+        // seat revising its own claim after seeing the other's, which is what
+        // this checks instead.
+        require!(
+            ctx.accounts.match_log.claims[seat] == 3,
+            MempireError::AlreadyClaimed
+        );
 
-        MagicIntentBundleBuilder::new(
-            ctx.accounts.payer.to_account_info(),
-            ctx.accounts.magic_context.to_account_info(),
-            ctx.accounts.magic_program.to_account_info(),
-        )
-        .commit_and_undelegate(&[ctx.accounts.match_log.to_account_info()])
-        .build_and_invoke()?;
+        let both_in = {
+            let log = &mut ctx.accounts.match_log;
+            log.claims[seat] = winner;
+            log.last_hash = final_hash;
+            // `ended` means "no further plays", which is true as soon as one
+            // seat has called it — the other can still record its own claim.
+            log.ended = true;
+            log.claims[0] != 3 && log.claims[1] != 3
+        };
+
+        // Hand the log back only once BOTH seats have spoken.
+        //
+        // This used to undelegate on the first claim, which made
+        // `settle_from_log` — the whole point of the log — unreachable: the
+        // account left the rollup before the second seat could record, so the
+        // agreement it requires could never be assembled and every staked
+        // match fell through to the timeout path. Committing once, when the
+        // result is actually complete, is also one commit instead of two.
+        //
+        // If a seat never claims, the log simply stays delegated; the pot is
+        // still recoverable on base layer through `claim_timeout`, which does
+        // not read the log at all.
+        if both_in {
+            ctx.accounts.match_log.exit(&crate::ID)?;
+            MagicIntentBundleBuilder::new(
+                ctx.accounts.payer.to_account_info(),
+                ctx.accounts.magic_context.to_account_info(),
+                ctx.accounts.magic_program.to_account_info(),
+            )
+            .commit_and_undelegate(&[ctx.accounts.match_log.to_account_info()])
+            .build_and_invoke()?;
+        }
         Ok(())
     }
 
@@ -1519,4 +1548,6 @@ pub enum MempireError {
     NotUpgradeAuthority,
     #[msg("card account is not a recognised layout")]
     BadCardLayout,
+    #[msg("this seat has already recorded its result")]
+    AlreadyClaimed,
 }

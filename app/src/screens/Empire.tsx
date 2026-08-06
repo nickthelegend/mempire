@@ -6,7 +6,8 @@ import { fmtSol, shortAddr } from '../lib/format';
 import { loadLeaderboard, type LeaderRow } from '../lib/persist';
 import { useCollection } from '../state/collection';
 import { useMatch } from '../state/match';
-import { useWallet } from '../state/wallet';
+import { signer, useWallet } from '../state/wallet';
+import { useEscrow } from '../state/escrow';
 
 /**
  * Top players by net SOL, from the persistence API.
@@ -179,12 +180,71 @@ export function Empire() {
 
           <Leaderboard me={wallet.address} />
 
+          <StakeRecovery />
+
           <p className="fine" style={{ fontSize: 12 }}>
-            Devnet build — balances, opponents, and the settlement feed are simulated.
+            {wallet.isGuest
+              ? 'Guest mode — your SOL balance is play money and nothing is escrowed. '
+              : 'Devnet — your SOL balance is read from the chain and staked matches escrow for real. '}
             Mint fee 0.02 SOL · rake 10% · unstake fee 2%.
           </p>
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * A way out for a pot the match never resolved.
+ *
+ * Voided matches — a desync, a dropped relay, an opponent who stopped
+ * reporting — leave both stakes escrowed with no agreement to settle them. The
+ * program's answer is `claim_timeout` after the deadline, and a program path
+ * nothing in the UI can reach is the same as no path at all: the player just
+ * sees SOL that never came back.
+ *
+ * Hidden entirely when there is nothing to recover, so it is never a button
+ * inviting people to poke at a match that is working fine.
+ */
+function StakeRecovery() {
+  const matchId = useEscrow((s) => s.matchId);
+  const phase = useEscrow((s) => s.phase);
+  const recover = useEscrow((s) => s.recover);
+  const [state, setState] = useState<'idle' | 'busy' | 'too-early' | 'paid' | 'none'>('idle');
+
+  const stranded = matchId !== null
+    && (phase === 'claimed' || phase === 'claiming' || phase === 'live');
+  if (!stranded || state === 'paid') return null;
+
+  return (
+    <section className="well" style={{ padding: '10px 12px', display: 'grid', gap: 6 }}>
+      <span className="label">Unsettled stake</span>
+      <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
+        Match #{matchId} escrowed your stake and never settled. After its
+        deadline the program pays it out to you on request.
+      </p>
+      <Pill
+        tone="gold"
+        disabled={state === 'busy'}
+        onClick={() => {
+          setState('busy');
+          void recover(signer()).then((r) => setState(
+            r === 'paid' ? 'paid' : r === 'too-early' ? 'too-early' : 'none',
+          ));
+        }}
+      >
+        {state === 'busy' ? 'Claiming…' : 'Claim my stake'}
+      </Pill>
+      {state === 'too-early' && (
+        <span className="fine" style={{ color: 'var(--dim)' }}>
+          The deadline has not passed yet — try again shortly.
+        </span>
+      )}
+      {state === 'none' && (
+        <span className="fine" style={{ color: 'var(--dim)' }}>
+          Nothing to claim on this match.
+        </span>
+      )}
+    </section>
   );
 }

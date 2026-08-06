@@ -46,6 +46,22 @@ export interface PvpCallbacks {
    * the honest local outcome is a loss, and the caller settles it as one.
    */
   onSocketLost?: () => void;
+  /**
+   * The opponent's escrow progressed (or failed).
+   *
+   * Relayed verbatim by the matchmaker, so treat it as a hint, never as
+   * authority: the receiving client reads the match account on chain before
+   * committing a stake to it.
+   */
+  onChain?: (m: ChainRelay) => void;
+}
+
+/** What one seat tells the other about the on-chain half of the match. */
+export interface ChainRelay {
+  stage: 'opened' | 'joined' | 'failed';
+  onchainMatchId: number | null;
+  matchAccount: string | null;
+  reason: string | null;
 }
 
 
@@ -88,6 +104,7 @@ export function pvpConnect(cb: PvpCallbacks): void {
       case 'input': callbacks.onInput?.(msg.input as InputEvent); break;
       case 'desync': callbacks.onDesync?.(Number(msg.tick)); break;
       case 'opponent_left': callbacks.onOpponentLeft?.(); break;
+      case 'chain': callbacks.onChain?.(msg as unknown as ChainRelay); break;
       default: break;
     }
   };
@@ -125,6 +142,14 @@ export const pvpSendInput = (input: InputEvent): void => send({ t: 'input', inpu
 export const pvpSendHash = (tick: number, hash: number): void => send({ t: 'hash', tick, hash });
 export const pvpSendEnded = (): void => send({ t: 'ended' });
 export const pvpCancel = (): void => send({ t: 'cancel' });
+
+/** Tell the other seat where the escrow got to. */
+export const pvpSendChain = (m: {
+  stage: 'opened' | 'joined' | 'failed';
+  onchainMatchId?: number | null;
+  matchAccount?: string | null;
+  reason?: string | null;
+}): void => send({ t: 'chain', ...m });
 
 /** Closes without firing onUnavailable — for deliberate teardown. */
 export function pvpClose(): void {
