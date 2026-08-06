@@ -1096,7 +1096,22 @@ function settle(): void {
     // perspective, and committed "seat 1 won". Both clients then wrote
     // contradictory winners for the same drawn match, which under the new
     // 2-of-2 settlement is a dispute that voids rather than splits.
-    const winner = sim.winner === -2 ? 2 : (sim.winner === perspective ? 0 : 1);
+    /**
+     * The winner as an absolute seat, which is what the program stores.
+     *
+     * This used to report it *relative to the reporter* — 0 for "I won", 1 for
+     * "I lost" — while `end_match_log` writes it straight into
+     * `claims[seat]` and `settle_from_log` pays `players[winner]`. So a
+     * decisive match produced claims of `[1, 0]`: each seat naming the other,
+     * which the program reads as a dispute and correctly refuses to pay.
+     *
+     * Every decisive staked match therefore failed to settle, and only draws
+     * ever paid out — because 2 means "draw" from either side and was the one
+     * value the conversion left alone. `sim.winner` is already a seat index
+     * (the engine sets 0 or 1 by which king tower fell), so the conversion was
+     * only ever destroying that information.
+     */
+    const winner = sim.winner === -2 ? 2 : sim.winner;
     void useErMatch.getState().finish(signer(), winner, BigInt(finalHash >>> 0));
 
     // The money. Each seat records its own result; whichever of them finds the
