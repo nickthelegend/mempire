@@ -606,9 +606,31 @@ async function main() {
           `seat ${seat} +${(winnerGain / LAMPORTS_PER_SOL).toFixed(4)} SOL `
           + `(staked ${(stakeLamports / LAMPORTS_PER_SOL).toFixed(3)})`);
 
-        check('the loser was paid nothing',
-          loserGain <= 0,
-          `${(loserGain / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+        /**
+         * The loser gets no share of the pot — but is not necessarily flat.
+         *
+         * Whichever seat created the match also paid rent on the match account
+         * and the log, and settlement closes both and returns that deposit. It
+         * came back as +0.0026 SOL on a run where that seat had plainly lost,
+         * and asserting `<= 0` called a correct payout a failure.
+         *
+         * So the test is on the thing that actually matters: nothing
+         * approaching a stake. Rent on those two accounts is a few thousandths
+         * of a SOL; a fifth of the stake is far above it and far below any
+         * share of the pot.
+         */
+        check('the loser received no share of the pot',
+          loserGain < stakeLamports * 0.2,
+          `${(loserGain / LAMPORTS_PER_SOL).toFixed(4)} SOL back `
+          + `(rent refund, not winnings — net over the match is what counts)`);
+
+        // The unambiguous statement: across escrow *and* settlement, the loser
+        // is down and the winner is up. No account rent can disguise that.
+        check('over the whole match the loser is down and the winner is up',
+          Math.min(after.a - before.a, after.b - before.b) < 0
+          && Math.max(after.a - before.a, after.b - before.b) > 0,
+          `A ${((after.a - before.a) / LAMPORTS_PER_SOL).toFixed(4)}, `
+          + `B ${((after.b - before.b) / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
 
         // Net across the whole match, escrow included: the winner should be up
         // roughly one stake less rake, the loser down one stake.

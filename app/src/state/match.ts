@@ -750,7 +750,21 @@ function tickHuman(): void {
    * brief stutter; running ahead is a voided match.
    */
   const delay = humanInputDelayTicks || HUMAN_INPUT_DELAY_TICKS;
-  const target = Math.min(wallTarget, opponentTick + delay);
+  /**
+   * `- 2`, and the two are load-bearing.
+   *
+   * An input the opponent stamps while at tick T lands at `T + delay`, and the
+   * receiver rejects anything at or *before* its own current tick. Gating at
+   * exactly `T + delay` therefore leaves a one-tick hole: both sides sit on the
+   * same number, the input arrives for a tick already reached, and the match
+   * voids by fifty milliseconds. Observed exactly that way — "an input arrived
+   * 1 tick (50ms) too late".
+   *
+   * One would close the hole; two leaves a tick of slack for `opponentTick`
+   * having advanced between the gate being computed and the input being
+   * stamped. The cost is 100ms of extra buffer, which nobody can feel.
+   */
+  const target = Math.min(wallTarget, opponentTick + delay - 2);
   let steps = 0;
   while (sim.tick < target && steps < 6) {
     stepOne(sim);
