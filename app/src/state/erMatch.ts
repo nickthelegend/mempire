@@ -9,6 +9,7 @@ import {
 import { createMatchTx } from '../chain/actions';
 import { ensureChestRail } from '../chain/erActions';
 import { IS_LOCALNET, resolveEr } from '../chain/magicblock';
+import { canSign, getProvider } from '../chain/provider';
 import { useChain } from './chain';
 import { signer } from './wallet';
 
@@ -110,7 +111,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   seats: null,
 
   begin: async (adapter, matchId, players) => {
-    if (!adapter) { set({ phase: 'off' }); return; }
+    if (!canSign(adapter)) { set({ phase: 'off' }); return; }
     set({
       phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false, sessioned: false,
       lastError: null, commitSignature: null, seats: players,
@@ -166,7 +167,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   openOnchainMatch: async (tier, stakeSol, deckCardIds, deckHash, opponent) => {
     const adapter = signer();
     // Guest has an address but no keypair; simulated play is the honest fallback.
-    if (!adapter || useChain.getState().mode !== 'onchain') { set({ phase: 'off' }); return null; }
+    if (!canSign(adapter) || useChain.getState().mode !== 'onchain') { set({ phase: 'off' }); return null; }
     if (deckCardIds.length !== 8) { set({ phase: 'off' }); return null; }
 
     try {
@@ -175,7 +176,9 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       // Seat 1 is filled when the opponent joins; until then both are this player,
       // which the program rejects — so the second seat is the opponent's address
       // when known and this player's otherwise (solo/bot play stays local).
-      const me = adapter.publicKey!.toBase58();
+      // A guest signs with no adapter, so its key comes from the provider —
+      // the same place the signature does.
+      const me = (adapter?.publicKey ?? getProvider(adapter).wallet.publicKey)!.toBase58();
       await get().begin(adapter, matchId, [me, opponent ?? me]);
       void useChain.getState().refresh();
       return matchId;
@@ -188,7 +191,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
   play: async (adapter, tick, deckIndex, x, y) => {
     const { phase, matchId } = get();
-    if (phase !== 'live' || matchId === null || !adapter) return;
+    if (phase !== 'live' || matchId === null || !canSign(adapter)) return;
     try {
       const { signature } = await playCardEr(adapter, matchId, tick, deckIndex, x, y);
       set((s) => ({ writes: s.writes + 1, lastSignature: signature }));
@@ -199,7 +202,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
   mark: async (adapter, tick, hash) => {
     const { phase, matchId } = get();
-    if (phase !== 'live' || matchId === null || !adapter) return;
+    if (phase !== 'live' || matchId === null || !canSign(adapter)) return;
     try {
       const { signature } = await checkpointEr(adapter, matchId, tick, hash);
       set({ lastSignature: signature });
@@ -210,7 +213,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
   finish: async (adapter, winner, finalHash) => {
     const { phase, matchId } = get();
-    if (phase !== 'live' || matchId === null || !adapter) return false;
+    if (phase !== 'live' || matchId === null || !canSign(adapter)) return false;
     set({ phase: 'committing' });
     try {
       // Close the seal first — it is ER-local, so once the log leaves the
@@ -252,7 +255,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
   cleanup: async (adapter) => {
     const { phase, matchId } = get();
-    if (phase !== 'committed' || matchId === null || !adapter) return;
+    if (phase !== 'committed' || matchId === null || !canSign(adapter)) return;
     try {
       await closeLogTx(adapter, matchId);
     } catch {

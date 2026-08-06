@@ -19,6 +19,7 @@ import { useLadder } from './ladder';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
 import { useDeck, TIERS } from './deck';
+import { canSign } from '../chain/provider';
 import { useChain } from './chain';
 import { useEscrow } from './escrow';
 import { useErMatch } from './erMatch';
@@ -128,7 +129,7 @@ let hashes: number[] = [];
  */
 async function rollChestOnchain(): Promise<void> {
   const adapter = signer();
-  if (!adapter || useChain.getState().mode !== 'onchain') return;
+  if (!canSign(adapter) || useChain.getState().mode !== 'onchain') return;
   try {
     await ensureChestRail(adapter);
     const rail = await readChestRail(adapter);
@@ -800,9 +801,12 @@ function beginHumanBattle(
    */
   const escrow = useEscrow.getState();
   escrow.reset();
+  // `canSign`, not `signer() !== null`. A guest has no adapter and still
+  // signs, through a browser-held keypair — testing for an adapter meant every
+  // guest silently played unstaked while the Arena said "Escrowed onchain".
   const canStake = stakeSol > 0
     && useChain.getState().mode === 'onchain'
-    && signer() !== null;
+    && canSign(signer());
   const chainDeck = canStake ? onchainDeckIds() : null;
   if (canStake && chainDeck) {
     const hash = deckHashBytes(myDeck);
