@@ -500,6 +500,19 @@ async function main() {
       if (/Voided/i.test(t)) return 'voided';
       return 'unknown';
     });
+    // When it voids, the screen says why — and the reason now carries how
+    // late the input was, which is the difference between "tune the delay"
+    // and "something is broken".
+    if (outcome === 'voided' || outcome === 'unknown') {
+      const why = await Promise.all([A, B].map((s) => s.page.evaluate(() => {
+        const t = document.body.innerText;
+        const m = t.match(/[^\n]*(?:too late|diverged|dropped|left|Voided)[^\n]*/i);
+        return m ? m[0].trim().slice(0, 120) : 'no reason shown';
+      })));
+      console.log(`     void reason — A: ${why[0]}`);
+      console.log(`                   B: ${why[1]}`);
+    }
+
     check('the match was decisive, not a timeout draw',
       outcome === 'A won' || outcome === 'A lost', `seat A: ${outcome}`);
 

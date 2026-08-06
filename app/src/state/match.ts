@@ -166,6 +166,14 @@ let humanStartAt = 0;
  * relay. Held here rather than in the store because it is a one-shot; the
  * store carries the outcome.
  */
+/**
+ * The lockstep input delay this match agreed on, in ticks.
+ *
+ * Set from the `matched` payload so both clients use the identical value. The
+ * constant below is only the fallback for a matchmaker that does not send one.
+ */
+let humanInputDelayTicks = 0;
+
 let pendingJoin: {
   stakeSol: number; opponent: string; deck: number[]; hash: Uint8Array;
 } | null = null;
@@ -467,10 +475,43 @@ export const useMatch = create<MatchStore>((set, get) => ({
       onOpponentLeft: () => {
         const s = get();
         if (s.status === 'battle' && s.sim && s.sim.phase !== 'ended') {
-          // A vanished opponent forfeits — the win is real and pays normally.
-          s.sim.phase = 'ended';
-          s.sim.winner = s.perspective;
           clearTimers();
+
+          /**
+           * Finish the game rather than claiming a forfeit.
+           *
+           * Lockstep means this client holds every input the opponent ever
+           * sent, so it can run the remaining ticks alone and arrive at the
+           * same result they did. Declaring "they left, therefore I win" is
+           * what produced the worst failure in the whole money path: the
+           * player who genuinely won closed their socket on the way out, and
+           * the loser — a few ticks behind — read that as a forfeit and
+           * reported *itself* the winner. Two seats each claiming victory is a
+           * dispute, and `settle_from_log` correctly refuses to pay a disputed
+           * match, so a perfectly good game stranded its own pot.
+           *
+           * Bounded: if the sim genuinely cannot reach an end — the opponent
+           * left early and there are not enough inputs to resolve it — the
+           * forfeit stands, which is the right answer for an abandoned match.
+           */
+          const target = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
+          const limit = s.sim.format.regulationTicks + s.sim.format.overtimeTicks;
+          let guard = 0;
+          while (
+            (s.sim.phase as SimState['phase']) !== 'ended'
+            && s.sim.tick < Math.max(target, limit)
+            && guard < limit + 100
+          ) {
+            stepOne(s.sim);
+            guard += 1;
+          }
+
+          if ((s.sim.phase as SimState['phase']) !== 'ended') {
+            // Genuinely abandoned: not enough of the match happened to resolve
+            // it, so the player still here takes it.
+            s.sim.phase = 'ended';
+            s.sim.winner = s.perspective;
+          }
           settle();
         } else if (s.status !== 'settled') {
           // Vanished between matched and the start: the stake was already
@@ -539,7 +580,9 @@ export const useMatch = create<MatchStore>((set, get) => ({
   playCard: (deckIndex, xFp, yFp) => {
     const { sim, status, mode, perspective } = get();
     if (!sim || status !== 'battle' || sim.phase === 'ended') return;
-    const delay = mode === 'human' ? HUMAN_INPUT_DELAY_TICKS : INPUT_DELAY_TICKS;
+    const delay = mode === 'human'
+      ? (humanInputDelayTicks || HUMAN_INPUT_DELAY_TICKS)
+      : INPUT_DELAY_TICKS;
     const ev: InputEvent = {
       tick: sim.tick + delay, player: perspective, deckIndex, x: xFp, y: yFp,
     };
@@ -885,6 +928,12 @@ function beginHumanBattle(
   // the correction err small rather than overshoot. Anything left is far below
   // the tick that matters, and vastly below the clock drift this exists for.
   clockSkew = typeof m.serverNow === 'number' ? m.serverNow - Date.now() : 0;
+  // Sized by the server to the worse of the two connections; both clients get
+  // the same number in the same message.
+  humanInputDelayTicks = typeof m.inputDelayTicks === 'number'
+    && m.inputDelayTicks >= 8 && m.inputDelayTicks <= 120
+    ? m.inputDelayTicks
+    : 0;
 
   useMatch.setState({
     status: 'found',
@@ -940,6 +989,24 @@ function settleVoid(reason: string): void {
   stopMusic();
   useWallet.getState().receive(stakeSol); // the escrowed stake, returned whole
   humanEscrowSol = 0; // consumed by the refund above — never refund twice
+
+  /**
+   * A void has to reach the chain too.
+   *
+   * This used to refund the local number and stop. If the stake was actually
+   * escrowed, the pot then sat in the match account with neither seat having
+   * said anything — settlement needs two claims and got none — until the
+   * deadline let somebody call `claim_timeout`. Both players had been told
+   * their stake was returned, and on chain it had not moved.
+   *
+   * Claiming a draw is the honest report: nobody won, so `settle_from_log`
+   * splits the pot back. Both seats reach here on a void, so both claim the
+   * same thing and the agreement the program requires is satisfied.
+   */
+  if (useEscrow.getState().matchId !== null) {
+    const h = hashes.length ? hashes[hashes.length - 1] : 0;
+    void useEscrow.getState().finish(signer(), 2, BigInt(h >>> 0));
+  }
   const result: MatchResult = {
     won: false,
     draw: true,

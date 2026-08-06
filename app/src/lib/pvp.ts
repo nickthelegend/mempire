@@ -23,6 +23,16 @@ export interface MatchedPayload {
    * than a wrong correction.
    */
   serverNow?: number;
+  /**
+   * Ticks of lockstep input delay, chosen by the server from the worse of the
+   * two connections' round-trip times. Both clients receive the same number in
+   * the same message — each measuring its own would disagree, and disagreeing
+   * about which tick an input lands on *is* a desync.
+   *
+   * Optional: an older matchmaker does not send it, and the client's own
+   * constant is the fallback.
+   */
+  inputDelayTicks?: number;
   opponent: {
     address: string; name: string | null; power: number; deck: MatchCard[];
     /** Ladder rating, so the winner can be scored without a second round trip. */

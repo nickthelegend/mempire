@@ -211,7 +211,27 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
         await new Promise((r) => { setTimeout(r, 3000); });
         ready = await logIsSettleable(matchId);
       }
-      if (!ready) return;
+      /**
+       * The opponent never spoke. Fall back to the timeout rather than
+       * leaving the pot in the match account indefinitely.
+       *
+       * A seat that closed its tab, crashed, or disagreed will never record a
+       * claim, and settlement requires two. `claim_timeout` is the program's
+       * answer and it only works after the deadline — so this waits it out in
+       * the background instead of making the player find a button. The
+       * program pays only the caller, and only a player, so this is safe to
+       * run unattended.
+       */
+      if (!ready) {
+        const m = await readMatch(matchId);
+        if (!m || m.state !== 1) return;
+        const waitMs = Math.max(0, (m.deadline * 1000) - Date.now()) + 5_000;
+        // Cap the wait: a deadline hours away is not something to hold a timer
+        // open for, and the Empire screen offers the same claim manually.
+        if (waitMs > 15 * 60_000) return;
+        setTimeout(() => { void get().recover(adapter); }, waitMs);
+        return;
+      }
 
       const m = await readMatch(matchId);
       if (!m || m.state !== 1) return;

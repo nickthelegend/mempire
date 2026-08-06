@@ -126,7 +126,28 @@ export function registerMatchmaker(server) {
 
   wss.on('connection', (ws) => {
     ws.isAlive = true;
-    ws.on('pong', () => { ws.isAlive = true; });
+    /**
+     * Round-trip time, measured off the heartbeat we already send.
+     *
+     * The lockstep input delay has to cover a real round trip: client → here →
+     * opponent. Guessing it as a client-side constant is how a match between
+     * two distant players voided on the first card either of them played —
+     * every remote input arrived after the tick it was stamped for. The server
+     * is the only party that can see both connections, so it measures and
+     * decides.
+     */
+    ws.rttMs = 0;
+    ws.pingedAt = 0;
+    ws.on('pong', () => {
+      ws.isAlive = true;
+      if (ws.pingedAt) {
+        const sample = Date.now() - ws.pingedAt;
+        // Exponential smoothing: one slow sample should nudge the estimate,
+        // not redefine it.
+        ws.rttMs = ws.rttMs ? Math.round(ws.rttMs * 0.6 + sample * 0.4) : sample;
+        ws.pingedAt = 0;
+      }
+    });
 
     ws.on('message', (raw) => {
       let msg;
@@ -169,6 +190,25 @@ export function registerMatchmaker(server) {
             // its own offset and step against the same shared clock.
             const startAt = Date.now() + 2200; // both clients count down to this
             const serverNow = Date.now();
+
+            /**
+             * The input delay, in 50ms ticks, for this pairing.
+             *
+             * Sized to the *worse* of the two connections and doubled for
+             * headroom, because a card has to reach the far client before the
+             * tick it is stamped for or the match voids. Floors at 20 ticks
+             * (1s) so a pair of suspiciously fast RTT samples cannot produce a
+             * delay too tight to survive one slow moment, and caps at 60 (3s)
+             * because beyond that the game stops feeling responsive and a
+             * player is better served by being told their connection is poor.
+             *
+             * Sent in `matched`, so both clients take the identical value —
+             * two clients each measuring their own would disagree, and a
+             * disagreement about which tick an input lands on is precisely a
+             * desync.
+             */
+            const worstRtt = Math.max(waiting.ws.rttMs ?? 0, ws.rttMs ?? 0);
+            const inputDelayTicks = Math.min(60, Math.max(20, Math.ceil((worstRtt * 2) / 50)));
             const m = {
               players: [waiting.ws, ws],
               addr: [waiting.address, msg.address],
@@ -181,14 +221,14 @@ export function registerMatchmaker(server) {
             ws.matchId = id;
 
             send(waiting.ws, {
-              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, serverNow, format,
+              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
               opponent: {
                 address: msg.address, name: msg.name ?? null,
                 power: msg.power ?? 0, deck: msg.deck, trophies,
               },
             });
             send(ws, {
-              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, serverNow, format,
+              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
               opponent: {
                 address: waiting.address, name: waiting.name ?? null,
                 power: waiting.power ?? 0, deck: waiting.deck, trophies: waiting.trophies ?? 0,
@@ -324,6 +364,7 @@ export function registerMatchmaker(server) {
     for (const ws of wss.clients) {
       if (!ws.isAlive) { ws.terminate(); continue; }
       ws.isAlive = false;
+      ws.pingedAt = Date.now();
       ws.ping();
     }
     const now = Date.now();
