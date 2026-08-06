@@ -503,6 +503,47 @@ pub mod mempire {
         Ok(())
     }
 
+
+    /// Release cards still locked to a match that is already over.
+    ///
+    /// Settlement frees the decks handed to it in `remaining_accounts`, and a
+    /// client only reliably knows its *own* eight cards. So the loser's deck
+    /// routinely survived the match that locked it: the match reached
+    /// `Settled`, the pot paid out correctly, and eight cards stayed pinned to
+    /// a finished game with no instruction able to free them. That wallet
+    /// could never field a legal deck again.
+    ///
+    /// Permissionless on purpose. The match is over — the lock protects
+    /// nothing at this point, and requiring the stranded player to be the one
+    /// who notices is how the bug survived in the first place. Anything not
+    /// locked to *this* settled match is skipped rather than rejected, so a
+    /// caller can sweep a wallet's whole collection in one call.
+    pub fn release_cards<'info>(
+        ctx: Context<'_, '_, 'info, 'info, ReleaseCards<'info>>,
+    ) -> Result<()> {
+        let m = &ctx.accounts.match_account;
+        require!(
+            m.state == MatchState::Settled as u8,
+            MempireError::BadMatchState
+        );
+
+        let match_key = m.key();
+        let mut freed: u32 = 0;
+        for acc in ctx.remaining_accounts {
+            if let Ok(mut card) = Account::<Card>::try_from(acc) {
+                if card.locked_by != match_key {
+                    continue;
+                }
+                card.locked_by = Pubkey::default();
+                card.exit(&crate::ID)?;
+                freed += 1;
+            }
+        }
+
+        emit!(CardsReleased { match_id: m.id, freed });
+        Ok(())
+    }
+
     /// Settlement: both players sign the same final state hash (the lockstep
     /// sim's last checkpoint). Winner takes pot minus rake; a draw splits it.
     /// The ER-delegated input log is the next hardening step; dual signatures
@@ -1341,6 +1382,17 @@ pub struct MigrateCard<'info> {
 }
 
 #[derive(Accounts)]
+pub struct ReleaseCards<'info> {
+    #[account(
+        seeds = [b"match", match_account.id.to_le_bytes().as_ref()],
+        bump = match_account.bump,
+    )]
+    pub match_account: Account<'info, MatchAccount>,
+    /// Anyone may pay for this; the match being settled is the whole authority.
+    pub payer: Signer<'info>,
+}
+
+#[derive(Accounts)]
 pub struct CancelMatch<'info> {
     #[account(
         mut,
@@ -1516,6 +1568,12 @@ pub struct MatchSettled {
     pub winner: u8,
     pub final_hash: u64,
     pub rake: u64,
+}
+
+#[event]
+pub struct CardsReleased {
+    pub match_id: u64,
+    pub freed: u32,
 }
 
 #[event]

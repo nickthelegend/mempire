@@ -1320,6 +1320,67 @@
       ]
     },
     {
+      "name": "release_cards",
+      "docs": [
+        "Release cards still locked to a match that is already over.",
+        "",
+        "Settlement frees the decks handed to it in `remaining_accounts`, and a",
+        "client only reliably knows its *own* eight cards. So the loser's deck",
+        "routinely survived the match that locked it: the match reached",
+        "`Settled`, the pot paid out correctly, and eight cards stayed pinned to",
+        "a finished game with no instruction able to free them. That wallet",
+        "could never field a legal deck again.",
+        "",
+        "Permissionless on purpose. The match is over — the lock protects",
+        "nothing at this point, and requiring the stranded player to be the one",
+        "who notices is how the bug survived in the first place. Anything not",
+        "locked to *this* settled match is skipped rather than rejected, so a",
+        "caller can sweep a wallet's whole collection in one call."
+      ],
+      "discriminator": [
+        227,
+        36,
+        199,
+        138,
+        75,
+        141,
+        5,
+        158
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "docs": [
+            "Anyone may pay for this; the match being settled is the whole authority."
+          ],
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "request_unstake",
       "docs": [
         "Two-step unstake, step 1: lock the amount and start the cooldown.",
@@ -2006,6 +2067,19 @@
       ]
     },
     {
+      "name": "CardsReleased",
+      "discriminator": [
+        126,
+        18,
+        181,
+        15,
+        238,
+        177,
+        69,
+        106
+      ]
+    },
+    {
       "name": "MatchCancelled",
       "discriminator": [
         99,
@@ -2292,6 +2366,22 @@
           {
             "name": "archetype",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CardsReleased",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_id",
+            "type": "u64"
+          },
+          {
+            "name": "freed",
+            "type": "u32"
           }
         ]
       }

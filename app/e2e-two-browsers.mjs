@@ -182,6 +182,26 @@ async function main() {
   console.log(`two browsers, one pot — ${URL}\n`);
   console.log(`  seat A ${addrA.slice(0, 8)}…   seat B ${addrB.slice(0, 8)}…`);
 
+  /**
+   * Free anything a previous run stranded, before anything else.
+   *
+   * A run that dies mid-match leaves a match `Open` or `Active` with sixteen
+   * cards locked, and a settled one can still leave the loser's deck pinned.
+   * Either way the next run finds both seats unable to field a legal deck and
+   * reports "8 of your cards are not minted onchain yet" — which is true and
+   * says nothing about why. A test that cannot run twice in a row is not a
+   * test, so this sweeps first.
+   */
+  try {
+    const out = execSync('npx tsx scripts/resolve-stuck.ts --claim', {
+      cwd: '../chain', encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const acted = out.split('\n').filter((l) => /released|cancelled|claimed/.test(l));
+    console.log(acted.length ? `  cleaned up: ${acted.length} stranded match(es)` : '  nothing stranded');
+  } catch {
+    console.log('  (cleanup skipped — could not run resolve-stuck)');
+  }
+
   const balA0 = await fundIfNeeded(admin, addrA, 'seat A');
   const balB0 = await fundIfNeeded(admin, addrB, 'seat B');
   check('both seats are funded onchain',
@@ -321,15 +341,17 @@ async function main() {
   };
 
   /**
-   * Rush, not Ranked.
+   * Ranked, not Rush.
    *
-   * Thirty seconds of regulation and no overtime, against Ranked's three
-   * minutes plus sixty. It escrows through exactly the same path — same
-   * `create_match`, same stake, same settlement — so nothing about what this
-   * proves changes, and the run finishes in a minute instead of five.
+   * Rush is thirty seconds with no overtime, and elixir regenerates far too
+   * slowly in that window to afford the cards it takes to bring down a tower —
+   * so a Rush match between two bots can only ever end in a timeout draw. A
+   * draw settles correctly but never exercises "the winner takes the pot",
+   * which is the entire reason this test exists. Three minutes plus overtime
+   * is long enough for a real push to land.
    */
   const queue = (p) => p.evaluate(() => {
-    const b = [...document.querySelectorAll('button')].find((x) => /^RUSH/i.test(x.textContent.trim()));
+    const b = [...document.querySelectorAll('button')].find((x) => /^RANKED/i.test(x.textContent.trim()));
     b?.click();
     return !!b;
   });
@@ -406,7 +428,7 @@ async function main() {
 
       await sleep(1500);
       const done = await Promise.all([A, B].map((s) => s.page.evaluate(
-        () => /VICTORY|REKT|DRAW|RETURN TO ARENA/i.test(document.body.innerText),
+        () => /Pot Secured|Rekt|Split|Voided|RETURN TO ARENA/i.test(document.body.innerText),
       )));
       if (done[0] || done[1]) { ended = true; break; }
     }
@@ -419,9 +441,11 @@ async function main() {
     // winner-takes-the-pot path this test exists for.
     const outcome = await A.page.evaluate(() => {
       const t = document.body.innerText;
-      if (/VICTORY/i.test(t)) return 'A won';
-      if (/REKT/i.test(t)) return 'A lost';
-      if (/DRAW/i.test(t)) return 'draw';
+      // The screen's own words — 'Pot Secured', 'Rekt', 'Split', 'Voided'.
+      if (/Pot Secured/i.test(t)) return 'A won';
+      if (/Rekt/i.test(t)) return 'A lost';
+      if (/Split/i.test(t)) return 'draw';
+      if (/Voided/i.test(t)) return 'voided';
       return 'unknown';
     });
     check('the match was decisive, not a timeout draw',
@@ -459,6 +483,14 @@ async function main() {
             if (/Settled/.test(line)) { settled = true; break; }
           }
         } catch { /* RPC hiccup — keep polling */ }
+      }
+      if (!settled) {
+        const badges = await Promise.all([A, B].map((s) => s.page.evaluate(() => {
+          const t = document.body.innerText;
+          const m = t.match(/no stake|staking|stake in|matching|pot live|reporting|reported|paid|refunded|ladder only/i);
+          return m ? m[0] : 'no badge';
+        })));
+        console.log(`     escrow badges — A: ${badges[0]}, B: ${badges[1]}`);
       }
       check('the match settled onchain and the escrow released the pot',
         settled, detail);

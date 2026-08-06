@@ -371,6 +371,20 @@ export async function settleFromLogTx(
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
+  /**
+   * Both decks, discovered from the chain rather than from what this client
+   * happens to know.
+   *
+   * `unlock_deck` only frees the accounts it is handed, and a client reliably
+   * knows just its own eight cards — so passing this seat's deck alone left the
+   * *opponent's* pinned to a finished match with nothing able to free it. Every
+   * settled match stranded one player's collection and they could never field a
+   * legal deck again. Sixteen accounts is well inside the transaction limit,
+   * and the program skips anything not locked to this match.
+   */
+  const locked = await cardsLockedTo(matchPda(matchId)).catch(() => [] as PublicKey[]);
+  const deckAccounts = locked.length ? locked : deckCardIds.map((id) => cardPda(id));
+
   const signature = await program.methods
     .settleFromLog()
     .accounts({
@@ -382,8 +396,8 @@ export async function settleFromLogTx(
       playerB: new PublicKey(players[1]),
       treasury: new PublicKey(cfg.treasury),
     } as any)
-    .remainingAccounts(deckCardIds.map((id) => ({
-      pubkey: cardPda(id), isWritable: true, isSigner: false,
+    .remainingAccounts(deckAccounts.map((pubkey) => ({
+      pubkey, isWritable: true, isSigner: false,
     })))
     .rpc();
   return { signature };
@@ -454,4 +468,23 @@ export async function mintDeckTx(
   }
 
   return { signatures, minted };
+}
+
+/**
+ * Every card account currently locked to a given match.
+ *
+ * A `memcmp` against the `locked_by` field rather than fetching the whole card
+ * set and filtering here: the collection grows without bound and this sits on
+ * the critical path of paying somebody their pot.
+ */
+export async function cardsLockedTo(match: PublicKey): Promise<PublicKey[]> {
+  const program = getProgram(null);
+  // Card layout after the 8-byte discriminator: id 8, owner 32, coin_mint 32,
+  // archetype 1, staked_tokens 8, staked_micro_usd 8, level 1,
+  // pending_unstake_tokens 8, unstake_ready_at 8 — then `locked_by`.
+  const LOCKED_BY_OFFSET = 8 + 8 + 32 + 32 + 1 + 8 + 8 + 1 + 8 + 8;
+  const rows = await (program.account as any).card.all([
+    { memcmp: { offset: LOCKED_BY_OFFSET, bytes: match.toBase58() } },
+  ]);
+  return rows.map((r: { publicKey: PublicKey }) => r.publicKey);
 }

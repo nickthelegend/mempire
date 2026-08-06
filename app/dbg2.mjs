@@ -1,0 +1,14 @@
+import { Connection, PublicKey } from '@solana/web3.js';
+import * as anchor from '@coral-xyz/anchor';
+import { readFileSync } from 'fs';
+const A = 'cYu5RCMNDawsqqxLkGLaqZnKqNm4LguGveoARqthkcv';
+const conn = new Connection('https://api.devnet.solana.com','confirmed');
+const idl = JSON.parse(readFileSync('../chain/target/idl/mempire.json','utf8'));
+const prog = new anchor.Program(idl, new anchor.AnchorProvider(conn, { publicKey: new PublicKey(A), signTransaction: async t=>t, signAllTransactions: async t=>t }, {commitment:'confirmed'}));
+const all = await prog.account.card.all();
+const mine = all.filter(c=>c.account.owner.toBase58()===A);
+console.log('seat A chain cards:', mine.length);
+const locked = mine.filter(c=>!c.account.lockedBy.equals(PublicKey.default));
+console.log('locked:', locked.length, locked.slice(0,2).map(c=>c.account.lockedBy.toBase58().slice(0,10)));
+const mints = new Set(mine.map(c=>c.account.coinMint.toBase58()));
+console.log('distinct mints:', mints.size);
