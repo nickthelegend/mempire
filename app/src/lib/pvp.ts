@@ -64,6 +64,8 @@ export interface PvpCallbacks {
    * committing a stake to it.
    */
   onChain?: (m: ChainRelay) => void;
+  /** The opponent's current sim tick, so neither side runs away from the other. */
+  onTick?: (tick: number) => void;
 }
 
 /** What one seat tells the other about the on-chain half of the match. */
@@ -115,6 +117,7 @@ export function pvpConnect(cb: PvpCallbacks): void {
       case 'desync': callbacks.onDesync?.(Number(msg.tick)); break;
       case 'opponent_left': callbacks.onOpponentLeft?.(); break;
       case 'chain': callbacks.onChain?.(msg as unknown as ChainRelay); break;
+      case 'tick': callbacks.onTick?.(Number(msg.tick)); break;
       default: break;
     }
   };
@@ -151,6 +154,8 @@ export function pvpQueue(payload: {
 export const pvpSendInput = (input: InputEvent): void => send({ t: 'input', input });
 export const pvpSendHash = (tick: number, hash: number): void => send({ t: 'hash', tick, hash });
 export const pvpSendEnded = (): void => send({ t: 'ended' });
+/** Tell the opponent where our sim is, so they do not outrun us. */
+export const pvpSendTick = (tick: number): void => send({ t: 'tick', tick });
 export const pvpCancel = (): void => send({ t: 'cancel' });
 
 /** Tell the other seat where the escrow got to. */

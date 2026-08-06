@@ -138,6 +138,26 @@ export function registerMatchmaker(server) {
      */
     ws.rttMs = 0;
     ws.pingedAt = 0;
+
+    /**
+     * Measure immediately, not on the next heartbeat.
+     *
+     * The reaper pings every 30 seconds, and a player who connects and gets
+     * matched inside that window has never been pinged — so `rttMs` was still
+     * zero exactly when the input delay had to be chosen, and every match fell
+     * back to the 20-tick floor no matter how far away the players were. The
+     * adaptive delay was real and never once adapted.
+     *
+     * Three quick samples in the first two seconds: matchmaking takes longer
+     * than that, so by the time a pairing happens there is a real number.
+     */
+    for (const delay of [0, 700, 1500]) {
+      setTimeout(() => {
+        if (ws.readyState !== ws.OPEN) return;
+        ws.pingedAt = Date.now();
+        try { ws.ping(); } catch { /* closing */ }
+      }, delay);
+    }
     ws.on('pong', () => {
       ws.isAlive = true;
       if (ws.pingedAt) {
@@ -208,7 +228,28 @@ export function registerMatchmaker(server) {
              * desync.
              */
             const worstRtt = Math.max(waiting.ws.rttMs ?? 0, ws.rttMs ?? 0);
-            const inputDelayTicks = Math.min(60, Math.max(20, Math.ceil((worstRtt * 2) / 50)));
+            // No sample yet — a socket that matched faster than its first pong
+            // came back. Assume a poor link rather than a good one: too much
+            // delay costs responsiveness, too little voids the match outright.
+            const assumed = worstRtt || 600;
+            /**
+             * Floor of 40 ticks — two seconds.
+             *
+             * A protocol-level ping/pong measures the *network*, and the number
+             * that actually matters is the whole application path: one client's
+             * sim stamps a tick, the frame is serialised, queued, relayed, and
+             * the far client parses it and finds a place for it before its own
+             * sim passes that tick. Measured on a live match against a US relay
+             * from South Asia, that path ran 1650ms while the ping said a few
+             * hundred — so a delay sized from the ping voided the match, and the
+             * client said exactly how: "an input arrived 13 ticks (650ms) too
+             * late to stay in lockstep".
+             *
+             * Two seconds is sluggish and it is honest. Moving the relay nearer
+             * the players is what buys the responsiveness back; guessing low
+             * here just loses the match.
+             */
+            const inputDelayTicks = Math.min(80, Math.max(40, Math.ceil((assumed * 3) / 50)));
             const m = {
               players: [waiting.ws, ws],
               addr: [waiting.address, msg.address],
@@ -301,6 +342,26 @@ export function registerMatchmaker(server) {
             matchAccount,
             reason: typeof msg.reason === 'string' ? msg.reason.slice(0, 120) : null,
           });
+          break;
+        }
+
+        /**
+         * A seat's current tick, relayed verbatim.
+         *
+         * Lockstep only holds if neither sim runs more than the input delay
+         * ahead of the other. Without this the two drift — a GC pause, a
+         * background tab, a slow frame — and once a client is far enough
+         * ahead, inputs stamped by the *slower* one arrive for ticks it has
+         * already simulated, and the match voids. Padding the delay only moves
+         * the threshold; telling each client where the other actually is
+         * removes the drift.
+         */
+        case 'tick': {
+          const m = matches.get(ws.matchId);
+          if (!m || m.done) return;
+          const tick = Number(msg.tick);
+          if (!Number.isFinite(tick) || tick < 0) return;
+          send(opponentOf(m, ws), { t: 'tick', tick });
           break;
         }
 

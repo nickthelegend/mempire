@@ -4,6 +4,7 @@ import { COINS } from '../lib/coins';
 import { recordMatch } from '../lib/persist';
 import {
   pvpCancel, pvpClose, pvpConnect, pvpQueue, pvpSendEnded, pvpSendHash, pvpSendInput,
+  pvpSendTick,
   type MatchedPayload,
 } from '../lib/pvp';
 import { traitForMint } from '../sim/traits';
@@ -174,6 +175,21 @@ let humanStartAt = 0;
  */
 let humanInputDelayTicks = 0;
 
+/**
+ * The furthest tick the opponent has told us they have reached.
+ *
+ * Lockstep survives only while neither sim runs more than the input delay
+ * ahead of the other. Left to a wall clock alone they drift — a GC pause, a
+ * slow frame, a browser throttling a tab — and once one is far enough ahead,
+ * inputs stamped by the slower client arrive for ticks the faster one has
+ * already simulated, and the match voids. Padding the delay only moves the
+ * threshold; refusing to outrun the opponent removes the cause.
+ */
+let opponentTick = 0;
+
+/** The last tick we told the opponent about, so we announce at a fixed rate. */
+let lastAnnouncedTick = 0;
+
 let pendingJoin: {
   stakeSol: number; opponent: string; deck: number[]; hash: Uint8Array;
 } | null = null;
@@ -230,7 +246,7 @@ let opponentTrophies = 0;
  * something either client measures: both sims must agree on the tick an input
  * lands, so a locally-tuned delay would be a desync generator.
  */
-const HUMAN_INPUT_DELAY_TICKS = 20;
+const HUMAN_INPUT_DELAY_TICKS = 40;
 
 function clearTimers(): void {
   queueTimers.forEach(clearTimeout);
@@ -446,6 +462,10 @@ export const useMatch = create<MatchStore>((set, get) => ({
         beginHumanBattle(m, player, tier.stakeSol, deck.tier, rush);
       },
       onUnavailable: fallBack,
+      onTick: (t) => {
+        // Monotonic: an out-of-order relay must never drag the gate backwards.
+        if (t > opponentTick) opponentTick = t;
+      },
       onChain: (msg) => {
         if (msg.stage === 'failed') {
           // The opponent could not stake. Nothing of ours is committed yet at
@@ -721,13 +741,35 @@ function stepOne(sim: SimState): void {
 function tickHuman(): void {
   const sim = useMatch.getState().sim;
   if (!sim || sim.phase === 'ended') return;
-  const target = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
+  const wallTarget = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
+  /**
+   * Never more than one input-delay ahead of the opponent.
+   *
+   * An input they stamp lands at `theirTick + delay`, so as long as we are no
+   * further ahead than that, it can always still be applied. Waiting here is a
+   * brief stutter; running ahead is a voided match.
+   */
+  const delay = humanInputDelayTicks || HUMAN_INPUT_DELAY_TICKS;
+  const target = Math.min(wallTarget, opponentTick + delay);
   let steps = 0;
   while (sim.tick < target && steps < 6) {
     stepOne(sim);
     steps += 1;
     // stepOne mutates phase, which TS's narrowing can't see through
     if ((sim.phase as SimState['phase']) === 'ended') break;
+  }
+
+  /**
+   * Tell the opponent where we are, four times a second.
+   *
+   * The gate above is only half of it: if neither client announces its tick,
+   * both sit at `0 + delay` and the match freezes ten ticks in. Ten ticks is
+   * often enough to be useful and rare enough to be cheap — a few bytes twice
+   * a second against a relay that already carries a state hash every two.
+   */
+  if (sim.tick - lastAnnouncedTick >= 10) {
+    lastAnnouncedTick = sim.tick;
+    pvpSendTick(sim.tick);
   }
 }
 
@@ -928,10 +970,12 @@ function beginHumanBattle(
   // the correction err small rather than overshoot. Anything left is far below
   // the tick that matters, and vastly below the clock drift this exists for.
   clockSkew = typeof m.serverNow === 'number' ? m.serverNow - Date.now() : 0;
+  opponentTick = 0;
+  lastAnnouncedTick = 0;
   // Sized by the server to the worse of the two connections; both clients get
   // the same number in the same message.
   humanInputDelayTicks = typeof m.inputDelayTicks === 'number'
-    && m.inputDelayTicks >= 8 && m.inputDelayTicks <= 120
+    && m.inputDelayTicks >= 8 && m.inputDelayTicks <= 160
     ? m.inputDelayTicks
     : 0;
 

@@ -92,6 +92,13 @@ async function openSeat(browser, kp, label) {
   }, bs58.encode(kp.secretKey));
 
   page.on('pageerror', (e) => console.log(`  [${label}] uncaught: ${e.message}`));
+  // The void reason only reaches console.warn, and it carries how late an
+  // input was — the one number that separates "tune the delay" from
+  // "something else is wrong".
+  page.on('console', (m) => {
+    const t = m.text();
+    if (/match voided|desync|too late/i.test(t)) console.log(`  [${label}] ${t.slice(0, 160)}`);
+  });
 
   /**
    * Count what actually crosses the socket.
