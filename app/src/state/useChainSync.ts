@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { useChain } from './chain';
+import { useCollection, type MintedCard } from './collection';
+import { useDeck } from './deck';
 import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
 
@@ -34,7 +36,92 @@ export function useChainSync(): void {
 
   useEffect(() => {
     if (!connected || !address) { clearWallet(); return; }
-    // Guest passes a null adapter, which is what pins `mode` to 'simulated'.
+    // A guest signs through its own browser-held keypair, so it is passed the
+    // same null adapter a wallet-less session has — `canSign` resolves the
+    // difference downstream.
     void loadWallet(address, isGuest ? null : signer());
   }, [connected, address, isGuest, loadWallet, clearWallet]);
+
+  useChainCollection();
+}
+
+/**
+ * Make the collection *be* the wallet's on-chain cards.
+ *
+ * Without this the two never met. The collection was seeded locally from the
+ * coin registry and saved to the player row, while the actual minted `Card`
+ * PDAs lived on chain — and the two sets had almost no mints in common. So a
+ * player looked at eight fighters, picked eight for a deck, and the Arena
+ * reported "8 of your cards are not minted onchain yet", because none of the
+ * cards they were shown were the ones they owned.
+ *
+ * That is the premise of the game failing quietly: "your bags are your army"
+ * only means something if the army on screen is the bags on chain.
+ *
+ * The local collection survives for exactly one case — a wallet with no minted
+ * cards at all, where the seeded set is what lets someone see the game before
+ * spending anything. The moment a real card exists, the chain wins.
+ */
+function useChainCollection(): void {
+  const cards = useChain((s) => s.cards);
+  const mode = useChain((s) => s.mode);
+
+  useEffect(() => {
+    if (mode === 'offline' || cards.length === 0) return;
+
+    const mapped: MintedCard[] = cards.map((c) => ({
+      // Keyed on the PDA id so the mapping is stable across reloads and two
+      // cards for the same coin can never collide.
+      id: `chain_${c.id}`,
+      mint: c.mint,
+      archetype: c.archetype as MintedCard['archetype'],
+      stakedUsd: c.stakedUsd,
+      stakedTokens: c.stakedTokens,
+      level: c.level,
+      pendingUnstakeUsd: 0,
+      cooldownUntil: c.unstakeReadyAt > 0 ? c.unstakeReadyAt * 1000 : 0,
+    }));
+
+    const current = useCollection.getState().cards;
+    const collectionMatches = current.length === mapped.length
+      && current.every((c, i) => c.id === mapped[i].id && c.level === mapped[i].level);
+
+    const valid0 = new Set(mapped.map((c) => c.id));
+    const deckNow = useDeck.getState();
+    // A deck is stale if any slot names a card that no longer exists. Checked
+    // separately from the collection because the two are restored by different
+    // effects and either can land first — this way whichever runs last still
+    // leaves both consistent.
+    const deckStale = [deckNow.active, ...deckNow.slots]
+      .some((slot) => slot.some((id) => !valid0.has(id)));
+
+    if (collectionMatches && !deckStale) return;
+
+    if (!collectionMatches) {
+      useCollection.setState({ cards: mapped, nextId: mapped.length + 1 });
+    }
+
+    // Re-point the decks at the cards that now exist. A deck naming ids from
+    // the old local set would be eight dangling references, which reads to the
+    // player as their deck having been wiped.
+    const deck = useDeck.getState();
+    const valid = new Set(mapped.map((c) => c.id));
+    const repoint = (slot: string[]): string[] => {
+      const kept = slot.filter((id) => valid.has(id));
+      if (kept.length >= 8) return kept.slice(0, 8);
+      // Fill from what the wallet actually holds, one card per coin.
+      const usedMints = new Set(kept.map((id) => mapped.find((c) => c.id === id)?.mint));
+      for (const c of mapped) {
+        if (kept.length >= 8) break;
+        if (!kept.includes(c.id) && !usedMints.has(c.mint)) {
+          kept.push(c.id);
+          usedMints.add(c.mint);
+        }
+      }
+      return kept;
+    };
+
+    const slots = deck.slots.map(repoint);
+    useDeck.setState({ slots, active: repoint(deck.active) });
+  }, [cards, mode]);
 }

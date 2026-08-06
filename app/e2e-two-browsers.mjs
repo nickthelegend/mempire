@@ -115,6 +115,60 @@ const addressOf = (page) => page.evaluate(() => {
   return el ? el.textContent : null;
 });
 
+
+/**
+ * Play a card, the way a finger does.
+ *
+ * Dispatches a real pointer drag from the hand slot onto the board, which is
+ * the same path the app's own `onGrab` / window `pointermove` / `pointerup`
+ * handlers serve for a human. Nothing here reaches into the store.
+ *
+ * `xFrac`/`yFrac` are fractions of the canvas. The player's own half is the
+ * bottom, so y above ~0.55 is legal ground; the program and the sim both
+ * reject a drop on the far side.
+ */
+async function playCard(page, slot, xFrac, yFrac) {
+  return page.evaluate(async ({ slot, xFrac, yFrac }) => {
+    const w = (ms) => new Promise((r) => setTimeout(r, ms));
+    const cv = document.querySelector('canvas');
+    if (!cv) return 'no canvas';
+    const cr = cv.getBoundingClientRect();
+    if (cr.width < 200) return 'canvas not sized';
+
+    const hand = [...document.querySelectorAll('button')]
+      .filter((b) => /\$[A-Z]{2,6}/.test(b.textContent) && b.closest('nav') === null);
+    const card = hand[slot % Math.max(1, hand.length)];
+    if (!card) return 'no card';
+
+    const r = card.getBoundingClientRect();
+    const mk = (t, x, y, btn) => new PointerEvent(t, {
+      pointerId: 1, bubbles: true, cancelable: true,
+      clientX: x, clientY: y, pointerType: 'mouse', isPrimary: true, buttons: btn,
+    });
+    const sx = r.left + r.width / 2;
+    const sy = r.top + r.height / 2;
+    const tx = cr.left + cr.width * xFrac;
+    const ty = cr.top + cr.height * yFrac;
+
+    card.dispatchEvent(mk('pointerdown', sx, sy, 1));
+    for (let i = 1; i <= 4; i += 1) {
+      window.dispatchEvent(mk('pointermove', sx + (tx - sx) * i / 4, sy + (ty - sy) * i / 4, 1));
+    }
+    await w(60);
+    window.dispatchEvent(mk('pointerup', tx, ty, 0));
+    await w(200);
+    return 'played';
+  }, { slot, xFrac, yFrac });
+}
+
+/** Elixir on the bar right now, or null if it cannot be read. */
+async function elixir(page) {
+  return page.evaluate(() => {
+    const m = document.body.innerText.match(/\n(\d{1,2})\n/);
+    return m ? Number(m[1]) : null;
+  });
+}
+
 async function main() {
   const keypairPath = process.env.SOLANA_KEYPAIR
     ?? execSync('solana config get', { encoding: 'utf8' }).match(/Keypair Path:\s*(.+)/)[1].trim();
@@ -319,19 +373,59 @@ async function main() {
       before.b - escrowed.b >= stakeLamports * 0.9,
       `-${((before.b - escrowed.b) / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
 
-    // Let the match run out. Neither seat plays a card, so it goes to time and
-    // resolves on tower damage — which is a legitimate result and needs no
-    // input automation to reach.
-    console.log('\n  playing the match out (this takes the full clock)…');
+    /**
+     * Both seats actually play.
+     *
+     * The previous version of this test let the clock run out with nobody
+     * playing a card, which reached a 0-0 draw — a real settlement, but not a
+     * real *match*. It proved the escrow and proved nothing about whether the
+     * game works: no unit was ever deployed, no tower ever fell, and the
+     * "winner takes the pot" path was never once exercised, because there was
+     * never a winner.
+     *
+     * So seat A pushes hard and seat B answers sparsely. That is deliberately
+     * lopsided: a decisive result is what makes the payout assertion mean
+     * something, and two equally-matched bots would draw as often as not.
+     */
+    console.log('\n  both seats are playing…');
     let ended = false;
-    for (let i = 0; i < 200; i += 1) {
-      await sleep(3000);
+    let plays = { a: 0, b: 0 };
+
+    for (let round = 0; round < 200 && !ended; round += 1) {
+      // Seat A: two cards a round, spread across the lanes.
+      for (const [i, x] of [0.32, 0.68].entries()) {
+        const r = await playCard(A.page, round + i, x, 0.70 + (round % 3) * 0.04);
+        if (r === 'played') plays.a += 1;
+      }
+      // Seat B: one card every other round — enough to contest, not enough to
+      // stalemate.
+      if (round % 2 === 1) {
+        const r = await playCard(B.page, round, round % 2 ? 0.4 : 0.6, 0.72);
+        if (r === 'played') plays.b += 1;
+      }
+
+      await sleep(1500);
       const done = await Promise.all([A, B].map((s) => s.page.evaluate(
         () => /VICTORY|REKT|DRAW|RETURN TO ARENA/i.test(document.body.innerText),
       )));
       if (done[0] || done[1]) { ended = true; break; }
     }
+
+    check('both seats deployed units through the UI',
+      plays.a > 3 && plays.b > 0, `A played ${plays.a}, B played ${plays.b}`);
     check('the match reached a result', ended);
+
+    // A decisive result is the whole point — a draw would not exercise the
+    // winner-takes-the-pot path this test exists for.
+    const outcome = await A.page.evaluate(() => {
+      const t = document.body.innerText;
+      if (/VICTORY/i.test(t)) return 'A won';
+      if (/REKT/i.test(t)) return 'A lost';
+      if (/DRAW/i.test(t)) return 'draw';
+      return 'unknown';
+    });
+    check('the match was decisive, not a timeout draw',
+      outcome === 'A won' || outcome === 'A lost', `seat A: ${outcome}`);
 
     if (ended) {
       /**
@@ -374,14 +468,46 @@ async function main() {
           a: await conn.getBalance(new PublicKey(addrA)),
           b: await conn.getBalance(new PublicKey(addrB)),
         };
-        const returned = (after.a - escrowed.a) + (after.b - escrowed.b);
+        const gainA = after.a - escrowed.a;
+        const gainB = after.b - escrowed.b;
         const pot = stakeLamports * 2;
-        // A draw returns pot minus the tie rake, split. Whatever the outcome,
-        // the two seats together get back the pot less a rake between 0 and
-        // 20% — anything outside that means the program paid the wrong amount.
-        check('the seats were paid the pot back, less rake',
+        const returned = gainA + gainB;
+
+        check('rake and payout together are the whole pot — nothing minted, nothing lost',
           returned > pot * 0.75 && returned <= pot,
           `+${(returned / LAMPORTS_PER_SOL).toFixed(4)} SOL returned against a ${(pot / LAMPORTS_PER_SOL).toFixed(3)} pot`);
+
+        /**
+         * The assertion this test was written for: somebody actually won the
+         * money.
+         *
+         * A winner receives pot minus rake, which is strictly more than the
+         * stake they put in — so their balance must be *up* on where it was
+         * after escrow, by more than one stake. The loser gets nothing back.
+         * Neither is true of a draw, which is exactly why the match above is
+         * driven to a decisive result.
+         */
+        const winnerGain = Math.max(gainA, gainB);
+        const loserGain = Math.min(gainA, gainB);
+        const seat = gainA > gainB ? 'A' : 'B';
+
+        check('the winner took the pot — richer than before the match started',
+          winnerGain > stakeLamports,
+          `seat ${seat} +${(winnerGain / LAMPORTS_PER_SOL).toFixed(4)} SOL `
+          + `(staked ${(stakeLamports / LAMPORTS_PER_SOL).toFixed(3)})`);
+
+        check('the loser was paid nothing',
+          loserGain <= 0,
+          `${(loserGain / LAMPORTS_PER_SOL).toFixed(4)} SOL`);
+
+        // Net across the whole match, escrow included: the winner should be up
+        // roughly one stake less rake, the loser down one stake.
+        const netA = after.a - before.a;
+        const netB = after.b - before.b;
+        console.log(
+          `     net over the match — A ${(netA / LAMPORTS_PER_SOL).toFixed(4)} SOL, `
+          + `B ${(netB / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
+        );
       }
 
       const badgeSaysPaid = await Promise.all([A, B].map((s) => s.page.evaluate(

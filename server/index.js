@@ -13,6 +13,8 @@ import { MongoClient } from 'mongodb';
 import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
 import { registerFaucetRoutes } from './faucet.js';
+import { registerPlayerRoutes } from './player.js';
+import { registerTelemetryRoutes } from './telemetry.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -440,6 +442,8 @@ const server = await (async () => {
     readFileSync(new URL('./devnet-coins.json', import.meta.url), 'utf8'),
   ).coins;
   registerFaucetRoutes(app, db, devnetCoins);
+  registerPlayerRoutes(app, db);
+  registerTelemetryRoutes(app, db, requireWallet);
 
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
