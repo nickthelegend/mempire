@@ -249,7 +249,22 @@ export function registerMatchmaker(server) {
              * the players is what buys the responsiveness back; guessing low
              * here just loses the match.
              */
-            const inputDelayTicks = Math.min(80, Math.max(40, Math.ceil((assumed * 3) / 50)));
+            /**
+             * Floor of 16 ticks — 800ms.
+             *
+             * It was 40 (two seconds), sized for a relay on the other side of
+             * the planet where a card's whole journey measured 1650ms. With
+             * the relay in Singapore the round trip is under 100ms, and two
+             * seconds of input delay is a game that feels broken rather than a
+             * game that is.
+             *
+             * Sixteen is still an order of magnitude more than the measured
+             * trip. The margin is not for the network — it is for the far
+             * client having a bad frame, which the tick gate now bounds
+             * anyway: neither sim may run further than this ahead of the
+             * other, so an input can always still be placed when it lands.
+             */
+            const inputDelayTicks = Math.min(80, Math.max(16, Math.ceil((assumed * 3) / 50)));
             const m = {
               players: [waiting.ws, ws],
               addr: [waiting.address, msg.address],

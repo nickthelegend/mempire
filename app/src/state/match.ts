@@ -246,7 +246,7 @@ let opponentTrophies = 0;
  * something either client measures: both sims must agree on the tick an input
  * lands, so a locally-tuned delay would be a desync generator.
  */
-const HUMAN_INPUT_DELAY_TICKS = 40;
+const HUMAN_INPUT_DELAY_TICKS = 16;
 
 function clearTimers(): void {
   queueTimers.forEach(clearTimeout);
@@ -763,11 +763,14 @@ function tickHuman(): void {
    * Tell the opponent where we are, four times a second.
    *
    * The gate above is only half of it: if neither client announces its tick,
-   * both sit at `0 + delay` and the match freezes ten ticks in. Ten ticks is
-   * often enough to be useful and rare enough to be cheap — a few bytes twice
-   * a second against a relay that already carries a state hash every two.
+   * both sit at `0 + delay` and the match freezes almost immediately. The rate
+   * has to be well inside the delay window or the gate binds on every step and
+   * the game stutters — every four ticks is five messages a second, which is
+   * nothing against a relay already carrying a state hash every two seconds.
    */
-  if (sim.tick - lastAnnouncedTick >= 10) {
+  // Announced far more often than the delay is wide, or the gate binds on
+  // every step and the match stutters instead of running.
+  if (sim.tick - lastAnnouncedTick >= 4) {
     lastAnnouncedTick = sim.tick;
     pvpSendTick(sim.tick);
   }
