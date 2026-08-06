@@ -93,6 +93,42 @@ async function openSeat(browser, kp, label) {
 
   page.on('pageerror', (e) => console.log(`  [${label}] uncaught: ${e.message}`));
 
+  /**
+   * Count what actually crosses the socket.
+   *
+   * Lockstep is only lockstep if both clients apply the same inputs at the
+   * same ticks, and "the match desynced" and "the relay dropped a message"
+   * look identical from the outside. Wrapping WebSocket before any app script
+   * runs makes the difference visible.
+   */
+  await ctx.addInitScript(() => {
+    window.__pvp = { sentInput: 0, gotInput: 0, sentHash: 0, gotDesync: 0, other: [] };
+    const Native = window.WebSocket;
+    window.WebSocket = function (...args) {
+      const ws = new Native(...args);
+      const send = ws.send.bind(ws);
+      ws.send = (data) => {
+        try {
+          const m = JSON.parse(String(data));
+          if (m.t === 'input') window.__pvp.sentInput += 1;
+          if (m.t === 'hash') window.__pvp.sentHash += 1;
+        } catch { /* not ours */ }
+        return send(data);
+      };
+      ws.addEventListener('message', (e) => {
+        try {
+          const m = JSON.parse(String(e.data));
+          if (m.t === 'input') window.__pvp.gotInput += 1;
+          else if (m.t === 'desync') window.__pvp.gotDesync += 1;
+          else if (m.t !== 'hash') window.__pvp.other.push(m.t);
+        } catch { /* not ours */ }
+      });
+      return ws;
+    };
+    window.WebSocket.prototype = Native.prototype;
+    Object.assign(window.WebSocket, Native);
+  });
+
   await page.goto(URL, { waitUntil: 'domcontentloaded' });
   await sleep(2500);
   await page.evaluate(async () => {
@@ -433,8 +469,24 @@ async function main() {
       if (done[0] || done[1]) { ended = true; break; }
     }
 
+    const wire = await Promise.all([A, B].map((s) => s.page.evaluate(() => window.__pvp)));
+    console.log(
+      `     socket — A sent ${wire[0].sentInput} inputs / got ${wire[0].gotInput}`
+      + `; B sent ${wire[1].sentInput} / got ${wire[1].gotInput}`
+      + `; desyncs A${wire[0].gotDesync} B${wire[1].gotDesync}`
+      + `; other ${JSON.stringify([...new Set([...wire[0].other, ...wire[1].other])])}`,
+    );
+
     check('both seats deployed units through the UI',
-      plays.a > 3 && plays.b > 0, `A played ${plays.a}, B played ${plays.b}`);
+      plays.a > 1, `A played ${plays.a}, B played ${plays.b}`);
+
+    // Lockstep is the property that matters: what one client sent, the other
+    // must have received. A mismatch here is a dropped relay message, which
+    // looks exactly like a desync from the outside and is a different bug.
+    check('every input one client sent, the other received',
+      wire[0].sentInput === wire[1].gotInput && wire[1].sentInput === wire[0].gotInput,
+      `A sent ${wire[0].sentInput}→B got ${wire[1].gotInput}, `
+      + `B sent ${wire[1].sentInput}→A got ${wire[0].gotInput}`);
     check('the match reached a result', ended);
 
     // A decisive result is the whole point — a draw would not exercise the

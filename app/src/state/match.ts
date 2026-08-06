@@ -203,7 +203,26 @@ let opponentTrophies = 0;
  * Own inputs schedule this far ahead in a human match — 400ms of slack for the
  * relay round-trip. The bot keeps the tight 2-tick delay; a bot has no latency.
  */
-const HUMAN_INPUT_DELAY_TICKS = 8;
+/**
+ * How far ahead of the current tick a human match stamps an input.
+ *
+ * This is the entire budget for a card to travel client → relay → opponent.
+ * If it arrives after its stamped tick the opponent cannot apply it without
+ * rewriting history, so the match voids — correctly, but the player just
+ * watched a match evaporate for no visible reason.
+ *
+ * It was 8 ticks: 400ms. A round trip to the relay from a player on the far
+ * side of the world is comfortably more than that, so *every* card either
+ * player played voided the match, and a live PvP game could not be finished at
+ * all. The socket logs told the story plainly — connections lasting seventeen
+ * seconds, closed by the void, not by the network.
+ *
+ * A full second is generous enough to survive an intercontinental round trip
+ * with the relay under load, and is deliberately a shared constant rather than
+ * something either client measures: both sims must agree on the tick an input
+ * lands, so a locally-tuned delay would be a desync generator.
+ */
+const HUMAN_INPUT_DELAY_TICKS = 20;
 
 function clearTimers(): void {
   queueTimers.forEach(clearTimeout);
@@ -892,10 +911,15 @@ function queueRemoteInput(ev: InputEvent): void {
   if (!sim || mode !== 'human') return;
   if (ev.player === perspective) return; // never accept our own seat from outside
   if (ev.tick <= sim.tick) {
-    // Too late to apply at its stamped tick: the sender already applied it,
-    // so the timelines have split. Void now rather than letting the next hash
-    // checkpoint discover it.
-    settleVoid('an input arrived too late to stay in lockstep');
+    // Too late to apply at its stamped tick: the sender already applied it, so
+    // the timelines have split. Voiding is the only honest response — but say
+    // by how much, because "the connection is slower than the input delay" and
+    // "something is broken" produce the same symptom and need opposite fixes.
+    const lateTicks = sim.tick - ev.tick + 1;
+    settleVoid(
+      `an input arrived ${lateTicks} tick${lateTicks === 1 ? '' : 's'} `
+      + `(${lateTicks * 50}ms) too late to stay in lockstep`,
+    );
     return;
   }
   const list = pending.get(ev.tick) ?? [];
