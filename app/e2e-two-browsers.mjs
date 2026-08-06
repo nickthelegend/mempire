@@ -134,7 +134,24 @@ async function main() {
     balA0 > 0 && balB0 > 0,
     `${(balA0 / LAMPORTS_PER_SOL).toFixed(3)} / ${(balB0 / LAMPORTS_PER_SOL).toFixed(3)} SOL`);
 
-  const browser = await chromium.launch({ headless: !HEADED });
+  /**
+   * Timer throttling off.
+   *
+   * The sim steps against a wall clock with a six-tick catch-up bound, which
+   * is exactly right in a real browser: a backgrounded tab resumes without
+   * fast-forwarding through the match. Headless Chromium throttles timers to
+   * roughly 1Hz regardless of visibility, so those six ticks land once a
+   * second instead of twenty times, and a three-minute match takes ten. These
+   * flags make the harness keep real time; nothing about the app changes.
+   */
+  const browser = await chromium.launch({
+    headless: !HEADED,
+    args: [
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+    ],
+  });
   const A = await openSeat(browser, kpA, 'A');
   const B = await openSeat(browser, kpB, 'B');
 
@@ -291,7 +308,7 @@ async function main() {
     // input automation to reach.
     console.log('\n  playing the match out (this takes the full clock)…');
     let ended = false;
-    for (let i = 0; i < 130; i += 1) {
+    for (let i = 0; i < 200; i += 1) {
       await sleep(3000);
       const done = await Promise.all([A, B].map((s) => s.page.evaluate(
         () => /VICTORY|REKT|DRAW|RETURN TO ARENA/i.test(document.body.innerText),
