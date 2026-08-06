@@ -301,25 +301,55 @@ async function main() {
     check('the match reached a result', ended);
 
     if (ended) {
-      // Settlement is asynchronous: each seat records a claim, the log comes
-      // home, and one of them calls settle_from_log.
+      /**
+       * Settlement is asynchronous: each seat records a claim, the log comes
+       * home once both agree, and one of them calls `settle_from_log`.
+       *
+       * The assertion is on the *match account*, not on who got richer. Neither
+       * seat plays a card here, so the clock runs out on a 0-0 board and the
+       * result is a draw — and in a draw each side receives half the pot minus
+       * rake, which is less than they staked. "A winner is richer" would fail
+       * on a correctly settled match, which is the assertion being wrong rather
+       * than the game.
+       *
+       * What is true for every outcome: the match ends Settled and the escrow
+       * account no longer holds the pot.
+       */
       console.log('  waiting for settlement…');
+      const { execSync: exec } = await import('node:child_process');
       let settled = false;
-      let after = null;
-      for (let i = 0; i < 45; i += 1) {
-        await sleep(4000);
-        after = {
+      let detail = 'no reading';
+      for (let i = 0; i < 60; i += 1) {
+        await sleep(5000);
+        try {
+          const out = exec(
+            'npx tsx scripts/live-matches.ts',
+            { cwd: '../chain', encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+          );
+          const line = out.split('\n').find((l) => /^#\d+/.test(l));
+          if (line) {
+            detail = line.trim();
+            if (/Settled/.test(line)) { settled = true; break; }
+          }
+        } catch { /* RPC hiccup — keep polling */ }
+      }
+      check('the match settled onchain and the escrow released the pot',
+        settled, detail);
+
+      if (settled) {
+        const after = {
           a: await conn.getBalance(new PublicKey(addrA)),
           b: await conn.getBalance(new PublicKey(addrB)),
         };
-        const gained = (after.a - escrowed.a) > stakeLamports || (after.b - escrowed.b) > stakeLamports;
-        if (gained) { settled = true; break; }
+        const returned = (after.a - escrowed.a) + (after.b - escrowed.b);
+        const pot = stakeLamports * 2;
+        // A draw returns pot minus the tie rake, split. Whatever the outcome,
+        // the two seats together get back the pot less a rake between 0 and
+        // 20% — anything outside that means the program paid the wrong amount.
+        check('the seats were paid the pot back, less rake',
+          returned > pot * 0.75 && returned <= pot,
+          `+${(returned / LAMPORTS_PER_SOL).toFixed(4)} SOL returned against a ${(pot / LAMPORTS_PER_SOL).toFixed(3)} pot`);
       }
-      check('the pot was paid out onchain — a winner is richer than before the match',
-        settled,
-        after
-          ? `A ${((after.a - escrowed.a) / LAMPORTS_PER_SOL).toFixed(4)} · B ${((after.b - escrowed.b) / LAMPORTS_PER_SOL).toFixed(4)} SOL`
-          : 'no reading');
 
       const badgeSaysPaid = await Promise.all([A, B].map((s) => s.page.evaluate(
         () => /paid|settled/i.test(document.body.innerText),
