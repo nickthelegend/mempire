@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <title>Mempire — days 3-4 (overlay)</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      /* The game's own display face. Lilita One is not one of the renderer's
+         pre-bundled families, so naming it would lean on an implicit Google
+         fetch — a lint warning locally and fail-closed in a cloud render. This
+         file is the app's own @fontsource copy. */
+      @font-face {
+        font-family: 'Lilita One';
+        src: url('assets/fonts/lilita-one.woff2') format('woff2');
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+
+      :root {
+        --ink: #10203f;
+        --gold: #ffc422;
+        --gold-hi: #ffe38a;
+        --blue-pale: #59a6f5;
+        --teal: #14f195;
+        --dim: #b9d4f7;
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      /* Transparent: the tour is composited underneath by ffmpeg, not placed
+         in the composition. `videos/day-2-devlog/BRIEF.md` has the why. */
+      body { background: transparent; }
+
+      #root {
+        position: relative;
+        background: transparent;
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        font-family: 'Montserrat', system-ui, sans-serif;
+        color: #fff;
+      }
+
+      /* This cut is a tour of dense menu UI, not an arena. Day 2 could afford
+         a three-row checklist over grass; here every pixel under the copy is
+         something the viewer is meant to read, so the scrims are shorter and
+         the copy is two lines instead of five. */
+      .scrim {
+        position: absolute;
+        left: 0;
+        width: 1080px;
+        pointer-events: none;
+      }
+      .scrim-top {
+        top: 0;
+        height: 470px;
+        background: linear-gradient(180deg, rgba(9,11,26,.96) 0%, rgba(9,11,26,.82) 52%, rgba(9,11,26,0) 100%);
+      }
+      .scrim-bot {
+        bottom: 0;
+        height: 430px;
+        background: linear-gradient(0deg, rgba(9,11,26,.97) 0%, rgba(9,11,26,.86) 46%, rgba(9,11,26,0) 100%);
+      }
+
+      .display {
+        font-family: 'Lilita One', system-ui, sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.012em;
+        line-height: 0.94;
+        -webkit-text-stroke: 0.075em var(--ink);
+        paint-order: stroke fill;
+        text-shadow: 0 0.05em 0 rgba(0, 0, 0, 0.55);
+      }
+
+      #logo {
+        position: absolute;
+        top: 70px;
+        left: 375px;
+        width: 330px;
+        /* Explicit, never auto — an auto height resolving before the PNG
+           decodes stretched the wordmark into a full-height smear. */
+        height: 161px;
+        display: block;
+      }
+
+      #daychip {
+        position: absolute;
+        top: 248px;
+        left: 375px;
+        width: 330px;
+        display: block;
+        text-align: center;
+        padding: 12px 0 10px;
+        border-radius: 999px;
+        border: 4px solid var(--ink);
+        background: linear-gradient(180deg, #ffe38a, #ffc422 52%, #e0a105);
+        color: #3a2600;
+        font-family: 'Lilita One', system-ui, sans-serif;
+        text-transform: uppercase;
+        font-size: 36px;
+        letter-spacing: 0.06em;
+        box-shadow: inset 0 3px 0 rgba(255,255,255,.5), 0 8px 0 #8a5c05, 0 14px 26px rgba(0,0,0,.5);
+      }
+
+      #head1, #head2 {
+        position: absolute;
+        top: 336px;
+        left: 60px;
+        width: 960px;
+        display: block;
+        text-align: center;
+        font-size: 72px;
+        color: #fff;
+      }
+
+      /* The caption changes with what is on screen. Each one is its own clip,
+         stacked on the same spot, so the framework owns the swap rather than a
+         tween fighting over one element's text. */
+      .cap {
+        position: absolute;
+        left: 70px;
+        bottom: 252px;
+        width: 940px;
+        display: block;
+        text-align: center;
+        font-size: 42px;
+        color: var(--gold-hi);
+      }
+      .capsub {
+        position: absolute;
+        left: 90px;
+        bottom: 170px;
+        width: 900px;
+        display: block;
+        text-align: center;
+        font-size: 27px;
+        font-weight: 700;
+        color: var(--dim);
+      }
+
+      #url {
+        position: absolute;
+        left: 0;
+        bottom: 104px;
+        width: 1080px;
+        display: block;
+        text-align: center;
+        font-size: 50px;
+        color: var(--gold-hi);
+      }
+      #blitz {
+        position: absolute;
+        left: 0;
+        bottom: 58px;
+        width: 1080px;
+        display: block;
+        text-align: center;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--blue-pale);
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-width="1080"
+      data-height="1920"
+      data-duration="18"
+    >
+      <div id="scrim-top" class="scrim scrim-top clip" data-start="0" data-duration="18" data-track-index="0"></div>
+      <div id="scrim-bot" class="scrim scrim-bot clip" data-start="0" data-duration="18" data-track-index="1"></div>
+
+      <img id="logo" class="clip" src="assets/logo.png" alt="Mempire"
+           data-start="0" data-duration="18" data-track-index="2" />
+
+      <div id="daychip" class="clip" data-start="0.3" data-duration="17.7" data-track-index="3">
+        Days 3 &amp; 4
+      </div>
+
+      <!-- Two headlines, because the two days are a turn: the first breaks the
+           game, the second closes it. One headline across both would flatten
+           the only structure this piece has. -->
+      <h1 id="head1" class="display clip" data-start="0.9" data-duration="7.9" data-track-index="4">
+        We tried to rob our own game
+      </h1>
+      <h1 id="head2" class="display clip" data-start="9.0" data-duration="7.2" data-track-index="5">
+        Then we made the stake real
+      </h1>
+
+      <div id="cap1" class="cap display clip" data-start="1.6" data-duration="3.4" data-track-index="6">
+        Five parallel audits
+      </div>
+      <div id="cap1s" class="capsub clip" data-start="1.8" data-duration="3.2" data-track-index="7">
+        Pot theft. Permissionless delegation. Stranded escrow.
+      </div>
+
+      <div id="cap2" class="cap display clip" data-start="5.4" data-duration="3.2" data-track-index="8">
+        Every finding closed
+      </div>
+      <div id="cap2s" class="capsub clip" data-start="5.6" data-duration="3.0" data-track-index="9">
+        Chain: none open. Client: none open.
+      </div>
+
+      <div id="cap3" class="cap display clip" data-start="9.4" data-duration="3.4" data-track-index="10">
+        Escrow, agree, settle
+      </div>
+      <div id="cap3s" class="capsub clip" data-start="9.6" data-duration="3.2" data-track-index="11">
+        Both seats must agree. Disagreement voids the match.
+      </div>
+
+      <div id="cap4" class="cap display clip" data-start="13.2" data-duration="2.8" data-track-index="12">
+        Two browsers, one pot
+      </div>
+      <div id="cap4s" class="capsub clip" data-start="13.4" data-duration="2.6" data-track-index="13">
+        Match #19 settled on devnet. 0.0947 SOL returned of 0.100.
+      </div>
+
+      <div id="url" class="display clip" data-start="16.4" data-duration="1.6" data-track-index="14">
+        mempire.fun
+      </div>
+      <div id="blitz" class="clip" data-start="16.6" data-duration="1.4" data-track-index="15">
+        Solana Blitz V7 · @magicblock
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // Initial states live inside the tweens. A CSS transform plus a GSAP
+      // tween on the same property fight, and lint rejects the pair.
+      tl.fromTo('#logo', { y: -36, opacity: 0 }, { y: 0, opacity: 1, duration: 0.65, ease: 'power3.out' }, 0);
+      tl.fromTo('#daychip', { scale: 1.5, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.4, ease: 'back.out(2.2)' }, 0.3);
+
+      // The first headline leaves before the second arrives — they share a slot.
+      tl.fromTo('#head1', { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out' }, 0.9);
+      tl.to('#head1', { y: -24, opacity: 0, duration: 0.4, ease: 'power2.in' }, 8.4);
+      tl.fromTo('#head2', { y: 40, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out' }, 9.0);
+      tl.to('#head2', { y: -24, opacity: 0, duration: 0.4, ease: 'power2.in' }, 15.8);
+
+      [
+        ['#cap1', '#cap1s', 1.6, 4.7],
+        ['#cap2', '#cap2s', 5.4, 8.3],
+        ['#cap3', '#cap3s', 9.4, 12.5],
+        ['#cap4', '#cap4s', 13.2, 15.7],
+      ].forEach(function (row) {
+        var head = row[0], sub = row[1], t = row[2], out = row[3];
+        tl.fromTo(head, { y: 26, opacity: 0 }, { y: 0, opacity: 1, duration: 0.42, ease: 'power3.out' }, t);
+        tl.fromTo(sub, { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.42, ease: 'power3.out' }, t + 0.2);
+        tl.to(head, { opacity: 0, duration: 0.28, ease: 'power2.in' }, out);
+        tl.to(sub, { opacity: 0, duration: 0.28, ease: 'power2.in' }, out);
+      });
+
+      tl.fromTo('#url', { scale: 0.88, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: 'back.out(1.8)' }, 16.4);
+      tl.fromTo('#blitz', { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.out' }, 16.6);
+
+      window.__timelines['main'] = tl;
+    </script>
+  </body>
+</html>

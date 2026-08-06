@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { ARCHETYPE_NAMES, type Archetype } from '../sim/types';
 import { click } from '../lib/audio';
 import { coinByMint } from '../lib/coins';
@@ -86,37 +86,78 @@ export function Spinner({ size = 13 }: { size?: number }) {
 }
 
 /** Round coin logo. Generated art when present; procedural fallback otherwise. */
+/**
+ * A coin, as its fighter.
+ *
+ * This used to render two letters in a coloured circle — "SB", "QQ" — because
+ * it only looked at `logoUrl`, and not one seeded coin has one. So the Daily
+ * Shop, the screen whose whole job is to make you want a card, showed a grid
+ * of initials while the actual character art sat unused two fields away.
+ *
+ * Every coin has `cardArt`. The art is a 3:4 portrait, so it is cropped to the
+ * top third and scaled up: that lands the character's head in the circle
+ * rather than their chest, which is the difference between a face and a blob.
+ * The initials survive as a real fallback for a missing file, not as the
+ * default path.
+ */
 export function CoinBadge({ mint, size = 40 }: { mint: string; size?: number }) {
   const coin = coinByMint(mint);
+  const [artFailed, setArtFailed] = useState(false);
   if (!coin) return null;
-  if (coin.logoUrl) {
+
+  const art = !artFailed ? (coin.cardArt ?? coin.logoUrl) : null;
+  const ring = {
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    flexShrink: 0,
+    border: '2px solid var(--gold)',
+    boxShadow: `inset 0 -3px 6px rgba(0,0,0,.35), 0 ${Math.max(1, size * 0.03)}px ${size * 0.08}px rgba(0,0,0,.45)`,
+    background: `radial-gradient(circle at 32% 28%, hsl(${coin.hue} 85% 62%), hsl(${coin.hue} 80% 34%))`,
+    overflow: 'hidden',
+  } as const;
+
+  if (art) {
     return (
-      <img
-        src={coin.logoUrl}
-        alt={coin.ticker}
-        width={size}
-        height={size}
-        loading="lazy"
-        draggable={false}
-        style={{
-          display: 'block',
-          filter: `drop-shadow(0 ${Math.max(1, size * 0.03)}px ${size * 0.08}px rgba(0,0,0,.55))`,
-        }}
-      />
+      <div style={ring} role="img" aria-label={coin.ticker}>
+        <img
+          src={art}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          draggable={false}
+          onError={() => setArtFailed(true)}
+          style={{
+            // 3:4 art, cropped to the head. `objectPosition` at the top and a
+            // width overshoot together frame the face; `contain` would letterbox
+            // it into a stripe and `cover` alone centres on the torso.
+            width: '135%',
+            height: '135%',
+            marginLeft: '-17.5%',
+            marginTop: '-6%',
+            objectFit: 'cover',
+            objectPosition: 'center top',
+            display: 'block',
+          }}
+        />
+      </div>
     );
   }
+
   return (
     <div
       role="img"
       aria-label={coin.ticker}
       style={{
-        width: size, height: size, borderRadius: '50%', flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: `radial-gradient(circle at 32% 28%, hsl(${coin.hue} 85% 62%), hsl(${coin.hue} 80% 34%))`,
-        border: '2px solid var(--gold)',
-        boxShadow: 'inset 0 -3px 6px rgba(0,0,0,.35)',
-        color: '#fff', fontWeight: 800, fontSize: size * 0.32,
-        textShadow: '0 1px 2px rgba(0,0,0,.5)', letterSpacing: '-0.02em',
+        ...ring,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        fontWeight: 800,
+        fontSize: size * 0.32,
+        textShadow: '0 1px 2px rgba(0,0,0,.5)',
+        letterSpacing: '-0.02em',
       }}
     >
       {coin.ticker.slice(0, 2)}

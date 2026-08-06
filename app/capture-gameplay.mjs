@@ -31,7 +31,7 @@ const OUT = process.argv[3] ?? './capture';
 /** Portrait. At deviceScaleFactor 2 the screencast lands at 860x1760. */
 const VIEWPORT = { width: 430, height: 880 };
 const SCALE = 2;
-const PLAY_MS = 26_000;
+const PLAY_MS = 34_000;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
