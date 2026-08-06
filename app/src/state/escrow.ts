@@ -192,10 +192,26 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
       );
       set({ phase: 'claimed', lastSignature: signature });
 
-      // Settle only once the log is home with both claims. If the opponent
-      // has not spoken yet, whoever gets here second triggers the payout —
-      // and if neither does, `claim_timeout` still pays after the deadline.
-      if (!committed && !(await logIsSettleable(matchId))) return;
+      /**
+       * Wait for the agreement, then settle.
+       *
+       * Both seats reach this within a second of each other, so "whoever gets
+       * here second settles" is not reliable on its own: seat A claims, waits,
+       * and times out just as seat B is claiming — and seat B, having claimed
+       * first from its own point of view, times out too. Neither settles, and
+       * a perfectly agreed match falls through to `claim_timeout`, which costs
+       * the winner their rake share and a wait.
+       *
+       * So poll instead of checking once. Whichever client sees the log come
+       * home first calls settle; the other finds the match already `Settled`
+       * and its call is a harmless no-op.
+       */
+      let ready = committed;
+      for (let i = 0; !ready && i < 20; i += 1) {
+        await new Promise((r) => { setTimeout(r, 3000); });
+        ready = await logIsSettleable(matchId);
+      }
+      if (!ready) return;
 
       const m = await readMatch(matchId);
       if (!m || m.state !== 1) return;

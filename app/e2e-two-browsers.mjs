@@ -144,16 +144,24 @@ async function main() {
    * second instead of twenty times, and a three-minute match takes ten. These
    * flags make the harness keep real time; nothing about the app changes.
    */
-  const browser = await chromium.launch({
-    headless: !HEADED,
-    args: [
-      '--disable-background-timer-throttling',
-      '--disable-backgrounding-occluded-windows',
-      '--disable-renderer-backgrounding',
-    ],
-  });
-  const A = await openSeat(browser, kpA, 'A');
-  const B = await openSeat(browser, kpB, 'B');
+  /**
+   * One browser process per seat.
+   *
+   * Two pages in a single browser share a renderer scheduler and take turns,
+   * so the simulation — which steps against a wall clock with a six-tick
+   * catch-up bound — falls progressively behind on whichever page is not
+   * frontmost. Separate processes each keep real time. The throttling flags
+   * are belt and braces on top of that.
+   */
+  const args = [
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+  ];
+  const browserA = await chromium.launch({ headless: !HEADED, args });
+  const browserB = await chromium.launch({ headless: !HEADED, args });
+  const A = await openSeat(browserA, kpA, 'A');
+  const B = await openSeat(browserB, kpB, 'B');
 
   // ── the app must show the real chain balance, not play money ────────────
   const shown = async (p) => p.evaluate(() => {
@@ -246,7 +254,7 @@ async function main() {
       });
       console.log(`    seat ${s.label}: ${why}`);
     }
-    await browser.close();
+    await Promise.all([browserA.close(), browserB.close()]);
     console.log(`\n${pass} passed, ${fail} failed\n`);
     process.exit(1);
   }
@@ -258,8 +266,16 @@ async function main() {
     b: await conn.getBalance(new PublicKey(addrB)),
   };
 
+  /**
+   * Rush, not Ranked.
+   *
+   * Thirty seconds of regulation and no overtime, against Ranked's three
+   * minutes plus sixty. It escrows through exactly the same path — same
+   * `create_match`, same stake, same settlement — so nothing about what this
+   * proves changes, and the run finishes in a minute instead of five.
+   */
   const queue = (p) => p.evaluate(() => {
-    const b = [...document.querySelectorAll('button')].find((x) => /^RANKED/i.test(x.textContent.trim()));
+    const b = [...document.querySelectorAll('button')].find((x) => /^RUSH/i.test(x.textContent.trim()));
     b?.click();
     return !!b;
   });
@@ -377,7 +393,7 @@ async function main() {
   }
 
   if (HEADED) await sleep(8000);
-  await browser.close();
+  await Promise.all([browserA.close(), browserB.close()]);
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 }

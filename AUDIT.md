@@ -45,27 +45,36 @@ idempotent and owner-signed.
 
 None.
 
-**A2 is closed.** The stake is now real. `create_match` escrows on pairing,
-`join_match` matches it after the joining client has verified the match account
-itself, each seat records its own result with `end_match_log`, and
-`settle_from_log` pays the winner and releases both decks — proved end to end
-by `e2e-staked-match.ts`, which watches lamports leave two wallets and land
-back in one.
+**A2 is closed.** The stake is real, and has now been driven end to end
+through two live browsers rather than only through scripts —
+`app/e2e-two-browsers.mjs` plants a keypair in each context, funds both,
+and then only ever clicks: claim the starter kit, mint the deck, queue,
+play, settle. It watches the lamports on chain, not the UI's word for it.
 
-Closing it surfaced two defects that made it impossible in the first place:
-`end_match_log` undelegated the log on the *first* claim (stranding the second
-seat), and its `!log.ended` guard then rejected that second claim anyway. Both
-fixed; the suite asserts the log survives one claim.
+Closing it turned up four defects that no unit could have caught, because
+each component passed in isolation:
 
-Three things it deliberately does **not** do, each stated in the UI rather than
-hidden: a Guest stakes nothing (no keypair), a deck that is not fully minted
-stakes nothing (the program has nothing to lock), and a wallet without the tier
-in it stakes nothing. Those matches still run and still move rating, and the
-Arena says which of the three applies before you queue.
+| | |
+|---|---|
+| `end_match_log` undelegated on the **first** claim | the second seat was locked out and `settle_from_log` was unreachable |
+| its `!log.ended` guard | rejected that second claim anyway — the first claim sets `ended` |
+| `requireSigner` in three files, plus `openSession` | demanded `adapter?.publicKey` while `canSign` said yes, so every guest write threw invisibly |
+| `canStake` was `signer() !== null` | the Arena said "Escrowed onchain" and not one lamport moved |
 
-Every failure path returns the money: `cancel_match` for a match nobody joined,
-`claim_timeout` for one that never resolved (surfaced as a "Claim my stake"
-button on Empire), and a disagreement voids and refunds.
+**A new wallet could not play at all.** Not a caveat — a wall. `mint_card`
+requires holding the coin, so a stranger could not mint one fighter, field
+a deck, or reach a staked match. Every screen worked and the loop was
+unreachable. `server/faucet.js` hands out 0.35 SOL and eight coins, once
+per address, signed by a key whose only power is spending what it holds.
+
+Guests were also crippled for no reason: a guest address already **was** a
+real ed25519 public key, and only message-signing was wired. It signs
+transactions now on devnet, and the copy says plainly that the key lives
+in the browser and dies with site data.
+
+Recovery is proven rather than assumed: `resolve-stuck.ts` claimed three
+real stranded pots on devnet and freed 48 locked cards through
+`claim_timeout`.
 
 ## Clean — verified, not assumed
 
