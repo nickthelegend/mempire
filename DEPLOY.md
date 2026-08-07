@@ -91,3 +91,35 @@ Scaling this out is a real piece of work, not a config change:
 Until then a single instance is the honest configuration, and the region is
 chosen for where players actually are. Moving it is a one-line change to
 `multiRegionConfig` above; running two is not.
+
+## Mainnet checklist
+
+Devnet keeps its convenient key on purpose; none of this is run there.
+`chain/scripts/harden.ts` reports current custody with no arguments and changes
+nothing without `--yes`.
+
+**Before a single real dollar is in escrow:**
+
+1. **`npx tsx scripts/harden.ts --freeze --yes`** — nothing in Mempire uses the
+   freeze authority. It exists only as a way to lock someone's balance, so
+   holding it is pure liability.
+2. **`npx tsx scripts/harden.ts --upgrade <SQUADS_MULTISIG> --yes`** — until
+   this runs, the key that operates the game can also replace the program
+   holding every escrow. A 2-of-3 is the minimum that means anything.
+3. **`npx tsx scripts/harden.ts --mint --yes`** — last, and deliberately so.
+   After it the supply is fixed forever, including against you.
+4. **Real prices.** `register_coin` lets the admin set price and liquidity, and
+   card power derives from staked USD — so on mainnet the admin can move any
+   card's power, and power gates matchmaking. Needs Pyth or Switchboard before
+   the number means anything.
+5. **A paid RPC.** The public devnet endpoint 429s under two concurrent test
+   suites; it will not survive players. Set `SOLANA_RPC` and the client's
+   cluster endpoint to a dedicated provider.
+6. **An audit.** The escrow program moves real SOL and nobody independent has
+   read it.
+7. **The remaining integrity gap** — see C9 in AUDIT.md. Theft on a disputed
+   match is fixed; a cheat can still force a refund and decline any loss. That
+   needs the result attested by something that watched the match.
+
+**Also not technical:** real-money wagering is regulated in most jurisdictions.
+That question comes before any of the above.

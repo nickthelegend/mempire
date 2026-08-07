@@ -331,12 +331,22 @@ async function main() {
     (await accounts.card.fetch(cardPda(deckA[0]))).lockedBy.equals(PublicKey.default)
     && (await accounts.card.fetch(cardPda(deckB[0]))).lockedBy.equals(PublicKey.default));
 
-  // Whatever happened, both seats should be roughly whole across the match:
-  // a refund returns both stakes, and only fees should be missing.
-  const aNet = (aPost - aStart) / LAMPORTS_PER_SOL;
-  const bNet = (bPost - bStart) / LAMPORTS_PER_SOL;
-  check('neither seat profited from the disagreement', Math.abs(aNet) < 0.02 && Math.abs(bNet) < 0.02,
-    `A ${aNet.toFixed(4)} SOL · B ${bNet.toFixed(4)} SOL`);
+  /*
+   * The pot is accounted for, measured at the settlement rather than across the
+   * whole run.
+   *
+   * This used to compare each wallet's balance from before the match to after
+   * it, which is only valid if nothing else touches those wallets — and seat A
+   * is the admin key, which funds things. A 2.5 SOL transfer to the faucet
+   * mid-run failed the check while the settlement itself was perfect. Balances
+   * either side of the one instruction under test cannot be fooled that way.
+   */
+  const returned = aGain + bGain;
+  const potSol = (stake * 2) / LAMPORTS_PER_SOL;
+  check('the whole pot went back to the two seats, and nowhere else',
+    Math.abs(returned - potSol) < 0.0005,
+    `${returned.toFixed(4)} of ${potSol.toFixed(4)} SOL returned · no rake taken`);
+  void aStart; void bStart;
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
