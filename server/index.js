@@ -210,6 +210,16 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
         },
       },
     );
+    // The funnel's fourth step. Emitted here rather than from the client
+    // because this route is the moment a match becomes a record — a browser
+    // that closes on the result screen would otherwise never report having
+    // played, and "played a match" would read zero while the leaderboard filled
+    // up behind it.
+    recordEvent(db, {
+      type: 'match.end',
+      address,
+      props: { won: !!won, draw: !!draw, staked: Number(potSol || 0) > 0 },
+    });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

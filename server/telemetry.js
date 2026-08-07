@@ -99,6 +99,15 @@ export function registerTelemetryRoutes(app, db, requireWallet) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const events = db.collection('events');
     const players = db.collection('players');
+    /**
+     * Match records live here, not on `players`.
+     *
+     * The totals below used to sum `players.matches`, a field nothing writes —
+     * so the dashboard reported 0 matches and no win rate however many were
+     * actually played, which reads as "nobody plays this" rather than "this
+     * number is wired to nothing".
+     */
+    const leaderboard = db.collection('leaderboard');
 
     try {
       const [byType, byDay, funnel, totals, topPlayers] = await Promise.all([
@@ -135,18 +144,27 @@ export function registerTelemetryRoutes(app, db, requireWallet) {
           { $project: { type: '$_id', wallets: { $size: '$wallets' }, _id: 0 } },
         ]).toArray(),
 
-        players.aggregate([
-          {
-            $group: {
-              _id: null,
-              players: { $sum: 1 },
-              matches: { $sum: '$matches' },
-              wins: { $sum: '$wins' },
+        Promise.all([
+          players.countDocuments({}),
+          leaderboard.aggregate([
+            {
+              $group: {
+                _id: null,
+                matches: { $sum: '$matches' },
+                wins: { $sum: '$wins' },
+              },
             },
-          },
-        ]).toArray(),
+          ]).toArray(),
+        ]).then(([playerCount, agg]) => [{
+          players: playerCount,
+          matches: agg[0]?.matches ?? 0,
+          wins: agg[0]?.wins ?? 0,
+        }]),
 
-        players.find({}, { projection: { name: 1, matches: 1, wins: 1, lastSeenAt: 1 } })
+        // Ranked by real match counts, which only the leaderboard has. Sorting
+        // `players` by a field nothing writes returned ten arbitrary rows all
+        // showing "0m · 0w" — a "most active" list where nobody is active.
+        leaderboard.find({}, { projection: { matches: 1, wins: 1, updatedAt: 1 } })
           .sort({ matches: -1 }).limit(10).toArray(),
       ]);
 
@@ -164,13 +182,18 @@ export function registerTelemetryRoutes(app, db, requireWallet) {
         byType,
         byDay,
         funnel,
-        topPlayers: topPlayers.map((p) => ({
-          address: p._id,
-          name: p.name ?? null,
-          matches: p.matches ?? 0,
-          wins: p.wins ?? 0,
-          lastSeenAt: p.lastSeenAt ?? null,
-        })),
+        // Only wallets that have actually played. A "most active" list padded
+        // out to ten with rows reading "0m · 0w" says the opposite of what it
+        // is for.
+        topPlayers: topPlayers
+          .filter((p) => (p.matches ?? 0) > 0)
+          .map((p) => ({
+            address: p._id,
+            name: null,
+            matches: p.matches ?? 0,
+            wins: p.wins ?? 0,
+            lastSeenAt: p.updatedAt ?? null,
+          })),
       });
     } catch (e) {
       res.status(500).json({ error: String(e?.message ?? e).slice(0, 200) });
