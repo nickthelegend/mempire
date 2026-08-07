@@ -33,6 +33,7 @@ import {
 } from '@solana/spl-token';
 import bs58 from 'bs58';
 import { requireWallet } from './auth.js';
+import { recordEvent } from './telemetry.js';
 
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com';
 
@@ -149,6 +150,12 @@ export function registerFaucetRoutes(app, db, coins) {
         await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
         signatures.push(signature);
       }
+
+      recordEvent(db, {
+        type: 'faucet.claim',
+        address,
+        props: { sol: DRIP_SOL, coins: starters.length },
+      });
 
       res.json({
         ok: true,

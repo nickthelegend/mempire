@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
 import { registerFaucetRoutes } from './faucet.js';
 import { registerPlayerRoutes } from './player.js';
-import { registerTelemetryRoutes } from './telemetry.js';
+import { recordEvent, registerTelemetryRoutes } from './telemetry.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -28,6 +28,15 @@ const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
 let players;
 let leaderboard;
 let ladder;
+/**
+ * The database handle, at module scope.
+ *
+ * Routes defined above the startup block still need it — `recordEvent` takes a
+ * `db`, and the player save is registered long before `client.connect()`
+ * resolves. Assigned once at startup; every route that uses it only runs after
+ * the server is listening, which is after that assignment.
+ */
+let db;
 
 const app = express();
 // Heroku terminates TLS at its router, so without this req.ip is the router
@@ -147,11 +156,19 @@ app.put('/api/player/:address', requireWallet('player.put'), async (req, res) =>
             }
             : null,
           updatedAt: now,
+          // The analytics window counts distinct wallets by these two fields,
+          // and this route — the one the client actually calls — never wrote
+          // them. So the dashboard reported 27 players, 0 new and 0 active,
+          // which is a chart that looks broken because it was reading a column
+          // nothing filled in.
+          lastSeenAt: now,
         },
-        $setOnInsert: { createdAt: now },
+        $setOnInsert: { createdAt: now, firstSeenAt: now },
       },
       { upsert: true },
     );
+
+    recordEvent(db, { type: 'player.save', address });
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -426,7 +443,7 @@ app.get('/api/leaderboard', async (_req, res) => {
 
 const server = await (async () => {
   await client.connect();
-  const db = client.db(MONGODB_DB);
+  db = client.db(MONGODB_DB);
   players = db.collection('players');
   leaderboard = db.collection('leaderboard');
   ladder = db.collection('ladder');

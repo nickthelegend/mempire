@@ -9,6 +9,7 @@ import {
   PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
 } from './pdas';
 import { fetchConfig } from './read';
+import { track } from '../lib/track';
 
 /**
  * Writes. Every one of these submits a real transaction and returns its
@@ -96,6 +97,7 @@ export async function mintCardTx(adapter: Adapter | null, mint: string): Promise
     } as any)
     .rpc();
 
+  track('card.mint', { count: 1, mint });
   return { signature };
 }
 
@@ -467,6 +469,7 @@ export async function mintDeckTx(
     onProgress?.(minted, mints.length);
   }
 
+  track('card.mint', { count: minted, batched: true });
   return { signatures, minted };
 }
 

@@ -4,13 +4,11 @@ import {
 } from './ClanCrest';
 import { Pill } from './ui';
 import { click, play } from '../lib/audio';
-import {
-  CLAN_CREATE_GEM_COST, REGIONS, useClan, type JoinMode,
-} from '../state/clan';
+import { REGIONS, useClan, type JoinMode } from '../state/clan';
 import { useDeck } from '../state/deck';
-import { useEconomy } from '../state/economy';
+import { ConfirmSpend } from './ConfirmSpend';
+import { PRICES } from '../chain/spend';
 import { useWallet } from '../state/wallet';
-import { TokenAmount } from './Token';
 
 /**
  * Found a clan.
@@ -26,8 +24,6 @@ import { TokenAmount } from './Token';
 export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
   const address = useWallet((s) => s.address);
   const power = useDeck((s) => s.power());
-  const gems = useEconomy((s) => s.gems);
-  const spendGems = useEconomy((s) => s.spendGems);
   const { create, busy } = useClan();
   const sheet = useRef<HTMLDivElement>(null);
 
@@ -38,15 +34,17 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
   const [requiredPower, setRequiredPower] = useState(0);
   const [crest, setCrest] = useState<Crest>({ shape: 0, emblem: 0, hue: 212, tone: 0 });
   const [error, setError] = useState<string | null>(null);
+  /** Set once the clan exists and only the charter payment is outstanding. */
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     sheet.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
+
+  return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const affordable = gems >= CLAN_CREATE_GEM_COST;
   const nameOk = name.trim().length >= 3;
 
   const cycle = (key: keyof Crest, mod: number, step = 1) => {
@@ -54,13 +52,18 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
     setCrest((c) => ({ ...c, [key]: (c[key] + step + mod) % mod }));
   };
 
+  /**
+   * Validate everything the server can reject *before* asking for money.
+   *
+   * A charter costs real $MEMPIRE. Discovering the name is taken after the
+   * tokens have moved is the one outcome this flow must never produce, so the
+   * clan is created first and the confirmation dialog only opens once the
+   * server has accepted it.
+   */
   const submit = async () => {
     if (!nameOk) { setError('name must be at least 3 characters'); return; }
-    if (!affordable) { setError(`need ${CLAN_CREATE_GEM_COST} Crowns`); return; }
     setError(null);
 
-    // Create first, charge second. If the name collides or the wallet is already
-    // in a clan, the player must not lose 500 Crowns to find that out.
     const err = await create(address, {
       name: name.trim(),
       description: description.trim(),
@@ -71,10 +74,30 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
       power,
     });
     if (err) { setError(err); play('error'); return; }
-    spendGems(CLAN_CREATE_GEM_COST);
-    play('reward');
-    onClose();
+    // The clan exists; now charge for the charter. If they cancel or cannot
+    // pay, the clan stands — a founder who backs out at the till is not a
+    // reason to destroy a record other people may already have joined.
+    setConfirming(true);
   };
+
+  /**
+   * Once the clan exists, this screen becomes the till.
+   *
+   * After every hook, so the hook order never changes between renders — the
+   * mistake that made this an early return inside a `useEffect` on the first
+   * attempt.
+   */
+  if (confirming) {
+    return (
+      <ConfirmSpend
+        kind="clanCharter"
+        title="Charter your clan"
+        detail={`${name.trim()} is founded. The charter fee goes to the treasury.`}
+        onCancel={() => { setConfirming(false); onClose(); }}
+        onDone={() => { play('reward'); setConfirming(false); onClose(); }}
+      />
+    );
+  }
 
   const field: React.CSSProperties = {
     width: '100%', minHeight: 44, padding: '0 12px', borderRadius: 9,
@@ -237,16 +260,17 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
 
         <Pill
           onClick={() => { void submit(); }}
-          disabled={busy || !nameOk || !affordable}
+          disabled={busy || !nameOk}
           style={{ fontSize: 18 }}
         >
           {busy
             ? 'Founding…'
-            : <>Found clan · <TokenAmount amount={CLAN_CREATE_GEM_COST} size={14} /></>}
+            : `Found clan · ${PRICES.clanCharter.toLocaleString()} $MEMPIRE`}
         </Pill>
 
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
-          You hold {gems} Crowns. Founding is cosmetic and social — it never buys power.
+          A charter costs {PRICES.clanCharter.toLocaleString()} $MEMPIRE, paid to the
+          treasury. Founding is cosmetic and social — it never buys power.
         </p>
       </div>
     </div>

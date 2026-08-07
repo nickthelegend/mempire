@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { buzz, click, play } from '../lib/audio';
 import {
-  CHESTS, CHEST_SLOTS, GEM_BUNDLES, skipCost, useEconomy,
+  CHESTS, CHEST_SLOTS, GEM_BUNDLES, useEconomy,
   type ChestSlot, type OpenedChest,
 } from '../state/economy';
 import { SwapPanel } from '../screens/Swap';
 import { Token } from './Token';
+import { ConfirmSpend } from './ConfirmSpend';
+import { PRICES } from '../chain/spend';
 
 /** One-second ticker, only while something is actually counting down. */
 function useTicker(active: boolean): void {
@@ -200,11 +202,13 @@ const ACTION = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 } as const;
 
-function Slot({ chest, onOpened }: {
+function Slot({ chest, onOpened, onSkipRequest }: {
   chest: ChestSlot | null;
   onOpened: (def: OpenedChest) => void;
+  /** Skipping costs $MEMPIRE, so it goes through a confirmation, not a tap. */
+  onSkipRequest: (chestId: string) => void;
 }) {
-  const { startUnlock, skipUnlock, collect, gems } = useEconomy();
+  const { startUnlock, collect } = useEconomy();
 
   if (!chest) {
     return (
@@ -239,7 +243,6 @@ function Slot({ chest, onOpened }: {
   const def = CHESTS[chest.tier];
   const remaining = chest.unlocking ? Math.max(0, chest.readyAt - Date.now()) : def.unlockMs;
   const ready = chest.unlocking && remaining === 0;
-  const cost = skipCost(remaining);
 
   return (
     <div
@@ -292,22 +295,21 @@ function Slot({ chest, onOpened }: {
         // Two deliberate lines. "12h 0m · 216 $MEMPIRE" on one line wraps at every
         // width the four-slot grid can produce, which used to burst the slot.
         <button
-          onClick={() => { click(); skipUnlock(chest.id); }}
-          disabled={gems < cost}
-          aria-label={`Skip ${fmtLeft(remaining)} for ${cost} Crowns`}
+          onClick={() => { click(); onSkipRequest(chest.id); }}
+          aria-label={`Skip ${fmtLeft(remaining)} — ${PRICES.chestSkip} $MEMPIRE`}
           className="btn-3d"
           style={{
             ...ACTION,
             flexDirection: 'column', gap: 0, lineHeight: 1.05,
             background: 'var(--recess)', border: '2px solid var(--ink)',
             boxShadow: 'var(--bevel-in)',
-            color: gems < cost ? 'var(--dim)' : 'var(--gold-hi)', fontWeight: 800,
-            opacity: gems < cost ? 0.6 : 1,
+            color: 'var(--gold-hi)', fontWeight: 800,
+            opacity: 1,
           }}
         >
           <span>{fmtLeft(remaining)}</span>
           <span style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-            {cost}<Token size={12} dim={gems < cost} />
+            {PRICES.chestSkip} $M
           </span>
         </button>
       ) : (
@@ -334,6 +336,8 @@ function Slot({ chest, onOpened }: {
 export function ChestRail() {
   const chests = useEconomy((s) => s.chests);
   const [opened, setOpened] = useState<OpenedChest | null>(null);
+  /** The chest whose timer the player has asked to skip, pending confirmation. */
+  const [skipping, setSkipping] = useState<string | null>(null);
   useTicker(chests.some((c) => c.unlocking && c.readyAt > Date.now()));
 
   const slots: (ChestSlot | null)[] = Array.from(
@@ -343,6 +347,19 @@ export function ChestRail() {
 
   return (
     <section aria-label="Chests">
+      {skipping !== null && (
+        <ConfirmSpend
+          kind="chestSkip"
+          title="Skip the wait"
+          detail="Opens this chest now instead of when its timer runs out."
+          onCancel={() => setSkipping(null)}
+          onDone={() => {
+            // The chain took the tokens; only now does the timer go.
+            useEconomy.getState().skipUnlock(skipping);
+            setSkipping(null);
+          }}
+        />
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
         <span className="label">Chests</span>
         <span className="label" style={{ fontSize: 12 }}>
@@ -351,7 +368,12 @@ export function ChestRail() {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0,1fr))', gap: 7 }}>
         {slots.map((c, i) => (
-          <Slot key={c?.id ?? `empty_${i}`} chest={c} onOpened={setOpened} />
+          <Slot
+            key={c?.id ?? `empty_${i}`}
+            chest={c}
+            onOpened={setOpened}
+            onSkipRequest={setSkipping}
+          />
         ))}
       </div>
       {opened && <OpenCeremony def={opened} onDone={() => setOpened(null)} />}

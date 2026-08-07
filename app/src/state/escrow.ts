@@ -10,6 +10,7 @@ import {
 import { IS_LOCALNET, LOCALNET_VALIDATOR } from '../chain/magicblock';
 import { readableChainError } from '../chain/actions';
 import { pvpSendChain } from '../lib/pvp';
+import { track } from '../lib/track';
 import { useChain } from './chain';
 
 /**
@@ -114,6 +115,7 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
         stakeLamports: Math.round(stakeSol * 1e9),
       });
       void useChain.getState().refresh();
+      track('match.staked', { seat: 0, stakeSol, tier });
       pvpSendChain({ stage: 'opened', onchainMatchId: matchId });
       return matchId;
     } catch (e) {
@@ -154,6 +156,7 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
         players: [m.players[0], m.players[1]] as [string, string],
       });
       void useChain.getState().refresh();
+      track('match.staked', { seat: 1, stakeSol: m.stakeLamports / 1e9 });
       pvpSendChain({ stage: 'joined', onchainMatchId: matchId });
       return true;
     } catch (e) {
@@ -245,6 +248,7 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
         adapter, matchId, [m.players[0], m.players[1]] as [string, string], deckCardIds,
       );
       set({ phase: 'settled', lastSignature: settleSig });
+      track('match.settled', { matchId, winnerSeat: winnerSeat });
       void useChain.getState().refresh();
     } catch (e) {
       set({ lastError: readableChainError(e) });

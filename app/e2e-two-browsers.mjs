@@ -80,13 +80,46 @@ async function fundIfNeeded(admin, target, label) {
   return conn.getBalance(pk);
 }
 
-/** Open a context whose guest identity is `kp`, signed in and past onboarding. */
-async function openSeat(browser, kp, label) {
+/**
+ * Open a context whose wallet is `kp`, signed in and past onboarding.
+ *
+ * `extraLatencyMs` emulates a worse connection for this seat through CDP. Two
+ * players are never on the same network — one is on fibre and the other on a
+ * phone — and a lockstep game either survives that asymmetry or it does not.
+ * Testing two clients on identical conditions tests the easy case and calls it
+ * done; this deliberately mismatches them.
+ */
+async function openSeat(browser, kp, label, extraLatencyMs = 0) {
   const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
   const page = await ctx.newPage();
 
-  // Plant the key before any app script runs, so the app's own first read of
-  // localStorage finds it and never generates one of its own.
+  if (extraLatencyMs > 0) {
+    const cdp = await ctx.newCDPSession(page);
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: extraLatencyMs,
+      // Generous throughput: the point is delay and jitter, not starving the
+      // client of bandwidth, which would be a different failure entirely.
+      downloadThroughput: 4 * 1024 * 1024 / 8,
+      uploadThroughput: 2 * 1024 * 1024 / 8,
+    });
+    console.log(`  seat ${label} is on a ${extraLatencyMs}ms-slower link`);
+  }
+
+  /**
+   * Plant a real signing wallet, not a guest.
+   *
+   * The app's guest identity *is* a real ed25519 keypair — the same class of
+   * key a browser extension holds — so seeding it is not a test-only shortcut
+   * around the wallet layer. What this does is skip the extension UI, which
+   * Playwright cannot drive and which is not the thing under test.
+   *
+   * The distinction that matters: every signature below is produced by this
+   * key over a real transaction, submitted to devnet, and verified on chain.
+   * Nothing is stubbed, and nothing takes a different code path because a test
+   * is running — `canSign` resolves this exactly as it resolves a wallet.
+   */
   await ctx.addInitScript((sk) => {
     localStorage.setItem('mempire_guest_sk', sk);
   }, bs58.encode(kp.secretKey));
@@ -278,7 +311,8 @@ async function main() {
   const browserA = await chromium.launch({ headless: !HEADED, args });
   const browserB = await chromium.launch({ headless: !HEADED, args });
   const A = await openSeat(browserA, kpA, 'A');
-  const B = await openSeat(browserB, kpB, 'B');
+  // Seat B on a materially worse connection than seat A.
+  const B = await openSeat(browserB, kpB, 'B', Number(process.env.SEAT_B_LATENCY ?? 200));
 
   // ── the app must show the real chain balance, not play money ────────────
   const shown = async (p) => p.evaluate(() => {
