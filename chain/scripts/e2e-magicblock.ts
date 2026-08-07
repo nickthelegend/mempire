@@ -113,7 +113,19 @@ async function main() {
     console.log(`  need 8 unlocked cards owned by admin, have ${mine.length} — run e2e-devnet.ts first`);
     process.exit(1);
   }
-  const deck = mine.slice(0, 8);
+  // One card per coin: the program rejects a deck with a repeated coin_mint,
+  // and this wallet has minted the same coin more than once across earlier runs.
+  const seenCoin = new Set<string>();
+  const deck = mine.filter((c: any) => {
+    const k = c.account.coinMint.toBase58();
+    if (seenCoin.has(k)) return false;
+    seenCoin.add(k);
+    return true;
+  }).slice(0, 8);
+  if (deck.length < 8) {
+    console.log(`  need 8 unlocked cards on distinct coins, have ${deck.length}`);
+    process.exit(1);
+  }
   const deckIds: number[] = deck.map((c: any) => Number(c.account.id));
   const deckMetas = deckIds.map((id) => ({ pubkey: cardPda(id), isWritable: true, isSigner: false }));
 
