@@ -67,3 +67,27 @@ Upgrade authority and (devnet) treasury: `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoT
 - Treasury multisig (ROADMAP #23), program security review (#24),
   geo-blocking + ToS (#50) — a rake on a wagered pot is real-money skill
   gaming in most jurisdictions.
+
+## Why the relay is one instance, and what it would take to change
+
+`matchmaker.js` holds its queues and live matches in process `Map`s, and a
+lockstep match relays every input through the single socket pair both clients
+are attached to. Adding a second region does not make that highly available —
+it makes two isolated queues, so two players who happen to land in different
+regions never see each other, and any match whose seats split across instances
+cannot relay at all.
+
+Scaling this out is a real piece of work, not a config change:
+
+1. A shared queue both instances read (Redis, or Mongo with a short poll —
+   pairing is not latency-critical, only the in-match relay is).
+2. Sticky routing per match, so once two seats are paired every message for
+   that match reaches the same instance. Either the pairing instance owns the
+   match and the other proxies to it, or clients are handed that instance's
+   address at `matched` and reconnect to it directly.
+3. A drain path, so a deploy does not cut live matches — the current rolling
+   restart ends every match in flight.
+
+Until then a single instance is the honest configuration, and the region is
+chosen for where players actually are. Moving it is a one-line change to
+`multiRegionConfig` above; running two is not.

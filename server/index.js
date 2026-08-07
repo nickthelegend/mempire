@@ -8,7 +8,7 @@
  */
 import cors from 'cors';
 import express from 'express';
-import { requireWallet } from './auth.js';
+import { requireWallet, setWalletLimiter } from './auth.js';
 import { MongoClient } from 'mongodb';
 import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
@@ -17,6 +17,7 @@ import { registerPlayerRoutes } from './player.js';
 import { recordEvent, registerTelemetryRoutes } from './telemetry.js';
 import { registerTvlRoutes } from './tvl.js';
 import { registerInsightRoutes } from './insights.js';
+import { errorRecorder, rateLimiter, registerOpsRoutes, walletLimiter } from './ops.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -50,35 +51,21 @@ app.set('trust proxy', 1);
 app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split(',') } : undefined));
 app.use(express.json({ limit: '256kb' }));
 
-/**
- * Token-bucket rate limit per IP on mutating routes. Hand-rolled because the
- * need is fifteen lines, not a dependency. 300 writes/min per IP: far above a
- * real player (the save loop is debounced to ~1/s at its busiest) and above
- * the ops scripts (seed-clans bursts ~200 writes), but a wall for a loop.
+/*
+ * Rate limiting lives in `ops.js` and is installed at startup, because it needs
+ * the database.
+ *
+ * It used to be a token bucket in a local Map. That is correct for exactly one
+ * instance: every replica keeps its own counter, so a limit of 80 becomes 80 ×
+ * replicas, and scaling out to absorb abuse loosens the limit in proportion to
+ * the abuse. A rolling deploy also reset every bucket.
+ *
+ * The delegating shim is here rather than the limiter itself because order
+ * matters: every route below is registered at module load, and middleware added
+ * later would sit behind all of them and never run. This holds the slot.
  */
-const RATE = { capacity: 80, refillPerSec: 5 };
-const buckets = new Map();
-setInterval(() => {
-  // drop buckets idle for 10+ minutes so the map cannot grow unbounded
-  const cutoff = Date.now() - 600_000;
-  for (const [k, b] of buckets) if (b.at < cutoff) buckets.delete(k);
-}, 120_000).unref();
-
-app.use((req, res, next) => {
-  if (req.method === 'GET' || req.method === 'OPTIONS') return next();
-  const key = req.ip ?? 'unknown';
-  const now = Date.now();
-  const b = buckets.get(key) ?? { tokens: RATE.capacity, at: now };
-  b.tokens = Math.min(RATE.capacity, b.tokens + ((now - b.at) / 1000) * RATE.refillPerSec);
-  b.at = now;
-  if (b.tokens < 1) {
-    buckets.set(key, b);
-    return res.status(429).json({ error: 'slow down' });
-  }
-  b.tokens -= 1;
-  buckets.set(key, b);
-  next();
-});
+let limit = null;
+app.use((req, res, next) => (limit ? limit(req, res, next) : next()));
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, Solana pubkey shape
 const badAddress = (a) => !a || !ADDRESS.test(a);
@@ -498,10 +485,19 @@ const server = await (async () => {
   // Value locked, read straight from chain — the one set of numbers on the
   // dashboard that no client reports and nothing here can inflate.
   registerInsightRoutes(app, db);
+  registerOpsRoutes(app, db);
   registerTvlRoutes(app, {
     programId: 'BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP',
     amm: JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')),
   });
+
+  // Now that there is a database, the shared limiter can take over from the
+  // pass-through installed at module load.
+  limit = rateLimiter(db);
+  setWalletLimiter(walletLimiter(db));
+  // Last, deliberately: Express only routes an error to a four-argument
+  // handler registered after everything that could throw.
+  app.use(errorRecorder(db).middleware);
 
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));

@@ -301,10 +301,27 @@ async function main() {
   const bGain = (bPost - bPre) / LAMPORTS_PER_SOL;
   const aGain = (aPost - aPre) / LAMPORTS_PER_SOL;
 
-  check('a seat that lied about the result cannot take the pot', !liarTookPot,
+  /*
+   * The exploit is taking the pot, not the instruction succeeding.
+   *
+   * The first version asserted `!liarTookPot` — that `claim_timeout` threw. It
+   * does not throw any more: it succeeds and refunds both seats, which is the
+   * fix. Asserting on whether a call errored rather than on where the money
+   * went would have failed a working program and passed a broken one that
+   * reverted for an unrelated reason.
+   *
+   * A pot grab pays roughly 2 × stake less rake. A refund pays exactly the
+   * stake back. Those are far enough apart that a threshold cannot confuse
+   * them.
+   */
+  const stakeSol = stake / LAMPORTS_PER_SOL;
+  check('the seat that lied got at most its own stake back, never the pot',
+    bGain <= stakeSol * 1.05,
     liarTookPot
-      ? `IT TOOK THE POT — seat B +${bGain.toFixed(4)} SOL, seat A ${aGain.toFixed(4)}`
-      : timeoutErr || 'refused');
+      ? `claim_timeout ran and paid seat B ${bGain.toFixed(4)} SOL against a ${stakeSol.toFixed(3)} stake`
+      : timeoutErr || 'refused outright');
+  check('the honest seat was made whole too', aGain >= stakeSol * 0.95,
+    `seat A +${aGain.toFixed(4)} SOL`);
 
   const mEnd: any = await accounts.matchAccount.fetch(match);
   check('the disputed match is settled as void, not paid to a seat',

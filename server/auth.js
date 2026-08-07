@@ -83,9 +83,23 @@ export function requireWallet(action) {
     const bad = verifySignature({ address, action, ts, signature });
     if (bad) return res.status(401).json({ error: `unauthorised: ${bad}` });
     req.wallet = address;
-    next();
+    // Per-wallet rate limiting, once the wallet is proven. Installed at startup
+    // via `setWalletLimiter`; absent in tests and before the database is up, in
+    // which case this is a pass-through.
+    if (walletLimit) return walletLimit(req, res, next);
+    return next();
   };
 }
+
+/**
+ * The per-wallet limiter, injected once there is a database to hold it.
+ *
+ * Kept here rather than composed at each route because every mutating route
+ * already goes through `requireWallet`, and a limit that has to be remembered
+ * at thirty call sites is a limit that will be missing from one of them.
+ */
+let walletLimit = null;
+export function setWalletLimiter(fn) { walletLimit = fn; }
 
 /**
  * The same check for a WebSocket message, where there is no Express request.
