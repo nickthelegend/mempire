@@ -266,7 +266,12 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
       // what makes this safe to expose as a button.
       const me = adapter?.publicKey?.toBase58();
       if (!me || !m.players.includes(me)) return 'nothing';
-      const { signature } = await claimTimeoutTx(adapter, matchId, me);
+      // The decks and the log go with it: settling unlocks both seats' cards,
+      // and the program reads the log to tell an abandoned match from a
+      // disputed one — where the honest outcome is a refund, not a payout.
+      const { signature } = await claimTimeoutTx(
+        adapter, matchId, me, m.players as [string, string], get().deckCardIds,
+      );
       set({ phase: 'settled', lastSignature: signature });
       void useChain.getState().refresh();
       return 'paid';

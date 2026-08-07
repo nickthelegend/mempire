@@ -272,9 +272,21 @@ export async function settleTx(
   return { signature };
 }
 
-/** Claim a stalled match's pot after the deadline. One signature, by design. */
+/**
+ * Claim a stalled match's pot after the deadline. One signature, by design.
+ *
+ * Takes the deck accounts because settling has to unlock them, and the match
+ * log because the program uses it to tell an abandoned match from a disputed
+ * one — a seat that lied about the result and then called this used to take the
+ * whole pot. The log PDA is seed-pinned on chain, so passing it is not a
+ * courtesy the caller can decline.
+ */
 export async function claimTimeoutTx(
-  adapter: Adapter | null, matchId: number, winnerAccount: string,
+  adapter: Adapter | null,
+  matchId: number,
+  winnerAccount: string,
+  players: [string, string],
+  deckCardIds: number[] = [],
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
   const program = getProgram(adapter);
@@ -289,7 +301,13 @@ export async function claimTimeoutTx(
       claimer: wallet.publicKey!,
       winnerAccount: new PublicKey(winnerAccount),
       treasury: new PublicKey(cfg.treasury),
+      playerA: new PublicKey(players[0]),
+      playerB: new PublicKey(players[1]),
+      matchLog: baseLogPda(matchId),
     } as any)
+    .remainingAccounts(deckCardIds.map((id) => ({
+      pubkey: cardPda(id), isWritable: true, isSigner: false,
+    })))
     .rpc();
   return { signature };
 }

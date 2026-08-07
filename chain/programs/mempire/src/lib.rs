@@ -622,6 +622,77 @@ pub mod mempire {
                 MempireError::BadMatchState
             );
             require!(now >= m.deadline, MempireError::TooEarly);
+
+            /*
+             * A timeout is for an opponent who left. A disagreement is not.
+             *
+             * `settle_from_log` refuses to pay a disputed result, which is
+             * right — but it left the match Active, and this instruction pays
+             * whichever player calls it. So after the deadline the two seats
+             * raced, and a client that lied about the winner and then called
+             * this first took the entire pot. Disagreement was not griefing,
+             * it was theft, and stalling beat playing honestly.
+             *
+             * The log says which happened. Both seats having spoken and
+             * contradicted each other is a dispute; anything else — nobody
+             * spoke, one seat spoke, no log exists, the log is still delegated
+             * — is the abandonment this instruction was written for.
+             *
+             * The account is pinned by seeds, so a caller cannot omit it or
+             * swap in an empty one to make a dispute look like an absence.
+             */
+            let log_info = ctx.accounts.match_log.to_account_info();
+            let disputed = if log_info.owner == &crate::ID && log_info.data_len() >= 8 {
+                let data = log_info.try_borrow_data()?;
+                MatchLog::try_deserialize(&mut &data[..])
+                    .map(|log: MatchLog| {
+                        log.match_id == m.id
+                            && log.claims[0] != 3
+                            && log.claims[1] != 3
+                            && log.claims[0] != log.claims[1]
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if disputed {
+                /*
+                 * Refund both, in full, and take no rake.
+                 *
+                 * One of these two is lying and the program cannot tell which,
+                 * so the only outcome that does not reward the liar is the one
+                 * that pays nobody. Rake is skipped deliberately: charging it
+                 * would take money from the honest seat to settle a dispute the
+                 * house could not resolve.
+                 *
+                 * A cheat can still force this — losing nothing but winning
+                 * nothing either. Turning that last gap into a loss needs the
+                 * result attested by something that watched the match, and is
+                 * tracked in AUDIT.md.
+                 */
+                let stake = m.stake_lamports;
+                let id = m.id;
+                let key = ctx.accounts.match_account.key();
+                let m_info = ctx.accounts.match_account.to_account_info();
+                **m_info.try_borrow_mut_lamports()? -= stake * 2;
+                **ctx.accounts.player_a.try_borrow_mut_lamports()? += stake;
+                **ctx.accounts.player_b.try_borrow_mut_lamports()? += stake;
+
+                unlock_deck(ctx.remaining_accounts, &key)?;
+
+                let m = &mut ctx.accounts.match_account;
+                m.state = MatchState::Settled as u8;
+                m.winner = 2;
+                emit!(MatchSettled {
+                    match_id: id,
+                    winner: 2,
+                    final_hash: 0,
+                    rake: 0,
+                });
+                return Ok(());
+            }
+
             // You may only claim a timeout for yourself.
             //
             // This used to accept any `winner_account` that was one of the two
@@ -1440,6 +1511,21 @@ pub struct ClaimTimeout<'info> {
     /// CHECK: validated against config.treasury
     #[account(mut, address = config.treasury)]
     pub treasury: UncheckedAccount<'info>,
+    /// CHECK: validated against match_account.players[0]
+    #[account(mut, address = match_account.players[0])]
+    pub player_a: UncheckedAccount<'info>,
+    /// CHECK: validated against match_account.players[1]
+    #[account(mut, address = match_account.players[1])]
+    pub player_b: UncheckedAccount<'info>,
+    /// CHECK: this match's log PDA, pinned by seeds so a caller cannot pass a
+    /// different account — or a blank one — to hide a disagreement. It may be
+    /// genuinely uninitialised (no log was ever created) or still delegated,
+    /// and the handler distinguishes those from a real dispute by ownership.
+    #[account(
+        seeds = [b"log", match_account.id.to_le_bytes().as_ref()],
+        bump,
+    )]
+    pub match_log: UncheckedAccount<'info>,
 }
 
 // ── Ephemeral Rollup contexts ────────────────────────────────────────────────

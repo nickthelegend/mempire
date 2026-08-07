@@ -108,3 +108,41 @@ Guest identity is now a real ed25519 keypair generated in the browser, so a
 guest can prove who they are exactly as a wallet can. Its secret key is stored
 unencrypted, which is appropriate for what it guards — a devnet ladder position
 and a clan tag — and must never be used for anything holding value.
+
+---
+
+## C9 — a disputed match was a race for the whole pot
+
+**CRITICAL. Found and fixed 7 Aug 2026.**
+
+`settle_from_log` refuses to pay when the two seats claim different winners,
+which is correct — one of them is lying and the program cannot tell which. But
+refusing left the match `Active`, and `claim_timeout` pays whichever player
+calls it. So after the deadline both seats were eligible and it became a race:
+
+> a client that reported the opposite winner, then called `claim_timeout` the
+> moment the deadline passed, took the entire pot.
+
+Stalling strictly dominated playing honestly, and the honest seat's only
+counter was to be faster. The in-code comment claimed a cheat could turn a loss
+into a refund but not a win — that was true of `settle_from_log` alone and not
+of the pair.
+
+**The fix.** `claim_timeout` now reads the match log, which is pinned by seeds
+so a caller cannot omit it or substitute a blank account to hide a
+disagreement. Both seats having spoken and contradicted each other is a
+*dispute*; anything else — nobody spoke, one seat spoke, no log, log still
+delegated — is the abandonment the instruction was written for. A dispute
+refunds both stakes in full and takes no rake, because charging it would take
+money from the honest seat to settle something the house could not resolve.
+
+Verified on devnet against match #49: claims `[0, 1]`, `claim_timeout` called
+by the seat that lied, result `state=Settled winner=2`, **both seats +0.0100
+SOL** — their own stake back, no pot — and all sixteen cards released.
+`scripts/e2e-integrity.ts` reproduces it from a fresh match.
+
+**Still open.** A cheat can force that refund and so decline any loss. It costs
+them nothing and gains them nothing, which is griefing rather than theft, but
+it is not honest play. Closing it needs the result attested by something that
+watched the match rather than derived from what the seats claim — the relay
+already sees every input from both clients and is the obvious referee.
