@@ -27,6 +27,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
+import { installInjectedWallet } from './injected-wallet.mjs';
 
 const URL = process.env.E2E_URL ?? 'https://play.mempire.fun';
 const RPC = process.env.BASE_RPC ?? 'https://api.devnet.solana.com';
@@ -56,6 +57,9 @@ function seatKeypair(label) {
   Buffer.from(`mempire-browser-e2e-${label}-v1`).copy(Buffer.from(seed.buffer));
   return nacl.sign.keyPair.fromSeed(seed);
 }
+
+/** Drive the seats through a Phantom-shaped provider instead of Guest. */
+const INJECTED = process.env.INJECTED === '1';
 
 const conn = new Connection(RPC, 'confirmed');
 
@@ -108,21 +112,28 @@ async function openSeat(browser, kp, label, extraLatencyMs = 0) {
   }
 
   /**
-   * Plant a real signing wallet, not a guest.
+   * Plant a real signing wallet.
    *
-   * The app's guest identity *is* a real ed25519 keypair — the same class of
-   * key a browser extension holds — so seeding it is not a test-only shortcut
-   * around the wallet layer. What this does is skip the extension UI, which
-   * Playwright cannot drive and which is not the thing under test.
+   * Two identities, both real, chosen by `INJECTED`:
    *
-   * The distinction that matters: every signature below is produced by this
-   * key over a real transaction, submitted to devnet, and verified on chain.
-   * Nothing is stubbed, and nothing takes a different code path because a test
-   * is running — `canSign` resolves this exactly as it resolves a wallet.
+   * - **Guest** (default) seeds `mempire_guest_sk`. The guest identity *is* a
+   *   real ed25519 keypair — the same class of key an extension holds — so this
+   *   is not a shortcut around the wallet layer, but it does enter through the
+   *   Guest branch rather than the adapter.
+   * - **Injected** plants a Phantom-shaped provider, so the app detects an
+   *   installed wallet and runs the whole wallet-adapter path. This is the code
+   *   an actual player's extension drives.
+   *
+   * Either way every signature below is produced by this key over a real
+   * transaction, submitted to devnet, and verified on chain afterwards.
    */
-  await ctx.addInitScript((sk) => {
-    localStorage.setItem('mempire_guest_sk', sk);
-  }, bs58.encode(kp.secretKey));
+  if (INJECTED) {
+    await installInjectedWallet(ctx, Keypair.fromSecretKey(kp.secretKey));
+  } else {
+    await ctx.addInitScript((sk) => {
+      localStorage.setItem('mempire_guest_sk', sk);
+    }, bs58.encode(kp.secretKey));
+  }
 
   page.on('pageerror', (e) => console.log(`  [${label}] uncaught: ${e.message}`));
   // The void reason only reaches console.warn, and it carries how late an
@@ -171,17 +182,21 @@ async function openSeat(browser, kp, label, extraLatencyMs = 0) {
 
   await page.goto(URL, { waitUntil: 'domcontentloaded' });
   await sleep(2500);
-  await page.evaluate(async () => {
+  // An injected wallet is connected eagerly by the app, so there is usually no
+  // gate left to click — but the tutorial still opens either way.
+  await page.evaluate(async (injected) => {
     const w = (ms) => new Promise((r) => setTimeout(r, ms));
-    const connect = [...document.querySelectorAll('button')].find((b) => /connect/i.test(b.textContent));
+    const btn = (re) => [...document.querySelectorAll('button')]
+      .find((b) => re.test(b.textContent ?? ''));
+    const connect = btn(/connect/i);
     if (connect) {
       connect.click();
       await w(700);
-      [...document.querySelectorAll('button')].find((b) => /guest/i.test(b.textContent))?.click();
+      btn(injected ? /phantom/i : /guest/i)?.click();
       await w(1600);
-      [...document.querySelectorAll('button')].find((b) => /^skip$/i.test(b.textContent.trim()))?.click();
     }
-  });
+    btn(/^\s*skip\s*$/i)?.click();
+  }, INJECTED);
   await sleep(2500);
   return { ctx, page, label };
 }
