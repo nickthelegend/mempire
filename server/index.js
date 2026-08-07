@@ -16,6 +16,7 @@ import { registerFaucetRoutes } from './faucet.js';
 import { registerPlayerRoutes } from './player.js';
 import { recordEvent, registerTelemetryRoutes } from './telemetry.js';
 import { registerTvlRoutes } from './tvl.js';
+import { registerInsightRoutes } from './insights.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -180,7 +181,9 @@ app.put('/api/player/:address', requireWallet('player.put'), async (req, res) =>
 app.post('/api/match/:address', requireWallet('match.post'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
-  const { won, draw, potSol, payoutSol, rakeSol, crowns, escrowed } = req.body ?? {};
+  const {
+    won, draw, potSol, payoutSol, rakeSol, crowns, escrowed, voided, hashes,
+  } = req.body ?? {};
   try {
     const now = new Date();
     await leaderboard.updateOne(
@@ -223,7 +226,23 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
     recordEvent(db, {
       type: 'match.end',
       address,
-      props: { won: !!won, draw: !!draw, staked: !!escrowed },
+      /**
+       * Enough to answer the operational questions without a second query.
+       *
+       * `voided` is the one that matters most: a lockstep game that silently
+       * annuls matches is failing in the way its players will notice first, and
+       * a rate nobody is watching is a rate nobody fixes. `hashes` is the
+       * checkpoint count, which stands in for how long the match ran.
+       */
+      props: {
+        won: !!won,
+        draw: !!draw,
+        staked: !!escrowed,
+        voided: !!voided,
+        potSol: Number(potSol) || 0,
+        rakeSol: Number(rakeSol) || 0,
+        hashes: Number(hashes) || 0,
+      },
     });
     res.json({ ok: true });
   } catch (e) {
@@ -478,6 +497,7 @@ const server = await (async () => {
   registerTelemetryRoutes(app, db, requireWallet);
   // Value locked, read straight from chain — the one set of numbers on the
   // dashboard that no client reports and nothing here can inflate.
+  registerInsightRoutes(app, db);
   registerTvlRoutes(app, {
     programId: 'BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP',
     amm: JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')),

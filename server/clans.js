@@ -154,7 +154,17 @@ export function registerClanRoutes(app, db) {
   app.get('/api/clans', async (req, res) => {
     await ready;
     const { q, region, maxRequiredPower, openOnly, hasRoom } = req.query;
-    const filter = {};
+    /**
+     * Never list a clan nobody is in.
+     *
+     * Leaving as the last member disbands a clan, so a zero-member document
+     * cannot arise from the app — only from seeding. Seven such shells from a
+     * since-deleted seeder sat at the top of this list for a week, each one a
+     * clan a player could find, open, and discover was nothing. Filtering here
+     * as well as deleting them means the next stray import cannot put them back
+     * in front of anyone.
+     */
+    const filter = { members: { $exists: true, $not: { $size: 0 } } };
 
     const term = clean(q, 24);
     if (term) {

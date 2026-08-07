@@ -291,6 +291,19 @@ console.log('\n=== a wallet that can pay ===');
       const spent = beforeClan - await mempireBalance(rich.publicKey);
       check(spent === PRICE.clanCharter * UNIT,
         'the charter cost exactly what it said', `${spent / UNIT} $MEMPIRE`);
+
+      // Dissolve it. Every run of this used to leave a clan behind, and five of
+      // them were sitting in the live browse list beside the real ones — a test
+      // that litters production is a test that makes the product look fake.
+      await page.evaluate(async () => {
+        const w = (ms) => new Promise((r) => setTimeout(r, ms));
+        const btn = (re) => [...document.querySelectorAll('button')]
+          .find((b) => re.test(b.textContent ?? ''));
+        btn(/disband|leave clan/i)?.click();
+        await w(900);
+        btn(/disband|confirm|yes/i)?.click();
+      });
+      await sleep(2500);
     }
   } else {
     check(false, 'the clan screen offers founding');

@@ -28,6 +28,7 @@
  * confidently wrong number.
  */
 import { Connection, PublicKey } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com';
 
@@ -49,6 +50,15 @@ const MATCH = {
 /** A match that has paid out. Its lamports are gone and must not be counted. */
 const MATCH_STATE_SETTLED = 2;
 
+/**
+ * Byte layout of `Config`. Only the treasury is needed.
+ *
+ * Read from chain rather than hardcoded because `set_treasury` can move it, and
+ * a revenue figure pointed at the wallet that *used* to collect is worse than
+ * no revenue figure.
+ */
+const CONFIG_TREASURY = 8 + 32;
+
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 /**
@@ -66,7 +76,13 @@ async function readTvl(programId, amm) {
   const conn = new Connection(RPC, 'confirmed');
   const program = new PublicKey(programId);
 
-  const [cards, matches, baseVault, quoteVault] = await Promise.all([
+  const configPda = PublicKey.findProgramAddressSync([Buffer.from('config')], program)[0];
+  const config = await conn.getAccountInfo(configPda).catch(() => null);
+  const treasury = config
+    ? new PublicKey(config.data.subarray(CONFIG_TREASURY, CONFIG_TREASURY + 32))
+    : null;
+
+  const [cards, matches, baseVault, quoteVault, treasuryTokens, treasurySol] = await Promise.all([
     conn.getProgramAccounts(program, {
       filters: [{ dataSize: CARD.SIZE }],
       dataSlice: { offset: CARD.STAKED_MICRO_USD, length: 8 },
@@ -74,6 +90,12 @@ async function readTvl(programId, amm) {
     conn.getProgramAccounts(program, { filters: [{ dataSize: MATCH.SIZE }] }),
     conn.getTokenAccountBalance(new PublicKey(amm.baseVault)).catch(() => null),
     conn.getTokenAccountBalance(new PublicKey(amm.quoteVault)).catch(() => null),
+    treasury
+      ? conn.getTokenAccountBalance(
+        getAssociatedTokenAddressSync(new PublicKey(amm.mempireMint), treasury, true),
+      ).catch(() => null)
+      : null,
+    treasury ? conn.getBalance(treasury).catch(() => null) : null,
   ]);
 
   // Card stake. The slice is exactly the one field, so this cannot drift onto
@@ -136,6 +158,22 @@ async function readTvl(programId, amm) {
       count: cards.length,
       stakedUsd,
     },
+    /**
+     * What the game has actually taken in.
+     *
+     * $MEMPIRE is unambiguous — every sink is a transfer into this account and
+     * nothing else pays into it. The SOL figure is the treasury's whole balance,
+     * which includes rake but also whatever it was funded with, so it is
+     * reported as a balance and labelled as one rather than dressed up as
+     * revenue.
+     */
+    treasury: treasury
+      ? {
+        address: treasury.toBase58(),
+        mempire: treasuryTokens ? Number(treasuryTokens.value.uiAmount ?? 0) : 0,
+        solBalance: treasurySol === null ? null : treasurySol / LAMPORTS_PER_SOL,
+      }
+      : null,
   };
 }
 
