@@ -1,6 +1,7 @@
 import './polyfills';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { signalReady } from './lib/native';
 import '@fontsource/lilita-one/400.css';
 import '@fontsource/hanken-grotesk/400.css';
 import '@fontsource/hanken-grotesk/500.css';
@@ -19,6 +20,11 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 );
+
+// The Android shell holds its splash over a black WebView until the game says
+// it has painted. A no-op in a browser; the shell also has its own timeout, so
+// this is the fast path rather than the only one.
+requestAnimationFrame(() => signalReady());
 
 // Dev-only console handle for the stores — lets a second tab be driven and
 // asserted against when testing PvP on one machine. Stripped from production

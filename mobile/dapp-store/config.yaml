@@ -1,0 +1,85 @@
+# Solana dApp Store listing.
+#
+# Publishing is three NFTs minted on mainnet-beta — a Publisher, an App, and a
+# Release — using `@solana-mobile/dapp-store-cli`. They are minted once and
+# referenced forever, so the addresses this produces belong in DEPLOY.md the
+# moment they exist.
+#
+#   npx dapp-store create publisher -k <PUBLISHER_KEYPAIR>
+#   npx dapp-store create app       -k <PUBLISHER_KEYPAIR>
+#   npx dapp-store create release   -k <PUBLISHER_KEYPAIR> -b <ANDROID_SDK_BUILD_TOOLS>
+#   npx dapp-store publish submit   -k <PUBLISHER_KEYPAIR> --requestor-is-authorized
+#
+# The APK referenced below must be the *signed release* build. Every future
+# release has to carry the same signing key — Android identifies an app by its
+# signature, so a lost keystore means a new listing and every install stranded.
+
+publisher:
+  name: Mempire
+  address: ""            # filled in by `dapp-store create publisher`
+  website: https://mempire.fun
+  email: niveshgajengi@gmail.com
+  media:
+    - purpose: icon
+      uri: ./assets/icon.png
+
+app:
+  name: Mempire
+  address: ""            # filled in by `dapp-store create app`
+  android_package: fun.mempire.app
+  urls:
+    license_url: https://mempire.fun/terms
+    copyright_url: https://mempire.fun
+    privacy_policy_url: https://mempire.fun/privacy
+    website: https://mempire.fun
+  media:
+    - purpose: icon
+      uri: ./assets/icon.png
+
+release:
+  address: ""            # filled in by `dapp-store create release`
+  media:
+    - purpose: icon
+      uri: ./assets/icon.png
+    # Screenshots are required and must be real captures of the running app,
+    # not renders. Take them from the device, not the emulator — the emulator
+    # software-renders WebGL and the arena looks nothing like it does on glass.
+    - purpose: screenshot
+      uri: ./assets/screenshots/arena.png
+    - purpose: screenshot
+      uri: ./assets/screenshots/cards.png
+    - purpose: screenshot
+      uri: ./assets/screenshots/battle.png
+  files:
+    - purpose: install
+      uri: ../android/app/build/outputs/apk/release/app-release.apk
+  catalog:
+    en-US:
+      name: Mempire
+      short_description: Battle with the meme coins you actually hold.
+      long_description: >
+        Mempire turns your bags into an army. Mint a card from any coin in your
+        wallet, stake tokens behind it to set its power, and take it into a
+        real-time three-minute duel for a SOL pot.
+
+        Matches run as a deterministic lockstep simulation on both phones at
+        twenty ticks a second, with the match log committed to a MagicBlock
+        ephemeral rollup and settled on Solana. Chest tiers come from an
+        on-chain VRF oracle, and the randomness that produced each one is
+        stored so anyone can re-derive it.
+
+        Devnet only. No real funds move.
+      new_in_version: First release.
+      saga_features: >
+        Connects through Mobile Wallet Adapter — no seed phrase, no extension.
+        Notifies you when a chest finishes even when the app is closed.
+      images: []
+
+solana_mobile_dapp_publisher_portal:
+  google_store_package: fun.mempire.app
+  testing_instructions: >
+    Tap Connect Wallet and choose Phantom, or Play as Guest to skip the wallet
+    entirely. Claim the starter bags on the Cards tab — this hands the wallet
+    0.35 devnet SOL and eight coins. Mint a deck from the Arena button, then
+    queue a Ranked match; the stake escrows on chain and the pot settles to the
+    winner. Everything is devnet and no real funds move.

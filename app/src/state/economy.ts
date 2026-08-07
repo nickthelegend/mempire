@@ -4,6 +4,7 @@ import {
   bytesToHex, deriveDrops, hexToBytes, localSeed, tierFromSeed,
 } from '../lib/chestDrop';
 import { useCollection } from './collection';
+import { forget, remind } from '../lib/native';
 
 /**
  * Gems and chests — the premium economy.
@@ -237,8 +238,28 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     }));
   },
 
-  startUnlock: (id) =>
-    set((s) => ({
+  startUnlock: (id) => {
+    /*
+     * Ask the Android shell to ring when this finishes.
+     *
+     * A chest is the one thing in this game worth interrupting someone for,
+     * and it is also the one thing a web page cannot tell them about — once
+     * the tab is backgrounded nothing in it runs. The reminder is tagged by
+     * chest id so opening early can withdraw it; a notification that fires
+     * for a chest already opened is worse than none.
+     */
+    const chest = get().chests.find((c) => c.id === id);
+    const busy = get().chests.some((c) => c.unlocking && c.readyAt > Date.now());
+    if (chest && !busy) {
+      const def = CHESTS[chest.tier];
+      remind(
+        `chest:${id}`,
+        `${def.name} is ready`,
+        `${def.cards} cards and ${def.gems} gems are waiting in your empire.`,
+        (def.unlockMs * DEMO_TIME_SCALE) / 1000,
+      );
+    }
+    return set((s) => ({
       // one at a time, like the games this borrows from
       chests: s.chests.some((c) => c.unlocking && c.readyAt > Date.now())
         ? s.chests
@@ -249,7 +270,8 @@ export const useEconomy = create<EconomyState>((set, get) => ({
             readyAt: Date.now() + CHESTS[c.tier].unlockMs * DEMO_TIME_SCALE,
           }
           : c)),
-    })),
+    }));
+  },
 
   /**
    * Open a chest now. The caller has already been charged.
@@ -265,6 +287,8 @@ export const useEconomy = create<EconomyState>((set, get) => ({
   skipUnlock: (id) => {
     const chest = get().chests.find((c) => c.id === id);
     if (!chest) return false;
+    // The chest is open now, so the reminder is no longer true.
+    forget(`chest:${id}`);
     set((s) => ({
       chests: s.chests.map((c) => (c.id === id ? { ...c, unlocking: true, readyAt: 0 } : c)),
     }));
@@ -274,6 +298,7 @@ export const useEconomy = create<EconomyState>((set, get) => ({
   collect: (id) => {
     const chest = get().chests.find((c) => c.id === id);
     if (!chest) return null;
+    forget(`chest:${id}`);
     const ready = chest.unlocking && chest.readyAt <= Date.now();
     if (!ready) return null;
     const def = CHESTS[chest.tier];

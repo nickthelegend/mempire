@@ -123,3 +123,59 @@ nothing without `--yes`.
 
 **Also not technical:** real-money wagering is regulated in most jurisdictions.
 That question comes before any of the above.
+
+## The Android app
+
+`mobile/` is an Expo app that wraps the deployed game. It is not a rewrite, on
+purpose: the arena is React Three Fiber over a deterministic fixed-point
+simulation, and a second native implementation of that simulation would desync
+against every web opponent — the one failure this architecture cannot absorb.
+
+What the shell adds that a browser cannot:
+
+- **Mobile Wallet Adapter.** Android has no wallet extension. Native code owns
+  MWA and injects a provider shaped like an extension's into the WebView, so the
+  game's existing wallet layer reaches Phantom and Solflare untouched. Verified
+  in the emulator: the picker shows `PHANTOM — Detected — READY`.
+- **Notifications with the game's own chime**, scheduled when a chest starts
+  unlocking and withdrawn if it is opened early.
+- Adaptive icon, splash, deep links for `play.mempire.fun`, and hardware back
+  that navigates the game rather than exiting.
+
+### Building the APK
+
+```
+cd mobile
+npx expo prebuild --platform android --clean
+cd android && ./gradlew assembleRelease
+```
+
+Output: `mobile/android/app/build/outputs/apk/release/app-release.apk` (74 MB,
+universal — arm64-v8a, armeabi-v7a, x86, x86_64).
+
+`prebuild --clean` regenerates `android/`, which **discards the release signing
+config** in `app/build.gradle`. Re-apply it after every clean prebuild.
+
+### The signing key
+
+`mobile/keys/mempire-release.keystore`, gitignored.
+SHA-256 `88:6A:36:AC:0A:D1:58:B4:…:40:A0:E8:CD`.
+
+**Back this up somewhere you will still have it in a year.** Android identifies
+an app by its signature, not its package name — lose this and no future build
+can update an existing install, on the dApp Store or off it. Passwords are
+overridable via `MEMPIRE_KEYSTORE`, `MEMPIRE_KEYSTORE_PASSWORD`,
+`MEMPIRE_KEY_ALIAS`, `MEMPIRE_KEY_PASSWORD`.
+
+### Serving the download
+
+Copy the APK to `mempire-landing/public/mempire.apk` and deploy the landing
+page. It is gitignored — 74 MB of build output is not version control's job.
+
+### The dApp Store
+
+`mobile/dapp-store/config.yaml` carries the listing. Publishing mints three
+NFTs on mainnet-beta (publisher, app, release) via `@solana-mobile/dapp-store-cli`;
+the addresses belong here once they exist. Screenshots must be real captures
+from a device — the emulator software-renders WebGL and the arena does not look
+like itself there.
