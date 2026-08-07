@@ -30,9 +30,12 @@ ENV NODE_ENV=production
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node *.js ./
-# The seeded coin registry the faucet hands out from. Not code, so it is not
-# caught by the *.js copy above, and the server refuses to start without it.
-COPY --chown=node:node devnet-coins.json ./
+# The seeded coin registry the faucet hands out from, and the deployed AMM
+# addresses the TVL reader prices the pool against. Neither is code, so neither
+# is caught by the *.js copy above, and the server refuses to start without
+# them — a data file added beside a new module is the easy half of the change
+# to forget.
+COPY --chown=node:node devnet-coins.json amm.json ./
 
 # `wget` is in busybox already, so the healthcheck costs no extra layer.
 # Mongo may take a moment on cold start, hence the generous start period.

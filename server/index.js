@@ -15,6 +15,7 @@ import { registerClanRoutes } from './clans.js';
 import { registerFaucetRoutes } from './faucet.js';
 import { registerPlayerRoutes } from './player.js';
 import { recordEvent, registerTelemetryRoutes } from './telemetry.js';
+import { registerTvlRoutes } from './tvl.js';
 import { applyMatch, leagueFor } from './ranking.js';
 import { registerMatchmaker } from './matchmaker.js';
 
@@ -475,6 +476,12 @@ const server = await (async () => {
   registerFaucetRoutes(app, db, devnetCoins);
   registerPlayerRoutes(app, db);
   registerTelemetryRoutes(app, db, requireWallet);
+  // Value locked, read straight from chain — the one set of numbers on the
+  // dashboard that no client reports and nothing here can inflate.
+  registerTvlRoutes(app, {
+    programId: 'BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP',
+    amm: JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')),
+  });
 
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));

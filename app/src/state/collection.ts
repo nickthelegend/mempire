@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { COINS, coinByMint } from '../lib/coins';
 import { levelForUsd } from '../lib/leveling';
 import { archetypeForMint } from '../sim/archetypes';
+import { useChain } from './chain';
 import type { Archetype } from '../sim/types';
 
 export const FEES = {
@@ -81,10 +82,24 @@ export const useCollection = create<CollectionState>((set, get) => ({
     get().cards.filter((c) => c.mint === mint)
       .reduce((sum, c) => sum + c.stakedUsd + (c.pendingUnstakeUsd ?? 0), 0),
 
+  /**
+   * What is left to stake against this coin, in USD.
+   *
+   * Reads the wallet's real SPL balance whenever the session is onchain, and
+   * only falls back to the simulated holding in guest/offline mode. The Cards
+   * list already made that distinction; this did not, so a connected player
+   * could be offered a stake sized against a balance the chain says they do
+   * not have — and "you can only stake tokens you actually hold" is the whole
+   * premise of the game.
+   */
   availableUsdFor: (mint) => {
     const coin = coinByMint(mint);
     if (!coin) return 0;
-    return Math.max(0, coin.balance * coin.priceUsd - get().stakedUsdFor(mint));
+    const chain = useChain.getState();
+    const held = chain.mode === 'onchain'
+      ? (chain.balances.get(mint) ?? 0)
+      : coin.balance;
+    return Math.max(0, held * coin.priceUsd - get().stakedUsdFor(mint));
   },
 
   stake: (cardId, usd) => {

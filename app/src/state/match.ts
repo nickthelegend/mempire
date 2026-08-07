@@ -263,7 +263,21 @@ function clearTimers(): void {
   if (loop) { clearInterval(loop); loop = null; }
 }
 
-const BOT_NAMES = ['xX_RugLord_Xx', 'ser_liquidator', 'wagmi_warlord', 'chad.sol'];
+/**
+ * Names for the AI opponents, one per tier.
+ *
+ * Each carries a suffix saying what it is. They read like handles because the
+ * fiction wants them to, and a handle that reads like a person sitting at
+ * another keyboard is a claim about who you are playing — the one thing a game
+ * with real stakes in it should never be vague about. The tag costs four
+ * characters and removes the question.
+ */
+const BOT_NAMES = [
+  'xX_RugLord_Xx (AI)',
+  'ser_liquidator (AI)',
+  'wagmi_warlord (AI)',
+  'chad.sol (AI)',
+];
 
 /**
  * How long the queue waits for a human before the bot steps in.
