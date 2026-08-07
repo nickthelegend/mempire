@@ -144,6 +144,28 @@ const richBefore = await mempireBalance(rich.publicKey);
 console.log(`  poor holds ${await mempireBalance(poor.publicKey) / UNIT} $MEMPIRE`);
 console.log(`  rich holds ${richBefore / UNIT} $MEMPIRE`);
 
+
+/**
+ * Give the leftovers back.
+ *
+ * Every run mints a throwaway wallet, and until this existed each one kept
+ * whatever it had not spent — devnet SOL is finite and rate-limited, so a
+ * harness that leaks a little on every invocation eventually stops the faucet
+ * working for real players. Returns everything above the fee for the return
+ * transfer itself.
+ */
+async function refund(kp) {
+  const balance = await conn.getBalance(kp.publicKey);
+  const keep = 5000; // the signature on this very transaction
+  if (balance <= keep) return 0;
+  const tx = new Transaction().add(SystemProgram.transfer({
+    fromPubkey: kp.publicKey, toPubkey: bank.publicKey, lamports: balance - keep,
+  }));
+  await sendAndConfirmTransaction(conn, tx, [kp], { commitment: 'confirmed' })
+    .catch(() => { /* dust; not worth failing a green run over */ });
+  return (balance - keep) / LAMPORTS_PER_SOL;
+}
+
 const browser = await chromium.launch();
 
 // ---------------------------------------------------------------- broke wallet
@@ -251,6 +273,8 @@ console.log('\n=== a wallet that can pay ===');
 }
 
 await browser.close();
+
+console.log(`\nreturned ${((await refund(poor)) + (await refund(rich))).toFixed(4)} SOL to the bank`);
 
 const failed = results.filter((r) => !r.ok).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

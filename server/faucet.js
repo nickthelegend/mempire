@@ -87,6 +87,24 @@ export function registerFaucetRoutes(app, db, coins) {
       return res.status(400).json({ error: 'not a valid address' });
     }
 
+    /**
+     * Refuse before recording anything if the faucet cannot pay.
+     *
+     * The claim below is written *before* the transaction is sent and is
+     * one-per-address-forever, which is the right trade against double-spending
+     * a faucet — but it means a dry faucet permanently burns every address that
+     * touches it, and they stay burned after a top-up. Checking the balance
+     * first turns that into a message someone can act on.
+     */
+    const funds = await conn.getBalance(kp.publicKey).catch(() => 0);
+    if (funds < DRIP_SOL * LAMPORTS_PER_SOL + 20_000_000) {
+      return res.status(503).json({
+        error: 'the devnet faucet is empty — nothing was claimed, try again later',
+        balanceSol: funds / LAMPORTS_PER_SOL,
+        needSol: DRIP_SOL,
+      });
+    }
+
     // One claim per address, ever. Checked before anything is signed, and
     // written before the transaction is sent — a double-spend of the faucet is
     // worse than a claim that failed after being recorded, because the player
