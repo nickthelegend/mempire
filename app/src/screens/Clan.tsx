@@ -3,8 +3,9 @@ import { ClanCreateSheet } from '../components/ClanCreate';
 import { ClanCrest } from '../components/ClanCrest';
 import { ClanRow, CrownCount, LendRequest, MemberCount, MemberRow } from '../components/ClanBits';
 import { ClanSheet } from '../components/ClanSheet';
+import { ConfirmSpend } from './../components/ConfirmSpend';
 import { ArchetypeIcon, Pill, Spinner } from '../components/ui';
-import { click } from '../lib/audio';
+import { click, play } from '../lib/audio';
 import { ARCHETYPES } from '../sim/archetypes';
 import { ARCHETYPE_NAMES, type Archetype } from '../sim/types';
 import { useClan, type ClanSummary } from '../state/clan';
@@ -22,7 +23,7 @@ import { Token, TokenAmount } from '../components/Token';
  */
 
 // ── browse ─────────────────────────────────────────────────────────────────
-function Browse() {
+function Browse({ onFounded }: { onFounded: (name: string) => void }) {
   const address = useWallet((s) => s.address);
   const power = useDeck((s) => s.power());
   const gems = useEconomy((s) => s.gems);
@@ -195,7 +196,12 @@ function Browse() {
       </p>
 
       <ClanSheet onJoin={doJoin} />
-      {creating && <ClanCreateSheet onClose={() => setCreating(false)} />}
+      {creating && (
+        <ClanCreateSheet
+          onClose={() => setCreating(false)}
+          onFounded={(name) => { setCreating(false); onFounded(name); }}
+        />
+      )}
     </div>
   );
 }
@@ -421,7 +427,15 @@ export function Clan() {
   const connected = useWallet((s) => s.connected);
   const address = useWallet((s) => s.address);
   const openPicker = useWallet((s) => s.openPicker);
-  const { mine, loadMine, clear } = useClan();
+  const { mine, loadMine, clear, leave } = useClan();
+  /**
+   * The clan just founded whose charter has not been paid yet.
+   *
+   * Held here, above the `mine ? Home : Browse` switch, because founding flips
+   * that switch — a till rendered inside Browse is unmounted by the very event
+   * that should open it, and the charter silently costs nothing.
+   */
+  const [charterFor, setCharterFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (connected && address) void loadMine(address);
@@ -467,7 +481,24 @@ export function Clan() {
         />
       </header>
 
-      {mine ? <Home /> : <Browse />}
+      {charterFor !== null && (
+        <ConfirmSpend
+          kind="clanCharter"
+          title="Charter your clan"
+          detail={`${charterFor} is founded. The charter fee goes to the treasury — cancel and the clan is dissolved again.`}
+          onCancel={() => {
+            // A real undo: the founder is the only member, and leaving as the
+            // last member disbands the clan server-side. Without this, founding
+            // and walking away is free, and a price anyone can decline is not
+            // a price.
+            void leave(address);
+            setCharterFor(null);
+          }}
+          onDone={() => { play('reward'); setCharterFor(null); }}
+        />
+      )}
+
+      {mine ? <Home /> : <Browse onFounded={setCharterFor} />}
     </div>
   );
 }

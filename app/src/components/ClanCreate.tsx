@@ -6,9 +6,8 @@ import { Pill } from './ui';
 import { click, play } from '../lib/audio';
 import { REGIONS, useClan, type JoinMode } from '../state/clan';
 import { useDeck } from '../state/deck';
-import { ConfirmSpend } from './ConfirmSpend';
-import { PRICES } from '../chain/spend';
-import { useWallet } from '../state/wallet';
+import { PRICES, checkSpend } from '../chain/spend';
+import { signer, useWallet } from '../state/wallet';
 
 /**
  * Found a clan.
@@ -17,11 +16,27 @@ import { useWallet } from '../state/wallet';
  * it can be previewed live at full size while you pick it, with no upload, no
  * crop step and no moderation queue. Cycling a facet is one tap.
  *
- * Creation costs gems, which is the honest monetisation here — it is a cosmetic
- * and social privilege, never power. The Crowns are only spent once the server has
- * confirmed the clan exists, so a failed create cannot charge you.
+ * Founding costs $MEMPIRE, which is the honest monetisation here — it buys a
+ * cosmetic and social privilege, never power.
+ *
+ * The order of operations is the whole design. Affordability is checked before
+ * anything is created, the clan is created before anyone is charged, and a
+ * founder who does not complete the payment loses the clan again. Each of those
+ * closes a different hole: charging for a name the server then rejects, and
+ * founding for free by walking away from the till.
  */
-export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
+export function ClanCreateSheet({ onClose, onFounded }: {
+  onClose: () => void;
+  /**
+   * The server accepted the clan; collect the charter fee.
+   *
+   * Handed upward rather than rendered here because founding flips the Clan
+   * screen from "browse" to "your clan", which unmounts this sheet. A till
+   * that lives inside the thing being replaced never opens — which is exactly
+   * how the charter silently became free.
+   */
+  onFounded: (name: string) => void;
+}) {
   const address = useWallet((s) => s.address);
   const power = useDeck((s) => s.power());
   const { create, busy } = useClan();
@@ -34,8 +49,6 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
   const [requiredPower, setRequiredPower] = useState(0);
   const [crest, setCrest] = useState<Crest>({ shape: 0, emblem: 0, hue: 212, tone: 0 });
   const [error, setError] = useState<string | null>(null);
-  /** Set once the clan exists and only the charter payment is outstanding. */
-  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -64,6 +77,12 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
     if (!nameOk) { setError('name must be at least 3 characters'); return; }
     setError(null);
 
+    // Ask about money before creating anything. A founder who cannot pay should
+    // be told so while the sheet is still theirs to edit, not after a clan
+    // exists in their name that they are about to lose again.
+    const afford = await checkSpend(signer(), 'clanCharter', address);
+    if (!afford.affordable) { setError(afford.blocker); play('error'); return; }
+
     const err = await create(address, {
       name: name.trim(),
       description: description.trim(),
@@ -74,30 +93,9 @@ export function ClanCreateSheet({ onClose }: { onClose: () => void }) {
       power,
     });
     if (err) { setError(err); play('error'); return; }
-    // The clan exists; now charge for the charter. If they cancel or cannot
-    // pay, the clan stands — a founder who backs out at the till is not a
-    // reason to destroy a record other people may already have joined.
-    setConfirming(true);
+    // The clan exists; the screen above now charges for the charter.
+    onFounded(name.trim());
   };
-
-  /**
-   * Once the clan exists, this screen becomes the till.
-   *
-   * After every hook, so the hook order never changes between renders — the
-   * mistake that made this an early return inside a `useEffect` on the first
-   * attempt.
-   */
-  if (confirming) {
-    return (
-      <ConfirmSpend
-        kind="clanCharter"
-        title="Charter your clan"
-        detail={`${name.trim()} is founded. The charter fee goes to the treasury.`}
-        onCancel={() => { setConfirming(false); onClose(); }}
-        onDone={() => { play('reward'); setConfirming(false); onClose(); }}
-      />
-    );
-  }
 
   const field: React.CSSProperties = {
     width: '100%', minHeight: 44, padding: '0 12px', borderRadius: 9,

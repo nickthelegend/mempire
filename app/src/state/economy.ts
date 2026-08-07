@@ -130,6 +130,16 @@ interface EconomyState {
    * rule the program uses, so one recorded input explains the whole chest.
    */
   awardChest: () => ChestTier | null;
+  /**
+   * Puts a chest of a stated tier in a free slot, having been paid for.
+   *
+   * Separate from `awardChest` because a bought chest is not a roll. What the
+   * confirmation dialog names is what lands: paying a fixed price for a random
+   * tier would make that dialog a claim about value it cannot keep. The seed
+   * still decides the *contents* — the purchase buys a golden chest, not a
+   * particular set of cards out of it.
+   */
+  buyChest: (tier: ChestTier) => void;
   startUnlock: (id: string) => void;
   skipUnlock: (id: string) => boolean;
   collect: (id: string) => OpenedChest | null;
@@ -205,6 +215,26 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       nextChestId: s.nextChestId + 1,
     }));
     return tier;
+  },
+
+  buyChest: (tier) => {
+    // Deliberately not capped at CHEST_SLOTS. A win can land a chest during the
+    // few seconds a purchase spends being signed, and the alternative is taking
+    // someone's tokens and handing them nothing — the one outcome a paid flow
+    // must never produce. Paid-for goods always land; the rail grows a slot to
+    // show it. `awardChest` still respects the cap, because a *won* chest that
+    // has nowhere to go is only a missed reward.
+    const seed = localSeed();
+    set((s) => ({
+      chests: [...s.chests, {
+        id: `chest_${s.nextChestId}`, tier, readyAt: 0, unlocking: false,
+        // `local`, not `vrf` — the tier was bought rather than rolled, so the
+        // provably-fair badge would be claiming something about this chest
+        // that is not true of it. The contents still derive from the seed.
+        source: 'local', seed: bytesToHex(seed),
+      }],
+      nextChestId: s.nextChestId + 1,
+    }));
   },
 
   startUnlock: (id) =>

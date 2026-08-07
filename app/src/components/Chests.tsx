@@ -202,23 +202,26 @@ const ACTION = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
 } as const;
 
-function Slot({ chest, onOpened, onSkipRequest }: {
+function Slot({ chest, onOpened, onSkipRequest, onBuyRequest }: {
   chest: ChestSlot | null;
   onOpened: (def: OpenedChest) => void;
   /** Skipping costs $MEMPIRE, so it goes through a confirmation, not a tap. */
   onSkipRequest: (chestId: string) => void;
+  /** The slot is empty and the player wants to buy one for it. */
+  onBuyRequest: () => void;
 }) {
   const { startUnlock, collect } = useEconomy();
 
   if (!chest) {
     return (
-      <div
-        role="img"
-        aria-label="Empty chest slot — win a battle to earn one"
+      <button
+        onClick={() => { click(); onBuyRequest(); }}
+        aria-label={`Empty chest slot — win a battle, or buy a golden chest for ${PRICES.chestBuy} $MEMPIRE`}
         className="well"
         style={{
           aspectRatio: SLOT_RATIO, display: 'flex', alignItems: 'center',
           justifyContent: 'center', flexDirection: 'column', gap: 4, padding: 5,
+          cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'center',
         }}
       >
         {/* a dark keyhole, not a blank box — the slot shows what it is for */}
@@ -233,10 +236,16 @@ function Slot({ chest, onOpened, onSkipRequest }: {
         >
           🎁
         </span>
-        <span className="label" style={{ fontSize: 12, textAlign: 'center', lineHeight: 1.15 }}>
-          win a<br />battle
+        {/* Two truths, both of them offers: the slot is earned by winning, and
+            it can also be bought. Showing only "win a battle" hid the fact that
+            $MEMPIRE buys one, which is the token's whole reason to exist. */}
+        <span className="label" style={{ fontSize: 11, lineHeight: 1.1 }}>
+          win a battle
         </span>
-      </div>
+        <span style={{ fontSize: 11, lineHeight: 1, color: 'var(--gold-hi)', fontWeight: 800 }}>
+          or {PRICES.chestBuy} $M
+        </span>
+      </button>
     );
   }
 
@@ -338,10 +347,14 @@ export function ChestRail() {
   const [opened, setOpened] = useState<OpenedChest | null>(null);
   /** The chest whose timer the player has asked to skip, pending confirmation. */
   const [skipping, setSkipping] = useState<string | null>(null);
+  /** The player has asked to buy a chest for an empty slot, pending payment. */
+  const [buying, setBuying] = useState(false);
   useTicker(chests.some((c) => c.unlocking && c.readyAt > Date.now()));
 
+  // Normally four. Grows only when a bought chest pushed past the cap, so the
+  // thing someone paid for is never invisible.
   const slots: (ChestSlot | null)[] = Array.from(
-    { length: CHEST_SLOTS },
+    { length: Math.max(CHEST_SLOTS, chests.length) },
     (_, i) => chests[i] ?? null,
   );
 
@@ -373,9 +386,22 @@ export function ChestRail() {
             chest={c}
             onOpened={setOpened}
             onSkipRequest={setSkipping}
+            onBuyRequest={() => setBuying(true)}
           />
         ))}
       </div>
+      {buying && (
+        <ConfirmSpend
+          kind="chestBuy"
+          title="Buy a golden chest"
+          detail={`A ${CHESTS.golden.name} straight into a free slot — ${CHESTS.golden.cards} cards and ${CHESTS.golden.gems} gems, no battle needed.`}
+          onCancel={() => setBuying(false)}
+          onDone={() => {
+            useEconomy.getState().buyChest('golden');
+            setBuying(false);
+          }}
+        />
+      )}
       {opened && <OpenCeremony def={opened} onDone={() => setOpened(null)} />}
     </section>
   );
