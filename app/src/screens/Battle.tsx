@@ -13,6 +13,7 @@ import { FP, fp } from '../sim/fixed';
 import { BattleScene, clampDrop, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
 import type { MatchCard } from '../sim/types';
 import { CHESTS } from '../state/economy';
+import { useEscrow } from '../state/escrow';
 import { useMatch } from '../state/match';
 
 function GoldBurst() {
@@ -41,8 +42,20 @@ function GoldBurst() {
 
 function ResultOverlay() {
   const { result, stakeSol, dismiss, practice } = useMatch();
+  const escrowPhase = useEscrow((s) => s.phase);
   const nav = useNavigate();
   if (!result) return null;
+  /**
+   * Did any lamport actually move for this match.
+   *
+   * The card below counts a pot up in gold whether or not one exists. A guest,
+   * an un-minted deck, or a wallet too thin to cover the stake all leave
+   * `phase: 'failed'` and `wallet.receive()` a no-op — and the result screen is
+   * the one a judge screenshots. The Arena warns beforehand and the HUD carries
+   * a badge, neither of which is on this card.
+   */
+  const escrowed = ['waiting', 'live', 'claiming', 'claimed', 'settled', 'refunded']
+    .includes(escrowPhase);
   const title = result.voided ? 'Voided' : result.draw ? 'Split' : result.won ? 'Pot Secured' : 'Rekt';
   const color = result.draw ? 'var(--dim)' : result.won ? 'var(--gold)' : 'var(--red)';
   return (
@@ -100,6 +113,16 @@ function ResultOverlay() {
             ? { to: result.payoutSol, prefix: '+', delayMs: 700 }
             : { to: stakeSol, prefix: '−', delayMs: 700 }}
         />
+        {!escrowed && (
+          <p
+            className="fine"
+            style={{ fontSize: 12, color: 'var(--dim)', margin: '8px 0 0', lineHeight: 1.35 }}
+          >
+            Nothing was escrowed for this match, so no SOL changed hands — the
+            figures above are what the pot would have been. This one counted for
+            rating only.
+          </p>
+        )}
         </>
         )}
       </div>

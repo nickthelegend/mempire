@@ -458,6 +458,8 @@ export function Cards() {
   const connected = useWallet((s) => s.connected);
   const openPicker = useWallet((s) => s.openPicker);
   const gems = useEconomy((s) => s.gems);
+  /** What actually exists on chain, so the header can stop guessing. */
+  const chainCards = useChain((s) => s.cards);
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [stakeCard, setStakeCard] = useState<string | null>(null);
   const [gemShop, setGemShop] = useState(false);
@@ -497,8 +499,14 @@ export function Cards() {
       <header style={{ display: 'flex', alignItems: 'flex-end', gap: 10 }}>
         <div>
           <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
+          {/* "8 minted · $487 staked" was the same sentence whether or not a
+              single card existed on chain — a new player's starter deck is
+              local until they mint it, and both of those words are claims. The
+              count says onchain only when `chainCards` backs it. */}
           <p className="fine">
-            {cards.length} minted · <span className="money" style={{ fontSize: 14 }}>{fmtUsd(totalStaked)}</span> staked
+            {chainCards.length > 0
+              ? <>{chainCards.length} minted onchain · <span className="money" style={{ fontSize: 14 }}>{fmtUsd(totalStaked)}</span> staked</>
+              : <>{cards.length} cards · not minted onchain yet</>}
           </p>
         </div>
         <button

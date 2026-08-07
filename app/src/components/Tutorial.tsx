@@ -33,7 +33,7 @@ const STEPS: TutorialStep[] = [
   {
     anchor: 'tier',
     title: 'Pick your stakes',
-    body: 'Each tier stakes real SOL. Both players pay in, winner takes 90% of the pot — the house keeps 10%, and says so.',
+    body: 'Each tier stakes real devnet SOL once your deck is minted onchain. Both players pay in, winner takes 90% of the pot — the house keeps 10%, and says so. Until then a match counts for rating only.',
   },
   {
     anchor: 'practice',

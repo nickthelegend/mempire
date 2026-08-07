@@ -230,6 +230,32 @@ console.log('\n=== a wallet that can pay ===');
       'the chest they paid for is in a slot');
   }
 
+  // ---- skipping the timer: paid once, on chain, and it moves ----
+  console.log('\n=== skipping a chest timer ===');
+  {
+    const before = await mempireBalance(rich.publicKey);
+    // Start the bought chest unlocking so a skip has something to skip.
+    await page.getByRole('button', { name: /^START$/i }).first().click().catch(() => {});
+    await sleep(1500);
+    const skip = page.getByRole('button', { name: /Skip .* \$MEMPIRE/i }).first();
+    if (await skip.isVisible().catch(() => false)) {
+      await skip.click();
+      await sleep(1400);
+      const d = page.getByRole('dialog').first();
+      check(await d.isVisible().catch(() => false), 'skipping asks for confirmation');
+      await d.getByRole('button', { name: /^pay/i }).first().click();
+      await sleep(14000);
+      const spent = before - await mempireBalance(rich.publicKey);
+      check(spent === 25n * UNIT, 'the skip cost exactly 25 $MEMPIRE', `${spent / UNIT}`);
+      // The bug this covers: the skip used to charge Crowns *as well*, and
+      // failing that charge was a silent no-op — paid on chain, timer frozen.
+      const body = await page.innerText('body');
+      check(/OPEN/.test(body), 'the chest is open now — the timer actually moved');
+    } else {
+      check(false, 'a started chest offers a paid skip');
+    }
+  }
+
   // ---- and the other sink: founding a clan ----
   console.log('\n=== founding a clan ===');
   const beforeClan = await mempireBalance(rich.publicKey);

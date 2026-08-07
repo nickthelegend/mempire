@@ -75,7 +75,11 @@ export function CardDetail({
   const dps = def.hitTicks > 0 ? Math.round((dmg * 20) / def.hitTicks) : dmg;
   const nextHp = scaleByLevel(def.hp, Math.min(10, card.level + 1));
   const nextDmg = scaleByLevel(def.damage, Math.min(10, card.level + 1));
-  const up = coin.change24h ?? 0;
+  // Absent on devnet: nothing populates `change24h`, so this is undefined for
+  // every coin. It used to fall back to 0, which rendered a green "+0.00%" —
+  // a number the app had invented, sitting next to figures it had actually
+  // read. Missing data shows as missing, the way `fdvUsd` already does.
+  const up = coin.change24h;
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', justifyContent: 'center' }}>
@@ -186,13 +190,19 @@ export function CardDetail({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             <Stat icon="◎" label="Price" value={fmtUsd(coin.priceUsd)} />
             <Stat
-              icon={up >= 0 ? '📈' : '📉'}
+              icon={up === undefined ? '·' : up >= 0 ? '📈' : '📉'}
               label="24h"
-              value={`${up >= 0 ? '+' : ''}${up.toFixed(2)}%`}
+              value={up === undefined ? '—' : `${up >= 0 ? '+' : ''}${up.toFixed(2)}%`}
             />
             <Stat icon="🌊" label="Liquidity" value={fmtUsd(coin.liquidityUsd)} />
             <Stat icon="🏦" label="Market cap" value={coin.fdvUsd ? fmtUsd(coin.fdvUsd) : '—'} />
           </div>
+          {/* The panel is headed "Market" and these look like quotes. On devnet
+              they are seeded by the admin oracle, and the only place that said
+              so was a different screen — which this sheet opens on top of. */}
+          <p className="fine" style={{ margin: '6px 0 0', color: 'var(--dim-on-wood)' }}>
+            Devnet figures, seeded onchain — not a live market.
+          </p>
         </div>
 
         {/* the coin as a game piece */}

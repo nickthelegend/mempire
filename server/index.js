@@ -179,7 +179,7 @@ app.put('/api/player/:address', requireWallet('player.put'), async (req, res) =>
 app.post('/api/match/:address', requireWallet('match.post'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
-  const { won, draw, potSol, payoutSol, rakeSol, crowns } = req.body ?? {};
+  const { won, draw, potSol, payoutSol, rakeSol, crowns, escrowed } = req.body ?? {};
   try {
     const now = new Date();
     await leaderboard.updateOne(
@@ -190,7 +190,11 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
           wins: won ? 1 : 0,
           losses: !won && !draw ? 1 : 0,
           draws: draw ? 1 : 0,
-          netSol: Number(payoutSol || 0) - Number(potSol || 0) / 2,
+          // Only when lamports actually moved. `potSol` is what the tier says a
+          // pot is worth and is present whether or not escrow opened, so
+          // counting it unconditionally made this column a running total of
+          // money that never existed — a guest's unstaked wins included.
+          netSol: escrowed ? Number(payoutSol || 0) - Number(potSol || 0) / 2 : 0,
           crowns: Array.isArray(crowns) ? Number(crowns[0]) || 0 : 0,
         },
         $set: { updatedAt: now },
@@ -218,7 +222,7 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
     recordEvent(db, {
       type: 'match.end',
       address,
-      props: { won: !!won, draw: !!draw, staked: Number(potSol || 0) > 0 },
+      props: { won: !!won, draw: !!draw, staked: !!escrowed },
     });
     res.json({ ok: true });
   } catch (e) {

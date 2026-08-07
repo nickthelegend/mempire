@@ -251,12 +251,20 @@ export const useEconomy = create<EconomyState>((set, get) => ({
           : c)),
     })),
 
+  /**
+   * Open a chest now. The caller has already been charged.
+   *
+   * Deliberately free at this layer. This used to also spend Crowns, from
+   * before $MEMPIRE was the price — so a skip took 25 $MEMPIRE on chain and
+   * *then* asked for a second currency, and `spendGems` returning false is a
+   * silent no-op. A player with no Crowns paid and watched the timer not move.
+   *
+   * The price is stated once, in `ConfirmSpend`, and collected once. Anything
+   * charging again below that is a second price nobody agreed to.
+   */
   skipUnlock: (id) => {
     const chest = get().chests.find((c) => c.id === id);
     if (!chest) return false;
-    const remaining = Math.max(0, chest.readyAt - Date.now());
-    const cost = chest.unlocking ? skipCost(remaining) : skipCost(CHESTS[chest.tier].unlockMs);
-    if (!get().spendGems(cost)) return false;
     set((s) => ({
       chests: s.chests.map((c) => (c.id === id ? { ...c, unlocking: true, readyAt: 0 } : c)),
     }));

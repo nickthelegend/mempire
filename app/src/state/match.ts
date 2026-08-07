@@ -53,6 +53,15 @@ export interface MatchResult {
   hashes: number; // checkpoints committed
   crowns: [number, number]; // towers felled, [you, them]
   chest: ChestTier | null; // won a chest, unless all four slots were full
+  /**
+   * Whether a lamport actually moved for this match.
+   *
+   * `potSol` is what the tier *says* a pot is worth and is filled in whether or
+   * not escrow opened, so it cannot answer this. Without the distinction the
+   * leaderboard's net-SOL column accumulates winnings from matches that
+   * escrowed nothing — a running total of money that never existed.
+   */
+  escrowed: boolean;
   /** Ranked only. Absent on practice and casual matches. */
   trophyDelta?: number;
   trophiesAfter?: number;
@@ -397,24 +406,22 @@ export const useMatch = create<MatchStore>((set, get) => ({
      * to escrow and no reason to spend a commit quota on it.
      */
     /*
-     * The base-layer escrow is deliberately NOT opened here.
+     * The base-layer escrow is not opened *here*, at queue time.
      *
-     * It used to be: `openOnchainMatch` escrowed real lamports the moment a
-     * player queued. But `joinMatchTx`, `settleTx` and `claimTimeoutTx` are
-     * not called anywhere in this app — so every queued match created an
-     * escrow that nothing on earth could ever settle, refund or time out. It
-     * did not lose a fraction of a stake; it stranded the whole thing, every
-     * time, and locked the player's eight cards with it.
+     * It once was, and that was the bug: `openOnchainMatch` escrowed real
+     * lamports the moment a player queued, into a settlement path that did not
+     * exist yet. That did not lose a fraction of a stake — it stranded the
+     * whole thing every time and locked the player's eight cards with it.
      *
-     * Escrowing into a settlement path that does not exist is strictly worse
-     * than not escrowing. So until join/settle/timeout are wired end to end,
-     * the stake is what the UI already showed it to be — a local number — and
-     * the tier is labelled accordingly. What IS real and unchanged: the match
-     * log on the ephemeral rollup, the PER seal, the VRF chest roll and the
-     * $MEMPIRE pool.
+     * Since then `joinMatchTx`, `settleTx` and `claimTimeoutTx` have all been
+     * wired (`state/escrow.ts`), and the stake is real: escrowed when a human
+     * opponent is found, settled from the rollup log, released on timeout. A
+     * two-browser run against production confirms the pot moves and the winner
+     * is paid. AUDIT.md records A2 as closed.
      *
-     * Tracked as A1/A2 in AUDIT.md. Do not re-enable this call without the
-     * other three.
+     * What stays true is the ordering. Escrow opens once there is an opponent
+     * to escrow against, not on a speculative queue — which is why the call
+     * lives in the matched path rather than in this one.
      */
     set({
       status: 'queuing',
@@ -1072,6 +1079,9 @@ function settleVoid(reason: string): void {
     won: false,
     draw: true,
     voided: true,
+    // A void reaches here from both seats, escrowed or not — `matchId !== null`
+    // above is what decides whether there is anything to claim against.
+    escrowed: useEscrow.getState().matchId !== null,
     potSol: stakeSol * 2,
     payoutSol: stakeSol,
     rakeSol: 0,
@@ -1197,6 +1207,8 @@ function settle(): void {
 
   const result: MatchResult = {
     won, draw, potSol: pot, payoutSol, rakeSol, hashes: hashes.length, crowns, chest,
+    escrowed: ['waiting', 'live', 'claiming', 'claimed', 'settled', 'refunded']
+      .includes(useEscrow.getState().phase),
     trophyDelta: trophyChange?.delta,
     trophiesAfter: trophyChange?.after,
     promoted: trophyChange?.promoted,

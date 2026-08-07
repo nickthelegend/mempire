@@ -165,7 +165,11 @@ export function Shop() {
           <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
         )}
         <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12 }}>
-          You hold {gems} Crowns · offers refresh every 24h
+          {/* Not "every 24h". The countdown two rows up runs on DEMO_DAY_MS —
+              three minutes on this build — so the two lines contradicted each
+              other on the same panel, and the one a judge can time is the
+              countdown. */}
+          You hold {gems} Crowns · a new set each shop day
           {/* The bags section can be live-onchain while the Shop stays simulated;
               saying so here beats letting the badge above imply otherwise. */}
           {chainMode === 'onchain' && ' · shop purchases are simulated on devnet'}

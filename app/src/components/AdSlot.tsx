@@ -24,7 +24,10 @@ const PITCHES = [
   {
     kicker: 'Ad space',
     line: 'Put your coin in front of every degen who plays.',
-    stat: '100% of players see this slot',
+    // Was "100% of players see this slot". The slot is hidden below 900px,
+    // which on a mobile-first game is most of them — a reach claim the layout
+    // contradicts is the one line in a pitch nobody forgives.
+    stat: 'Desktop arena · above the fold',
   },
   {
     kicker: 'Coin of the week',
