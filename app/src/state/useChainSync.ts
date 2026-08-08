@@ -4,6 +4,7 @@ import { useCollection, type MintedCard } from './collection';
 import { useDeck } from './deck';
 import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
+import { COINS } from '../lib/coins';
 
 /**
  * Keeps onchain state in step with the wallet.
@@ -86,12 +87,19 @@ function useChainCollection(): void {
     const collectionMatches = current.length === mapped.length
       && current.every((c, i) => c.id === mapped[i].id && c.level === mapped[i].level);
 
-    const valid0 = new Set(mapped.map((c) => c.id));
+    const fieldableMints = new Set(COINS.map((c) => c.mint));
+    // Cards that exist *and* this build can field. A card whose coin was
+    // registered after this client was built passes the first test and fails
+    // the second, and a deck holding one is just as dead as a deck holding a
+    // dangling id — so staleness has to mean both, or the re-point below never
+    // runs for the case that needs it most.
+    const valid0 = new Set(
+      mapped.filter((c) => fieldableMints.has(c.mint)).map((c) => c.id),
+    );
     const deckNow = useDeck.getState();
-    // A deck is stale if any slot names a card that no longer exists. Checked
-    // separately from the collection because the two are restored by different
-    // effects and either can land first — this way whichever runs last still
-    // leaves both consistent.
+    // Checked separately from the collection because the two are restored by
+    // different effects and either can land first — this way whichever runs
+    // last still leaves both consistent.
     const deckStale = [deckNow.active, ...deckNow.slots]
       .some((slot) => slot.some((id) => !valid0.has(id)));
 
@@ -106,12 +114,30 @@ function useChainCollection(): void {
     // player as their deck having been wiped.
     const deck = useDeck.getState();
     const valid = new Set(mapped.map((c) => c.id));
+
+    /**
+     * Only cards this build can actually field.
+     *
+     * The coin registry lives on chain and keeps growing; the client ships with
+     * whatever list it was built against. A card minted from a coin registered
+     * after that build is real, owned, and completely unusable here —
+     * `buildDecks` resolves every deck card's mint against `COINS` and returns
+     * null on the first miss, which surfaces as "your deck has retired cards"
+     * with no way to fix it, because the offending card cannot be rendered on
+     * the Deck tab either.
+     *
+     * Auto-filling a deck with one of those manufactured exactly that dead end.
+     * The card stays in the collection — the player does own it — but it is
+     * never chosen for them.
+     */
+    const usable = mapped.filter((c) => fieldableMints.has(c.mint));
+
     const repoint = (slot: string[]): string[] => {
-      const kept = slot.filter((id) => valid.has(id));
+      const kept = slot.filter((id) => valid.has(id) && usable.some((c) => c.id === id));
       if (kept.length >= 8) return kept.slice(0, 8);
       // Fill from what the wallet actually holds, one card per coin.
       const usedMints = new Set(kept.map((id) => mapped.find((c) => c.id === id)?.mint));
-      for (const c of mapped) {
+      for (const c of usable) {
         if (kept.length >= 8) break;
         if (!kept.includes(c.id) && !usedMints.has(c.mint)) {
           kept.push(c.id);

@@ -22,3 +22,8 @@ chain/.mempire-mint.json
 videos/*/renders/
 videos/*/snapshots/
 videos/*/.hyperframes/
+
+# Demo player keypairs used to record the gameplay demo. Devnet-only and
+# worthless, but still keys.
+app/.demo-wallets.json
+app/.demo-recording/
