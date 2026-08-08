@@ -1417,6 +1417,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "ephemeral-rollups-sdk",
+ "solana-sha256-hasher 2.3.0",
 ]
 
 [[package]]

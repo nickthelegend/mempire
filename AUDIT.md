@@ -146,3 +146,59 @@ them nothing and gains them nothing, which is griefing rather than theft, but
 it is not honest play. Closing it needs the result attested by something that
 watched the match rather than derived from what the seats claim — the relay
 already sees every input from both clients and is the obvious referee.
+
+---
+
+## C10 — `claim_timeout` still paid the first caller in two of three cases
+
+**CRITICAL. Found by audit, fixed 8 Aug 2026.**
+
+The C9 fix detected only *disagreement*. Every other log shape fell through to
+the payout, which pays whichever player signs — so the cheapest cheat was
+untouched, and worse, C9 made it the best one:
+
+> a loser who simply never calls `end_match_log` leaves `claims = [0, 3]`. The
+> log stays delegated, `settle_from_log` is permanently unreachable because it
+> needs both claims, and the honest winner's only remaining path is
+> `claim_timeout` — the same instruction the liar fires at the deadline to take
+> the pot.
+
+Lying cost the cheat the pot; silence won it. Not even a race: the honest
+client schedules its recovery at `deadline + 5s`, so the attacker firing at
+`deadline + 0` wins deterministically.
+
+The second case was worse in principle. With `claims = [0, 0]` committed home —
+an agreed, undisputed on-chain result saying Alice won — Bob calling
+`claim_timeout` still took the pot, because the test was for *inequality*.
+
+**The fix.** The log now decides eligibility, not just the dispute:
+
+| log | outcome |
+|---|---|
+| both spoke, disagreed | refund both, no rake |
+| both spoke, agreed | rejected — that is a settlement, use `settle_from_log` |
+| exactly one spoke | only that seat may claim; it proved it was present |
+| nobody spoke / no log / still delegated | genuine abandonment, either may claim |
+
+## C11 — `deck_hash` was client-supplied and read by nobody
+
+**HIGH. Fixed 8 Aug 2026.**
+
+`validate_and_lock_deck` derived `power` from the locked cards and `join_match`
+enforced the power band — but nothing tied the deck the *simulation* ran to
+those cards. `deck_hash` was an instruction argument, stored verbatim, and read
+by no instruction and no client.
+
+So: lock eight freshly minted level-1 cards, pass the bracket against any
+level-1 opponent, then send the relay eight level-10 cards. `sanitiseDeck`
+accepts them, both clients hash the same fabricated deck so no desync fires, and
+the staked match is won with a deck nobody ever staked for.
+
+The commitment is now derived on chain — `sha256(coin_mint || level)` over the
+eight cards in the order they were locked — and the argument is ignored.
+Verified against the deployed program: a caller passing `0xAA…` gets
+`7db3b472…` stored, which matches the sha256 of the cards it actually locked.
+
+**Still open:** the client does not yet compare its opponent's relayed deck
+against that commitment. Deriving it is what makes the check *possible*; the
+check itself is the other half.

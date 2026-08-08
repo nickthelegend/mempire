@@ -373,10 +373,12 @@ pub mod mempire {
         ctx: Context<'_, '_, 'info, 'info, CreateMatch<'info>>,
         tier: u8,
         stake_lamports: u64,
-        deck_hash: [u8; 32],
+        // Ignored. Kept so the instruction's shape does not change under
+        // existing clients; the commitment is derived from the locked cards.
+        _deck_hash: [u8; 32],
     ) -> Result<()> {
         let match_key = ctx.accounts.match_account.key();
-        let power = validate_and_lock_deck(
+        let (power, deck_hash) = validate_and_lock_deck(
             ctx.remaining_accounts,
             &ctx.accounts.player.key(),
             &match_key,
@@ -421,10 +423,11 @@ pub mod mempire {
     /// Player 1 joins: same stake, deck validated + locked, bracket checked.
     pub fn join_match<'info>(
         ctx: Context<'_, '_, 'info, 'info, JoinMatch<'info>>,
-        deck_hash: [u8; 32],
+        // Ignored — see `create_match`.
+        _deck_hash: [u8; 32],
     ) -> Result<()> {
         let match_key = ctx.accounts.match_account.key();
-        let power = validate_and_lock_deck(
+        let (power, deck_hash) = validate_and_lock_deck(
             ctx.remaining_accounts,
             &ctx.accounts.player.key(),
             &match_key,
@@ -642,18 +645,64 @@ pub mod mempire {
              * swap in an empty one to make a dispute look like an absence.
              */
             let log_info = ctx.accounts.match_log.to_account_info();
-            let disputed = if log_info.owner == &crate::ID && log_info.data_len() >= 8 {
+            let claims: Option<[u8; 2]> = if log_info.owner == &crate::ID && log_info.data_len() >= 8 {
                 let data = log_info.try_borrow_data()?;
                 MatchLog::try_deserialize(&mut &data[..])
-                    .map(|log: MatchLog| {
-                        log.match_id == m.id
-                            && log.claims[0] != 3
-                            && log.claims[1] != 3
-                            && log.claims[0] != log.claims[1]
-                    })
-                    .unwrap_or(false)
+                    .ok()
+                    .filter(|log: &MatchLog| log.match_id == m.id)
+                    .map(|log| log.claims)
             } else {
-                false
+                None
+            };
+
+            /*
+             * A seat that recorded a claim proved it was here.
+             *
+             * The first version of this only detected *disagreement*, and paid
+             * the first caller in every other shape — which left the cheapest
+             * cheat untouched and, worse, made it the best one. A loser who
+             * simply never calls `end_match_log` leaves `claims = [0, 3]`: the
+             * log stays delegated, `settle_from_log` is permanently
+             * unreachable because it requires both claims, and the honest
+             * winner's only remaining path is this instruction. The liar then
+             * fires it at the deadline and takes the pot. Lying cost them the
+             * pot; silence won it.
+             *
+             * So the log decides eligibility, not just the dispute:
+             *
+             *   both spoke, disagreed  → refund both, no rake (below)
+             *   both spoke, agreed     → this is not a timeout; use settle
+             *   exactly one spoke      → only that seat may claim
+             *   nobody spoke / no log  → genuine abandonment, either may claim
+             */
+            let disputed = match claims {
+                Some([a, b]) if a != 3 && b != 3 && a != b => true,
+                Some([a, b]) if a != 3 && b != 3 => {
+                    // An agreed, committed result is a settlement, not an
+                    // absence. Paying the loser here would ignore an on-chain
+                    // answer the program can already read.
+                    return err!(MempireError::BadMatchState);
+                }
+                Some([a, b]) => {
+                    // One seat spoke. That seat was present, so the *other* one
+                    // is the absent party and must not be paid for absence.
+                    let present = if a != 3 {
+                        Some(m.players[0])
+                    } else if b != 3 {
+                        Some(m.players[1])
+                    } else {
+                        None
+                    };
+                    if let Some(who) = present {
+                        require_keys_eq!(
+                            ctx.accounts.claimer.key(),
+                            who,
+                            MempireError::NotAPlayer
+                        );
+                    }
+                    false
+                }
+                None => false,
             };
 
             if disputed {
@@ -1048,15 +1097,31 @@ pub mod mempire {
 
 /// Deck validation over remaining_accounts: 8 Card PDAs, owned by `player`,
 /// distinct coins, not already locked. Locks each card and returns the
-/// summed power (levels).
+/// summed power (levels) plus a commitment to the exact deck that was locked.
+///
+/// # Why the hash is derived here and not accepted from the caller
+///
+/// `deck_hash` used to be an instruction argument, written verbatim and read
+/// by nothing — so the only thing tying a match to the cards it locked was the
+/// summed `power`. That let a player lock eight freshly minted level-1 cards
+/// (power 8, cheap), pass the power bracket against any level-1 opponent, and
+/// then hand the simulation a deck of eight level-10 cards over the relay.
+/// Both clients hashed the same fabricated deck, so no desync fired, and the
+/// staked match was won with a deck nobody ever staked for.
+///
+/// Derived from `(coin_mint, level)` in the order the cards were passed, which
+/// is the order the client builds its own deck in — so a client can hash its
+/// opponent's relayed deck and compare against the chain before agreeing to
+/// play.
 fn validate_and_lock_deck<'a>(
     accounts: &'a [AccountInfo<'a>],
     player: &Pubkey,
     match_key: &Pubkey,
-) -> Result<u32> {
+) -> Result<(u32, [u8; 32])> {
     require!(accounts.len() == DECK_SIZE, MempireError::BadDeck);
     let mut mints: Vec<Pubkey> = Vec::with_capacity(DECK_SIZE);
     let mut power: u32 = 0;
+    let mut preimage: Vec<u8> = Vec::with_capacity(DECK_SIZE * 33);
     for acc in accounts {
         let mut card: Account<Card> = Account::try_from(acc)?;
         require!(card.owner == *player, MempireError::NotCardOwner);
@@ -1067,10 +1132,12 @@ fn validate_and_lock_deck<'a>(
         );
         mints.push(card.coin_mint);
         power += card.level as u32;
+        preimage.extend_from_slice(card.coin_mint.as_ref());
+        preimage.push(card.level);
         card.locked_by = *match_key;
         card.exit(&crate::ID)?;
     }
-    Ok(power)
+    Ok((power, solana_sha256_hasher::hash(&preimage).to_bytes()))
 }
 
 /// Release the decks this match locked — and only those.
