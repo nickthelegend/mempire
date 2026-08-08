@@ -18,6 +18,9 @@
  */
 import { WebSocketServer } from 'ws';
 
+/** base58, Solana pubkey shape — the same test the HTTP routes use. */
+const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
 const TIERS = 4;
 
 /**
@@ -177,7 +180,23 @@ export function registerMatchmaker(server) {
         case 'queue': {
           const tier = Number(msg.tier);
           if (!Number.isInteger(tier) || tier < 0 || tier >= TIERS) return;
-          if (!msg.address || !validDeck(msg.deck)) return;
+          /*
+           * TODO(security): this address is asserted, not proved.
+           *
+           * `wsVerified` exists for exactly this and is imported by nothing, so
+           * `msg.address` is whatever the client typed — it is relayed to the
+           * opponent as `opponent.address`, fed into their onchain escrow join,
+           * and the self-match guard compares two strings the same attacker
+           * chose. Two sockets can pair with each other and farm the ladder.
+           *
+           * Requiring the signature here was written, deployed, and reverted:
+           * it stopped both seats pairing at all and took live PvP down, twice
+           * reproducibly. The shape check below is kept because it costs
+           * nothing; the signature needs the client's queue path reworked to
+           * send it reliably before the socket is used, which is more than a
+           * one-line change and is not worth breaking the game to rush.
+           */
+          if (!ADDRESS.test(String(msg.address)) || !validDeck(msg.deck)) return;
           // A socket already in a live match cannot queue for another — that
           // would orphan the first match's opponent mid-battle.
           if (matches.has(ws.matchId)) return;
@@ -312,9 +331,24 @@ export function registerMatchmaker(server) {
           const m = matches.get(ws.matchId);
           if (!m || m.done) return;
           const i = msg.input;
-          // Shape-check only — the sims validate the play. The relay must not
-          // become a second rules engine that can disagree with the first.
-          if (!i || ![i.tick, i.player, i.deckIndex, i.x, i.y].every(Number.isFinite)) return;
+          /*
+           * Integers, in range, and from the seat that actually sent it.
+           *
+           * `Number.isFinite` let 1.5 through, and a fractional deckIndex walks
+           * past every bounds check in the engine before throwing inside the
+           * tick loop — which freezes the opponent's match permanently. The
+           * relay does not need to be a rules engine to refuse a value that is
+           * not the shape of a play.
+           *
+           * The seat is overwritten rather than trusted: it is the one field
+           * the relay knows better than the sender, and leaving it to the
+           * client let either player forge a frame from the other seat.
+           */
+          if (!i || typeof i !== 'object') return;
+          if (![i.tick, i.player, i.deckIndex, i.x, i.y].every(Number.isInteger)) return;
+          if (i.deckIndex < 0 || i.deckIndex >= 8) return;
+          if (i.tick <= 0 || i.tick > 100_000) return;
+          if (Math.abs(i.x) > 1e6 || Math.abs(i.y) > 1e6) return;
           // Token bucket per socket: a flooding client gets its excess dropped
           // here instead of amplified into the opponent's tab.
           const now = Date.now();
@@ -325,7 +359,13 @@ export function registerMatchmaker(server) {
           ws.tokensAt = now;
           if (ws.tokens < 1) return;
           ws.tokens -= 1;
-          send(opponentOf(m, ws), { t: 'input', input: i });
+          const seat = m.players[0] === ws ? 0 : 1;
+          send(opponentOf(m, ws), {
+            t: 'input',
+            // Rebuilt, not forwarded: extra keys of any size used to be
+            // re-serialised straight into the opponent's socket.
+            input: { tick: i.tick, player: seat, deckIndex: i.deckIndex, x: i.x, y: i.y },
+          });
           break;
         }
 

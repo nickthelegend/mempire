@@ -10,7 +10,7 @@ import {
 import { traitForMint } from '../sim/traits';
 import { archetypeForMint } from '../sim/archetypes';
 import { decideBot, type BotDifficulty } from '../sim/bot';
-import { createMatch, hashState, stepSim } from '../sim/engine';
+import { ARENA_H, ARENA_W, createMatch, hashState, stepSim } from '../sim/engine';
 import {
   FORMATS, HASH_EVERY_TICKS, INPUT_DELAY_TICKS,
   type InputEvent, type MatchCard, type SimState,
@@ -109,6 +109,15 @@ interface MatchStore {
   rush: boolean;
   /** Set while a ranked queue is waiting on a human, for honest queue copy. */
   waitingForHuman: boolean;
+  /**
+   * This match is against the AI because the queue was empty.
+   *
+   * Distinct from `mode: 'bot'`, which is also true of Practice and of a casual
+   * match that fell back. This one specifically means "we looked for a person
+   * and there was not one", which is the only case the result screen has to
+   * explain and the ladder has to ignore.
+   */
+  soloVsBot: boolean;
   /** 'human' when a real opponent is relaying inputs; 'bot' otherwise. */
   mode: 'bot' | 'human';
   /**
@@ -257,6 +266,16 @@ let opponentTrophies = 0;
  */
 const HUMAN_INPUT_DELAY_TICKS = 16;
 
+/**
+ * How long a solo player waits before the machine steps in.
+ *
+ * Long enough that a real opponent queuing at the same moment is still found
+ * first — the matchmaker pairs within a second once two people are there — and
+ * short enough that nobody concludes the game is broken. Twenty seconds is
+ * about the limit of a search that still feels like searching.
+ */
+const SOLO_WAIT_MS = 20_000;
+
 function clearTimers(): void {
   queueTimers.forEach(clearTimeout);
   queueTimers = [];
@@ -381,6 +400,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
   ranked: false,
   rush: false,
   waitingForHuman: false,
+  soloVsBot: false,
   mode: 'bot',
   perspective: 0,
 
@@ -446,6 +466,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
       ranked,
       rush,
       waitingForHuman: ranked,
+      soloVsBot: false,
       mode: 'bot',
       perspective: 0,
       result: null,
@@ -464,16 +485,34 @@ export const useMatch = create<MatchStore>((set, get) => ({
     let fellBack = false;
     const fallBack = () => {
       if (fellBack || get().status === 'battle' || get().status === 'settled') return;
-      // Ranked never answers with a bot. Trophies are the promise that the
-      // opponent was real, so the queue keeps waiting instead — and the UI says
-      // so rather than quietly seating a machine.
-      if (ranked) return;
       fellBack = true;
       pvpClose();
       if (get().status === 'idle') return; // player cancelled while waiting
       set({ opponentName: BOT_NAMES[deck.tier], mode: 'bot', perspective: 0 });
       beginBotFlow(false, deck.tier, player, bot);
     };
+
+    /*
+     * Nobody is queuing? Play the machine.
+     *
+     * `onUnavailable` only fires when the relay is unreachable — a healthy
+     * relay with an empty queue never calls it, so a solo player waited on the
+     * search screen forever. That is the single most likely thing to happen to
+     * whoever opens this first, and it made the game look broken when it was
+     * merely empty.
+     *
+     * Ranked falls back too, which it did not before. The reason it did not is
+     * still true — a trophy has to mean you beat a person — so the fallback
+     * marks the match and the ladder simply does not count it. Waiting forever
+     * protected the ladder by making the game unplayable alone, which is the
+     * wrong trade.
+     */
+    queueTimers.push(setTimeout(() => {
+      if (get().status === 'queuing' && !fellBack) {
+        set({ soloVsBot: true });
+        fallBack();
+      }
+    }, SOLO_WAIT_MS));
 
     pvpConnect({
       onMatched: (m) => {
@@ -1037,10 +1076,40 @@ function beginHumanBattle(
 }
 
 /** Remote inputs join the same queue local ones do — the sim cannot tell. */
+/**
+ * Is this something the simulation can actually be fed?
+ *
+ * The opponent's *deck* has been sanitised since the start; their inputs never
+ * were, and an input reaches `applyInput` far more directly. A non-integer
+ * `deckIndex` walks straight past every bounds check in the engine — `1.5 < 0`
+ * is false, `1.5 >= 8` is false, `cycle.indexOf(1.5)` is -1 — and then
+ * `p.deck[1.5]` is undefined and reading `.archetype` throws. That throw
+ * happens before `state.tick++`, so the tick never advances, the interval
+ * re-runs it forever, and the victim is frozen mid-battle with their stake
+ * escrowed and no way out. A single crafted frame from a modified client.
+ *
+ * Malformed frames are *dropped*, not voided. Voiding on anything unparseable
+ * would hand the same client a one-message refund button — which is the other
+ * half of what this closes.
+ */
+function inputIsWellFormed(ev: unknown, perspective: 0 | 1): ev is InputEvent {
+  if (!ev || typeof ev !== 'object') return false;
+  const { tick, player, deckIndex, x, y } = ev as Record<string, unknown>;
+  if (![tick, player, deckIndex, x, y].every((n) => Number.isInteger(n))) return false;
+  // Only ever the other seat. `!== perspective` would accept a third value.
+  if (player !== 1 - perspective) return false;
+  if ((deckIndex as number) < 0 || (deckIndex as number) >= 8) return false;
+  // The engine clamps coordinates, but only after indexing the deck, and a
+  // wild value here is a signal the sender is not the client we think it is.
+  if (Math.abs(x as number) > ARENA_W * 4 || Math.abs(y as number) > ARENA_H * 4) return false;
+  return (tick as number) > 0;
+}
+
 function queueRemoteInput(ev: InputEvent): void {
   const { sim, perspective, mode } = useMatch.getState();
   if (!sim || mode !== 'human') return;
   if (ev.player === perspective) return; // never accept our own seat from outside
+  if (!inputIsWellFormed(ev, perspective)) return;
   if (ev.tick <= sim.tick) {
     // Too late to apply at its stamped tick: the sender already applied it, so
     // the timelines have split. Voiding is the only honest response — but say
@@ -1211,7 +1280,9 @@ function settle(): void {
    * rating. Practice and casual are excluded by construction — a ladder that
    * can be climbed against a bot is not a ladder.
    */
-  const trophyChange = ranked && !practice
+  // A ranked match against the AI fallback moves no trophies. The opponent
+  // being real is the whole content of a ladder position.
+  const trophyChange = ranked && !practice && mode === 'human'
     ? useLadder.getState().record(
       wallet.address,
       opponentTrophies,

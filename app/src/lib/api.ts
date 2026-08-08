@@ -65,7 +65,7 @@ export async function apiPost(
   path: string,
   action: string,
   body: Record<string, unknown>,
-  method: 'POST' | 'PUT' = 'POST',
+  method: 'POST' | 'PUT' | 'PATCH' = 'POST',
 ): Promise<Response | null> {
   if (!API_BASE) return null;
   const { useWallet } = await import('../state/wallet');

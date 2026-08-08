@@ -256,10 +256,13 @@ export const useClan = create<ClanState>((set, get) => ({
     const tag = get().mine?.tag;
     if (!tag) return 'you are not in a clan';
     set({ busy: true, error: null });
+    // Signed, like every other clan write. The server used to read the actor's
+    // address out of this body — which the API publishes for every member — so
+    // anyone could edit any clan as its leader without a key.
     const { data, error, offline } = await call<Clan>(`/api/clans/${tag}`, {
       method: 'PATCH',
       body: JSON.stringify({ address, ...patch }),
-    });
+    }, 'clan.settings');
     set({ busy: false, offline, error, mine: data ?? get().mine });
     return error;
   },

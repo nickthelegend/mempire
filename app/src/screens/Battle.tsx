@@ -41,7 +41,7 @@ function GoldBurst() {
 }
 
 function ResultOverlay() {
-  const { result, stakeSol, dismiss, practice } = useMatch();
+  const { result, stakeSol, dismiss, practice, soloVsBot } = useMatch();
   const escrowPhase = useEscrow((s) => s.phase);
   const nav = useNavigate();
   if (!result) return null;
@@ -132,6 +132,16 @@ function ResultOverlay() {
 
       {/* Ranked only. A trophy move is the other half of the result — for a
           ladder player it often matters more than the pot. */}
+      {soloVsBot && !practice && (
+        <p
+          className="fine"
+          style={{ fontSize: 12, color: 'var(--dim)', margin: '10px 0 0', lineHeight: 1.35 }}
+        >
+          Nobody else was queuing, so this one was against the AI — no trophies
+          either way. Ranked only counts a real opponent.
+        </p>
+      )}
+
       {typeof result.trophyDelta === 'number' && (
         <div
           className="well"

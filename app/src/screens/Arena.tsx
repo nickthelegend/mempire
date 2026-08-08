@@ -413,9 +413,10 @@ export function Arena() {
                   {match.status === 'found'
                     ? `${match.opponentName} · entering arena`
                     : match.ranked
-                      // Ranked never seats a bot, so the wait is open-ended and
-                      // the copy says so instead of implying a match is close.
-                      ? `humans only · matching near ${trophies} 🏆`
+                      // The wait is bounded now — after twenty seconds the AI
+                      // steps in — so the copy promises an end rather than an
+                      // open-ended "humans only" that was true and unhelpful.
+                      ? `matching near ${trophies} 🏆 · the AI steps in if nobody's about`
                       : `matching your deck power (${deck.power()})`}
                 </span>
               </span>

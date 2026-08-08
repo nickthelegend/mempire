@@ -120,6 +120,9 @@ export function registerFaucetRoutes(app, db, coins) {
       await claims.insertOne({ _id: address, at: new Date() });
     }
 
+    // Declared outside the try so the catch can tell "nothing was sent" from
+    // "the SOL already left" — the distinction the claim record turns on.
+    const signatures = [];
     try {
       /**
        * Two transactions, not one.
@@ -136,7 +139,6 @@ export function registerFaucetRoutes(app, db, coins) {
        */
       const half = Math.ceil(starters.length / 2);
       const batches = [starters.slice(0, half), starters.slice(half)];
-      const signatures = [];
 
       for (const [i, batch] of batches.entries()) {
         const tx = new Transaction();
@@ -183,11 +185,35 @@ export function registerFaucetRoutes(app, db, coins) {
         coins: starters.map((c) => c.ticker),
       });
     } catch (e) {
-      // Release the claim so a network failure is not a permanent lockout —
-      // the only thing worse than an empty faucet is one that has recorded you
-      // as served when it has not served you.
-      if (claims) await claims.deleteOne({ _id: address }).catch(() => {});
-      res.status(502).json({ error: String(e?.message ?? e).slice(0, 200) });
+      /*
+       * Release the claim only if nothing was actually sent.
+       *
+       * This used to delete unconditionally, so that a network failure was not
+       * a permanent lockout. But the kit ships as two transactions and the
+       * *first* carries the entire 0.35 SOL — so any failure in the second
+       * handed back a claim record for SOL already spent. Batch two fails
+       * whenever the faucet runs out of any one of the later coins, which is
+       * the normal end-state of a devnet faucet, and the loop is then: claim,
+       * fail, claim again, forever.
+       *
+       * Nothing sent is still a clean retry. Something sent is recorded as
+       * partial, which keeps the one-claim rule and leaves a trail explaining
+       * why somebody got half a kit.
+       */
+      if (claims) {
+        if (signatures.length === 0) {
+          await claims.deleteOne({ _id: address }).catch(() => {});
+        } else {
+          await claims.updateOne(
+            { _id: address },
+            { $set: { partial: true, batches: signatures.length, signatures, failedAt: new Date() } },
+          ).catch(() => {});
+        }
+      }
+      res.status(502).json({
+        error: String(e?.message ?? e).slice(0, 200),
+        delivered: signatures.length ? { sol: DRIP_SOL, batches: signatures.length } : null,
+      });
     }
   });
 }

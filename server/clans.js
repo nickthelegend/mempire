@@ -392,10 +392,24 @@ export function registerClanRoutes(app, db) {
   });
 
   // ── settings (leader / co-leader) ────────────────────────────────────────
-  app.patch('/api/clans/:tag', async (req, res) => {
+  /*
+   * Settings. Signature-authenticated like every other write here.
+   *
+   * This one route was missing `requireWallet`, and it read the actor's
+   * identity straight out of the request body — which this API publishes
+   * itself: `GET /api/clans/:tag` returns every member's address and role. So
+   * anyone could read a clan's leader address and PATCH the clan as them, with
+   * no key and no signature. It also sat outside the per-wallet rate limit,
+   * because that runs inside `requireWallet`.
+   *
+   * The address now comes from `req.wallet` — the one the signature actually
+   * proves — and never from the body.
+   */
+  app.patch('/api/clans/:tag', requireWallet('clan.settings'), async (req, res) => {
     await ready;
     const tag = String(req.params.tag).toUpperCase();
-    const { address, description, region, requiredPower, joinMode, crest } = req.body ?? {};
+    const { description, region, requiredPower, joinMode, crest } = req.body ?? {};
+    const address = req.wallet;
     if (!TAG.test(tag)) return fail(res, 400, 'bad clan tag');
     if (badAddress(address)) return fail(res, 400, 'bad address');
 

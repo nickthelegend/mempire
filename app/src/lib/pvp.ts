@@ -149,6 +149,7 @@ export function pvpQueue(payload: {
   const go = () => send({ t: 'queue', ...payload });
   if (socket?.readyState === WebSocket.OPEN) go();
   else if (socket) socket.addEventListener('open', go, { once: true });
+;
 }
 
 export const pvpSendInput = (input: InputEvent): void => send({ t: 'input', input });
