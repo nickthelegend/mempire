@@ -35,12 +35,16 @@ before submitting — this is a hard gate on the form, not a nice-to-have.
 Devnet SOL. `solana airdrop` is rate-limited to ~2 SOL per request per address;
 faucet.solana.com gives larger amounts against a GitHub login.
 
-| # | Address | Fund to | Why |
+**Done.** 5 SOL was sent to the faucet and distributed by `app/setup-demo.mjs`.
+
+| # | Address | Holds | Role |
 |---|---|---|---|
-| 1 | `5H7JK4N4ojprNtJfvkNhBVKzyqa6x66ZEUcrgFvZku9n` | **3 SOL** | The app faucet. 0.35 per claim; 3 SOL covers the on-camera claim plus retakes and leaves the demo working for judges who try it themselves. |
-| 2 | Player A — your Phantom, devnet | **2 SOL** | Stake + mint fees + gas. |
-| 3 | Player B — a second Phantom profile, devnet | **2 SOL** | Same. Must be a different browser profile, not a second tab. |
-| 4 | `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5` | already 4.535 SOL — leave it | Deployer / upgrade authority. Not used on camera. |
+| 1 | `5H7JK4N4ojprNtJfvkNhBVKzyqa6x66ZEUcrgFvZku9n` | **2.017 SOL** | The app faucet, `available: true`. 0.35 per claim, so ~5 claims: enough for the on-camera claim, retakes, and judges who try it themselves. |
+| 2 | `2cmeus9ph2SzixtHfcpActu8tvjaMVN58H95MivMDCyE` | **1.5 SOL** · 8 cards · 2,000 $MEMPIRE | Player A. |
+| 3 | `GKLFeUT1cqG82iVkRsBekyZh5eCbhHSDjdvZLA1HZzxj` | **1.5 SOL** · 8 cards · 2,000 $MEMPIRE | Player B. |
+| 4 | `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5` | 4.5 SOL | Deployer, mint authority. Not on camera. |
+
+Keys for 2 and 3 are in `app/.demo-wallets.json`, gitignored.
 
 Stake tiers are `Pauper 0.05 · Knight 0.25 · Duke 1 · Emperor 5` SOL. **Record
 at Knight (0.25).** Pauper is too small to read on screen as real money; Duke
@@ -50,31 +54,72 @@ burns 2 SOL per take.
 solana airdrop 2 5H7JK4N4ojprNtJfvkNhBVKzyqa6x66ZEUcrgFvZku9n -u devnet
 ```
 
-### 1.1 Pre-mint 8 cards on both player wallets — do not skip this
+### 1.1 Pre-mint 8 cards on both player wallets — done, and it found a bug
 
 `useChainSync` replaces the locally seeded 8-card collection with whatever the
-wallet actually holds on chain. A wallet that has minted **one** card ends up
-with a one-card collection, the deck is re-pointed to that one card, and
-`BATTLE` refuses with *"deck needs 8 cards"*.
+wallet actually holds on chain, so a wallet holding one card gets a one-card
+deck and `BATTLE` refuses. Both wallets were pre-minted to eight
+(`chain/scripts/premint-demo.ts`), and the on-camera mint now produces a *ninth*
+card rather than collapsing the deck.
 
-So a fresh wallet that mints a single card on camera **breaks the very next
-shot**. Both player wallets must hold 8+ minted cards before recording. Then
-the mint beat on camera mints a *ninth* card, the collection grows, and nothing
-collapses.
+Doing that surfaced a real defect. The coin registry lives on chain and keeps
+growing — **86 coins registered against the 66 the client was built with** — and
+`repoint()` was auto-filling decks from everything the wallet held, unfieldable
+cards included. `buildDecks` resolves each deck card's mint against the bundled
+`COINS` and returns null on the first miss, so a single such card permanently
+killed a working deck, with an error telling the player to fix it on a tab where
+that card does not render.
+
+Both demo wallets had minted exactly one, and neither could enter the arena.
+
+Fixed in `app/src/state/useChainSync.ts` and deployed: staleness now means
+*exists **and** this build can field it*, and auto-fill only ever chooses usable
+cards. `premint-demo.ts` and `check-demo-decks.ts` restrict themselves to the
+client registry for the same reason.
+
+This affects real players, not just the shoot: anyone minting from a coin
+registered after the last client build hit the same dead end.
 
 ---
 
 ## 2. Rig
 
-- Two Chrome profiles side by side, each **960×1080**, Phantom set to devnet in
-  both. Profile A left, profile B right.
-- Record the **full 1920×1080 desktop** as one take, so both clients are in the
-  same frame and the sync between them is self-evident. Split-screen faked in
-  post is exactly what a judge will suspect.
-- A third profile in the background holding Solana Explorer, brought up as a
-  cutaway rather than recorded live.
-- Hide bookmarks, mute notifications, `play.mempire.fun` in both.
-- QuickTime or OBS. If OBS: 60 fps, CQP 18, capture the display not the window.
+Superseded the original plan (two Phantom profiles, one desktop screen grab)
+for two reasons found while building it.
+
+**No screen recording.** `ffmpeg -f avfoundation` needs macOS Screen Recording
+permission, and without it it blocks forever rather than failing — nothing a
+run can recover from, and granting it needs the user's password. Playwright
+records the page through CDP and needs no OS permission.
+
+**No Phantom.** `injected-wallet.mjs` plants a Phantom-shaped provider holding a
+real keypair, so the app runs its ordinary adapter path and every signature that
+reaches devnet is genuine. Only the extension's approval popup is skipped, which
+cannot be driven anyway. Note the adapter **eagerly connects** to a provider
+present before the first script — so there is no connect-and-approve moment to
+film. Either skip that beat or shoot it separately on a real phone.
+
+So:
+
+- Two Playwright contexts, each **430×932** at `deviceScaleFactor: 2`, each
+  recording its own stream, composited side by side afterwards.
+- **430, not 960.** The app is a mobile-first column; at desktop widths it
+  renders that column in dead space flanked by two `ADVERTISE HERE ·
+  ads@mempire.fun` rails, which read as unsold inventory. Below desktop width
+  those rails are not rendered at all.
+- The composite is honest: both halves are the same wall-clock session recorded
+  simultaneously, which is precisely why the two tick counters agree frame for
+  frame.
+- Headed, not headless — the arena is WebGL and headless falls back to
+  SwiftShader, correct but far too slow to look like a game.
+- Explorer cutaways captured separately and laid over in post.
+
+`node record-demo.mjs --probe` is the pre-flight: it drives one client into a
+real match and asserts the arena drew. Its check is a **screenshot byte count**,
+not `gl.readPixels` — the context has no `preserveDrawingBuffer`, so a read from
+outside the render loop returns an already-cleared buffer and reported a single
+flat colour over a fully drawn arena. PNG compresses a flat colour to nothing
+and a stadium to about 1.1 MB; the two cases are orders of magnitude apart.
 
 ---
 
@@ -170,14 +215,16 @@ will know, and being straight about it reads as competence.
 
 Each one has bitten this build before.
 
-| Risk | Guard |
-|---|---|
-| Fresh wallet mints 1 card → deck collapses to 1 → BATTLE refuses | Pre-mint 8 on both wallets (§1.1) |
-| Wallet below the stake → *"need 0.25 SOL to enter"* | Both wallets ≥ 2 SOL |
-| Faucet returns empty on camera | Fund §1.1 first |
-| Matchmaker pairs A with the **bot** instead of B | B must be queued *before* A; solo wait is 20s before bot fallback |
-| ER slow to come up, match starts without delegation | Check `https://devnet-as.magicblock.app/` returns `{"result":"ok"}` before each take |
-| Public devnet RPC rate-limits mid-take | Point `VITE_RPC_URL` at a Helius devnet key for the shoot |
+| Risk | Guard | State |
+|---|---|---|
+| Deck collapses → BATTLE refuses | Pre-mint 8 fieldable cards (§1.1) | done, fix deployed |
+| Wallet below the stake | Both wallets 1.5 SOL against a 0.25 stake | done |
+| Faucet empty on camera | 2.017 SOL, `available: true` | done |
+| Arena does not render under Playwright | `record-demo.mjs --probe` — 1.12 MB drawn on production | done |
+| Matchmaker pairs A with the **bot** instead of B | B must be queued *before* A; solo wait is 20s before bot fallback | untested |
+| ER slow to come up, match starts without delegation | `https://devnet-as.magicblock.app/` returns `{"result":"ok"}` before each take | reachable |
+| **Public devnet RPC rate-limits mid-take** | Point `VITE_RPC_URL` at a Helius/QuickNode devnet key | **open — has 429'd twice already** |
+| `/api/player/<addr>` returns 401 | Cosmetic so far: name stays ANON_KING. Confirm it does not block matchmaking before the PvP take. | open |
 
 Do one full dry run end to end, unrecorded. The two-browser matchmaking beat is
 the one that will need retakes.
