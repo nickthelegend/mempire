@@ -69,7 +69,8 @@
             "minSdkVersion": 24
           }
         }
-      ]
+      ],
+      "./plugins/withMempireGradle"
     ],
     "extra": {
       "eas": {

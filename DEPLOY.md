@@ -150,11 +150,21 @@ npx expo prebuild --platform android --clean
 cd android && ./gradlew assembleRelease
 ```
 
-Output: `mobile/android/app/build/outputs/apk/release/app-release.apk` (74 MB,
-universal — arm64-v8a, armeabi-v7a, x86, x86_64).
+Output: `mobile/android/app/build/outputs/apk/release/`.
 
-`prebuild --clean` regenerates `android/`, which **discards the release signing
-config** in `app/build.gradle`. Re-apply it after every clean prebuild.
+`android/` is generated and gitignored, so a clean prebuild throws away
+anything hand-edited into it. `plugins/withMempireGradle.js` re-applies the
+release signing config and the ABI splits on every prebuild — do not hand-edit
+`app/build.gradle`, edit the plugin.
+
+That plugin exists because both were hand-edited once and the next clean
+prebuild silently reverted them. The signing one matters: reverted, a release
+APK is signed with the *debug* key, installs perfectly, and can never be
+updated by a properly signed build.
+
+Four APKs come out. `app-arm64-v8a-release.apk` (29 MB) is what
+download.mempire.fun serves; the universal build (70 MB) is the fallback for
+older armeabi-v7a hardware.
 
 ### The signing key
 
@@ -169,8 +179,15 @@ overridable via `MEMPIRE_KEYSTORE`, `MEMPIRE_KEYSTORE_PASSWORD`,
 
 ### Serving the download
 
-Copy the APK to `mempire-landing/public/mempire.apk` and deploy the landing
-page. It is gitignored — 74 MB of build output is not version control's job.
+**https://download.mempire.fun** — its own Vercel project, `mempire-download/`.
+Copy `app-arm64-v8a-release.apk` to `public/mempire-arm64.apk` and the universal
+build to `public/mempire-universal.apk`, then deploy. Both are gitignored.
+
+`vercel.json` sets the APK MIME type and `Content-Disposition: attachment`;
+without it Vercel serves an APK as `text/plain` and Chrome renders it as text.
+Deployment Protection must stay off on that project or every asset 302s to an
+SSO login — the page itself still answers 200 with the login HTML, so it looks
+fine until you fetch an asset.
 
 ### The dApp Store
 
