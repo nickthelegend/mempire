@@ -1,0 +1,172 @@
+{
+  "voice": "am_puck",
+  "speed": 1,
+  "gapSeconds": 0.45,
+  "totalSeconds": 193.528,
+  "playbackRate": 1.2,
+  "finalSeconds": 161.273,
+  "lines": [
+    {
+      "id": "01_hook",
+      "shot": "intro",
+      "text": "Your bags are your army. Mempire turns any meme coin into a fighter you can actually take into battle.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/01_hook.wav",
+      "seconds": 6.464,
+      "startsAt": 0,
+      "endsAt": 6.464
+    },
+    {
+      "id": "02_premise",
+      "shot": "collection",
+      "text": "Every card here is minted from a real token. The coin decides what the fighter is — its class, its stats, its art — so no two collections look the same.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/02_premise.wav",
+      "seconds": 9.941,
+      "startsAt": 6.914,
+      "endsAt": 16.855
+    },
+    {
+      "id": "03_mint",
+      "shot": "mint",
+      "text": "Pick a coin you hold and mint it. That's a real transaction on Solana, and the card that comes back is an asset you own, not a row in our database.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/03_mint.wav",
+      "seconds": 9.109,
+      "startsAt": 17.305,
+      "endsAt": 26.414
+    },
+    {
+      "id": "04_stake_power",
+      "shot": "card-detail",
+      "text": "Stake more of that coin into the card and the fighter levels up. Your conviction in a coin is literally its power on the battlefield — and you can unstake and take it back whenever you want.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/04_stake_power.wav",
+      "seconds": 10.901,
+      "startsAt": 26.864,
+      "endsAt": 37.765
+    },
+    {
+      "id": "05_deck",
+      "shot": "deck",
+      "text": "Eight cards make a deck, one per coin, so you can't just stack your strongest card eight times. You have to spread your bags.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/05_deck.wav",
+      "seconds": 7.104,
+      "startsAt": 38.215,
+      "endsAt": 45.319
+    },
+    {
+      "id": "06_queue",
+      "shot": "queue",
+      "text": "Pick a stake and play online. Every tier is a different amount of SOL on the line, from a fifth of a SOL up to five.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/06_queue.wav",
+      "seconds": 7.723,
+      "startsAt": 45.769,
+      "endsAt": 53.492
+    },
+    {
+      "id": "07_escrow",
+      "shot": "escrow",
+      "text": "Both players put their SOL into escrow before a single card is played. The program holds the pot, not us — there's no wallet we could drain it from, even if we wanted to.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/07_escrow.wav",
+      "seconds": 10.709,
+      "startsAt": 53.942,
+      "endsAt": 64.651
+    },
+    {
+      "id": "08_arena",
+      "shot": "arena-open",
+      "text": "Then you fight. Three minutes, real time, elixir refilling, towers to bring down.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/08_arena.wav",
+      "seconds": 4.8,
+      "startsAt": 65.101,
+      "endsAt": 69.901
+    },
+    {
+      "id": "09_deploy",
+      "shot": "arena-play",
+      "text": "Drop your troops on your half, push a lane, and try to break through before your opponent breaks yours. Take a tower and you take a crown.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/09_deploy.wav",
+      "seconds": 7.808,
+      "startsAt": 70.351,
+      "endsAt": 78.159
+    },
+    {
+      "id": "10_determinism",
+      "shot": "hash",
+      "text": "Underneath, the match is a deterministic simulation. Twenty ticks a second, fixed-point maths, and the whole state hashed as it runs — so the result is something anyone can recompute, not something you have to take our word for.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/10_determinism.wav",
+      "seconds": 13.675,
+      "startsAt": 78.609,
+      "endsAt": 92.284
+    },
+    {
+      "id": "11_magicblock",
+      "shot": "explorer-delegate",
+      "text": "This is where MagicBlock does the heavy lifting. When the match starts, the match log is delegated to an ephemeral rollup. Here's that transaction on Solana devnet — you can see our program handing the log to MagicBlock's delegation program.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/11_magicblock.wav",
+      "seconds": 14.699,
+      "startsAt": 92.734,
+      "endsAt": 107.433
+    },
+    {
+      "id": "12_per",
+      "shot": "per",
+      "text": "From then on, every card you play is written to the rollup instead of the base layer, so it lands in milliseconds rather than waiting on a block. And the log is permissioned — only the two players in that match can write to it, so nobody outside can touch a game in progress.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/12_per.wav",
+      "seconds": 15.104,
+      "startsAt": 107.883,
+      "endsAt": 122.987
+    },
+    {
+      "id": "13_settle",
+      "shot": "explorer-settle",
+      "text": "When the match ends, the rollup commits the final state back to Solana and undelegates. That's this transaction. The program reads the settled log, decides the winner from it, and pays the pot out on chain.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/13_settle.wav",
+      "seconds": 12.459,
+      "startsAt": 123.437,
+      "endsAt": 135.896
+    },
+    {
+      "id": "14_chest",
+      "shot": "chest-buy",
+      "text": "Winning a match earns you a chest. You can wait out its timer, skip it with MEMPIRE, the game's own token, or buy one outright.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/14_chest.wav",
+      "seconds": 7.765,
+      "startsAt": 136.346,
+      "endsAt": 144.111
+    },
+    {
+      "id": "15a_open",
+      "shot": "chest-open",
+      "text": "Win, and a chest lands in your rack. Skip the timer with MEMPIRE, open it, and the cards inside are minted straight into your collection.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/15a_open.wav",
+      "seconds": 8.512,
+      "startsAt": 144.561,
+      "endsAt": 153.073
+    },
+    {
+      "id": "15_vrf",
+      "shot": "explorer-chests",
+      "text": "Chest rewards run through MagicBlock's V R F. The chest rail is delegated to the rollup — that's this transaction — so a roll is requested on chain, and every chest records the seed it came from. Which means the loot table is something you can verify, not something you take on trust.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/15_vrf.wav",
+      "seconds": 17.045,
+      "startsAt": 153.523,
+      "endsAt": 170.568
+    },
+    {
+      "id": "16_clan",
+      "shot": "clan",
+      "text": "Beyond the matches there's a clan to start, a ladder to climb, and an in-app swap so you can pick up MEMPIRE without leaving the game.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/16_clan.wav",
+      "seconds": 7.893,
+      "startsAt": 171.018,
+      "endsAt": 178.911
+    },
+    {
+      "id": "17_close",
+      "shot": "outro",
+      "text": "Mempire. Your bags, your army. Built on Solana, running on MagicBlock. Every program is deployed and every match in this video settled on chain. Go and play it at app dot mempire dot fun. Thanks for watching.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/17_close.wav",
+      "seconds": 13.717,
+      "startsAt": 179.361,
+      "endsAt": 193.078
+    }
+  ]
+}

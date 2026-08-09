@@ -1,8 +1,13 @@
 # Mempire
 
-**Your bags are your army.** A 3D real-time Clash Royale-style card battler on Solana:
-mint NFT cards from meme coins you actually hold, stake tokens into them for power,
-build an 8-card deck, and fight 1v1 for a staked SOL pot. Winner takes 90%.
+**Any meme coin becomes a fighter.** A 3D real-time Clash Royale-style card
+battler on Solana: mint a card from an SPL token, stake tokens into it for
+power, build an 8-card deck, and fight 1v1 for a staked SOL pot. Winner takes
+90%.
+
+A card is bound to its mint, so on mainnet a player's roster is whatever they
+hold. This devnet build ships a seeded registry of test mints standing in for
+real coins — same mechanic, stand-in tokens.
 
 Built for **Solana Blitz V7** · [mempire.fun](https://mempire.fun)
 
@@ -12,8 +17,9 @@ Built for **Solana Blitz V7** · [mempire.fun](https://mempire.fun)
    Coinbase, Trust, Nightly) with their real logos and true install detection,
    plus a labeled **Guest** mode so anyone can play the whole game with a
    simulated balance. Trusted wallets reconnect silently.
-2. **Scan bags** — your SPL meme coins appear; coins need ≥$25k liquidity and ≥48h
-   age to mint (kills the "mint your own coin, stake 1B supply, god card" exploit).
+2. **Scan bags** — the SPL tokens you hold appear from the registry; a coin needs
+   ≥$25k liquidity and ≥48h age to mint (kills the "mint your own coin, stake 1B
+   supply, god card" exploit). On devnet the registry is seeded test mints.
 3. **Mint cards** — 0.02 SOL fee. Coin → archetype is deterministic:
    `fnv1a(mint) % 6` → Tank / Swarm / Ranged / Splash / Support / Spell.
 4. **Stake** — lock coin tokens in the card's vault. Staked USD (snapshotted at

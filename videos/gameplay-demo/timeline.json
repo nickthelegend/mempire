@@ -1,0 +1,166 @@
+{
+  "_comment": [
+    "The running order, with an explicit hold per shot.",
+    "",
+    "Holds are sized from the narration that sits in them plus roughly three",
+    "seconds of air, so nothing is clipped and nothing sits in silence waiting.",
+    "The rewritten script is nearly twice as long as the first one, so the video",
+    "is longer than three minutes \u2014 that is the right trade. A judge who",
+    "understands what MagicBlock is doing here is worth more than fifteen",
+    "seconds saved.",
+    "",
+    "No split-screen. Two mirrored top-down arenas never read as one match, and",
+    "the claim they existed to support is not something this footage can carry",
+    "honestly. The match plays on a single client.",
+    "",
+    "Shot kinds:",
+    "  src    \u2014 a single-client capture, centred",
+    "  match  \u2014 seat A's recording of the staked match, same treatment",
+    "  frames \u2014 an animated title sequence rendered as PNGs",
+    "  web    \u2014 a desktop capture (Solana Explorer), letterboxed",
+    "",
+    "Three of the four silent beats are gameplay; the fourth is the settlement",
+    "screen, which is worth reading without a voice over it."
+  ],
+  "playbackRate": 1.2,
+  "shots": [
+    {
+      "shot": "intro",
+      "hold": 9,
+      "line": "01_hook",
+      "frames": "intro"
+    },
+    {
+      "shot": "collection",
+      "hold": 13,
+      "line": "02_premise",
+      "src": "collection",
+      "from": 3
+    },
+    {
+      "shot": "mint",
+      "hold": 12,
+      "line": "03_mint",
+      "src": "mint",
+      "from": 4
+    },
+    {
+      "shot": "card-detail",
+      "hold": 14,
+      "line": "04_stake_power",
+      "src": "card-detail",
+      "from": 4
+    },
+    {
+      "shot": "deck",
+      "hold": 10,
+      "line": "05_deck",
+      "src": "deck",
+      "from": 2
+    },
+    {
+      "shot": "queue",
+      "hold": 11,
+      "line": "06_queue",
+      "match": true,
+      "from": 8
+    },
+    {
+      "shot": "escrow",
+      "hold": 14,
+      "line": "07_escrow",
+      "match": true,
+      "from": 17
+    },
+    {
+      "shot": "arena-open",
+      "hold": 8,
+      "line": "08_arena",
+      "match": true,
+      "from": 32
+    },
+    {
+      "shot": "arena-play",
+      "hold": 12,
+      "line": "09_deploy",
+      "match": true,
+      "from": 58
+    },
+    {
+      "shot": "arena-play-long",
+      "hold": 9,
+      "line": null,
+      "match": true,
+      "from": 84
+    },
+    {
+      "shot": "hash",
+      "hold": 17,
+      "line": "10_determinism",
+      "match": true,
+      "from": 104
+    },
+    {
+      "shot": "explorer-delegate",
+      "hold": 18,
+      "line": "11_magicblock",
+      "web": "delegate",
+      "from": 5
+    },
+    {
+      "shot": "per",
+      "hold": 18,
+      "line": "12_per",
+      "match": true,
+      "from": 140
+    },
+    {
+      "shot": "arena-push",
+      "hold": 8,
+      "line": null,
+      "match": true,
+      "from": 200
+    },
+    {
+      "shot": "explorer-settle",
+      "hold": 16,
+      "line": "13_settle",
+      "web": "undelegate",
+      "from": 5
+    },
+    {
+      "shot": "settle",
+      "hold": 10,
+      "line": null,
+      "match": true,
+      "from": 236
+    },
+    {
+      "shot": "chest-buy",
+      "hold": 13,
+      "line": "14_chest",
+      "match": true,
+      "from": 357
+    },
+    {
+      "shot": "explorer-chests",
+      "hold": 20,
+      "line": "15_vrf",
+      "web": "chests",
+      "from": 4
+    },
+    {
+      "shot": "clan",
+      "hold": 11,
+      "line": "16_clan",
+      "src": "clan",
+      "from": 2
+    },
+    {
+      "shot": "outro",
+      "hold": 18,
+      "line": "17_close",
+      "frames": "outro"
+    }
+  ]
+}

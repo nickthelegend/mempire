@@ -1,0 +1,115 @@
+{
+  "_comment": [
+    "The narration, one entry per beat, in order.",
+    "",
+    "Rewritten to actually explain. The first pass was clipped to the point of",
+    "terseness \u2014 'Eight cards. Eight coins. One deck.' tells a judge nothing",
+    "about why any of it matters, and four words over a twelve-second shot is",
+    "just silence with a label on it. These lines say what is happening and why",
+    "it is worth caring about, in a normal speaking voice.",
+    "",
+    "MagicBlock gets three beats rather than one passing mention, because it is",
+    "the load-bearing piece: the rollup is what makes a real-time match possible",
+    "on chain at all, the permission is what stops anyone else writing to a live",
+    "match, and the VRF is what makes the rewards checkable rather than trusted.",
+    "",
+    "Still spoken at 1.0 and played at 1.2 \u2014 generating fast AND playing fast",
+    "compounds into gabble. Kokoro reads punctuation as timing, so full stops do",
+    "the pacing."
+  ],
+  "voice": "am_puck",
+  "speed": 1.0,
+  "lang": "en-us",
+  "lines": [
+    {
+      "id": "01_hook",
+      "shot": "intro",
+      "text": "Your bags are your army. Mempire turns any meme coin into a fighter you can actually take into battle."
+    },
+    {
+      "id": "02_premise",
+      "shot": "collection",
+      "text": "Every card here is minted from a real token. The coin decides what the fighter is \u2014 its class, its stats, its art \u2014 so no two collections look the same."
+    },
+    {
+      "id": "03_mint",
+      "shot": "mint",
+      "text": "Pick a coin you hold and mint it. That's a real transaction on Solana, and the card that comes back is an asset you own, not a row in our database."
+    },
+    {
+      "id": "04_stake_power",
+      "shot": "card-detail",
+      "text": "Stake more of that coin into the card and the fighter levels up. Your conviction in a coin is literally its power on the battlefield \u2014 and you can unstake and take it back whenever you want."
+    },
+    {
+      "id": "05_deck",
+      "shot": "deck",
+      "text": "Eight cards make a deck, one per coin, so you can't just stack your strongest card eight times. You have to spread your bags."
+    },
+    {
+      "id": "06_queue",
+      "shot": "queue",
+      "text": "Pick a stake and play online. Every tier is a different amount of SOL on the line, from a fifth of a SOL up to five."
+    },
+    {
+      "id": "07_escrow",
+      "shot": "escrow",
+      "text": "Both players put their SOL into escrow before a single card is played. The program holds the pot, not us \u2014 there's no wallet we could drain it from, even if we wanted to."
+    },
+    {
+      "id": "08_arena",
+      "shot": "arena-open",
+      "text": "Then you fight. Three minutes, real time, elixir refilling, towers to bring down."
+    },
+    {
+      "id": "09_deploy",
+      "shot": "arena-play",
+      "text": "Drop your troops on your half, push a lane, and try to break through before your opponent breaks yours. Take a tower and you take a crown."
+    },
+    {
+      "id": "10_determinism",
+      "shot": "hash",
+      "text": "Underneath, the match is a deterministic simulation. Twenty ticks a second, fixed-point maths, and the whole state hashed as it runs \u2014 so the result is something anyone can recompute, not something you have to take our word for."
+    },
+    {
+      "id": "11_magicblock",
+      "shot": "explorer-delegate",
+      "text": "This is where MagicBlock does the heavy lifting. When the match starts, the match log is delegated to an ephemeral rollup. Here's that transaction on Solana devnet \u2014 you can see our program handing the log to MagicBlock's delegation program."
+    },
+    {
+      "id": "12_per",
+      "shot": "per",
+      "text": "From then on, every card you play is written to the rollup instead of the base layer, so it lands in milliseconds rather than waiting on a block. And the log is permissioned \u2014 only the two players in that match can write to it, so nobody outside can touch a game in progress."
+    },
+    {
+      "id": "13_settle",
+      "shot": "explorer-settle",
+      "text": "When the match ends, the rollup commits the final state back to Solana and undelegates. That's this transaction. The program reads the settled log, decides the winner from it, and pays the pot out on chain."
+    },
+    {
+      "id": "14_chest",
+      "shot": "chest-buy",
+      "text": "Winning a match earns you a chest. You can wait out its timer, skip it with MEMPIRE, the game's own token, or buy one outright."
+    },
+    {
+      "id": "15a_open",
+      "shot": "chest-open",
+      "text": "Win, and a chest lands in your rack. Skip the timer with MEMPIRE, open it, and the cards inside are minted straight into your collection."
+    },
+    {
+      "id": "15_vrf",
+      "shot": "explorer-chests",
+      "text": "Chest rewards run through MagicBlock's V R F. The chest rail is delegated to the rollup \u2014 that's this transaction \u2014 so a roll is requested on chain, and every chest records the seed it came from. Which means the loot table is something you can verify, not something you take on trust."
+    },
+    {
+      "id": "16_clan",
+      "shot": "clan",
+      "text": "Beyond the matches there's a clan to start, a ladder to climb, and an in-app swap so you can pick up MEMPIRE without leaving the game."
+    },
+    {
+      "id": "17_close",
+      "shot": "outro",
+      "text": "Mempire. Your bags, your army. Built on Solana, running on MagicBlock. Every program is deployed and every match in this video settled on chain. Go and play it at app dot mempire dot fun. Thanks for watching."
+    }
+  ]
+}

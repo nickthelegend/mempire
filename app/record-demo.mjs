@@ -104,9 +104,10 @@ async function connect(page, label) {
     const phantom = page.getByRole('button', { name: /phantom/i }).first();
     if (await phantom.isVisible().catch(() => false)) await phantom.click();
   }
-  await page.waitForFunction(() => !!window.phantom?.solana?.isConnected, { timeout: 20_000 });
+  await page.waitForFunction(() => !!window.phantom?.solana?.isConnected, undefined, { timeout: 20_000 });
   await page.waitForFunction(
     () => !/connect wallet/i.test(document.body.innerText),
+    undefined,
     { timeout: 20_000 },
   );
   console.log(`  ${label} connected`);

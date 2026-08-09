@@ -42,6 +42,21 @@ async function main() {
     known.set(kp.publicKey.toBase58(), kp);
   }
 
+  /**
+   * The demo-recording seats, when they exist.
+   *
+   * A recording take that ends before its match does strands exactly the same
+   * way a crashed test does — sixteen locked cards and two stakes — and the
+   * next take then reports "ladder only" because `onchainDeckIds` cannot find
+   * eight *unlocked* cards. Without these keys here that state is unclearable
+   * by this script, which is the one tool for it.
+   */
+  try {
+    const demo: Keypair[] = JSON.parse(readFileSync('../app/.demo-wallets.json', 'utf8'))
+      .map((s: number[]) => Keypair.fromSecretKey(Uint8Array.from(s)));
+    for (const kp of demo) known.set(kp.publicKey.toBase58(), kp);
+  } catch { /* no demo wallets on this machine — the rest still works */ }
+
   const idl = JSON.parse(readFileSync('target/idl/mempire.json', 'utf8'));
   const read = new anchor.Program(
     idl,
@@ -124,6 +139,21 @@ async function main() {
       new anchor.AnchorProvider(conn, new anchor.Wallet(kp), { commitment: 'confirmed' }),
     );
     try {
+      /**
+       * Both seats and the log, which this script used to omit.
+       *
+       * `claim_timeout` grew three accounts when the disputed-result race was
+       * fixed: a contradiction between the two seats now settles the match as
+       * *void* and refunds both stakes, so both player accounts have to be
+       * writable, and the log is what the instruction reads to discover whether
+       * the seats disagreed. Passing the old five failed with "Account
+       * `playerA` not provided" — the resolver had quietly stopped being able
+       * to resolve anything.
+       */
+      const logPda = PublicKey.findProgramAddressSync(
+        [Buffer.from('log'), new anchor.BN(id).toArrayLike(Buffer, 'le', 8)],
+        pid,
+      )[0];
       const sig = await (prog.methods as any).claimTimeout()
         .accounts({
           config: configPda,
@@ -131,6 +161,9 @@ async function main() {
           claimer: kp.publicKey,
           winnerAccount: kp.publicKey,
           treasury: cfg.treasury,
+          playerA: m.account.players[0],
+          playerB: m.account.players[1],
+          matchLog: logPda,
         })
         .remainingAccounts(locked)
         .rpc();

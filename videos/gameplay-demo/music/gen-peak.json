@@ -1,0 +1,22 @@
+[
+  {
+    "created_at": "2026-08-09T06:06:20.307043Z",
+    "display_name": "Seed Audio 1.0",
+    "id": "38ea7b7e-03e9-4a0d-a711-d1f4c69f5c4a",
+    "job_type": "seed_audio",
+    "min_result_url": null,
+    "params": {
+      "batch_size": 1,
+      "expression_intensity": 5,
+      "format": "wav",
+      "loudness_rate": 0,
+      "mood": 0,
+      "pitch_rate": 0,
+      "prompt": "Electronic game trailer music, peak section. Hard driving four-on-the-floor kick at 128 BPM, aggressive analog saw bass, bright stabbing synth chords, energetic claps and rolling hi-hats, triumphant lead melody. Mid-scooped so a voice sits above it. Instrumental only, no vocals, no speech.",
+      "sample_rate": 44100,
+      "speech_rate": 0
+    },
+    "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3Ad5izE2BSamDLSxFEJQ7GTV5F3/hf_20260809_060620_38ea7b7e-03e9-4a0d-a711-d1f4c69f5c4a.wav",
+    "status": "completed"
+  }
+]

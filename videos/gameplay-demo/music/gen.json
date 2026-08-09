@@ -1,0 +1,22 @@
+[
+  {
+    "created_at": "2026-08-09T06:05:08.787588Z",
+    "display_name": "Seed Audio 1.0",
+    "id": "4c53faa1-6498-41fa-9d39-18160dc05ffa",
+    "job_type": "seed_audio",
+    "min_result_url": null,
+    "params": {
+      "batch_size": 1,
+      "expression_intensity": 5,
+      "format": "wav",
+      "loudness_rate": 0,
+      "mood": 0,
+      "pitch_rate": 0,
+      "prompt": "Energetic electronic game trailer music. Driving four-on-the-floor beat around 128 BPM, punchy analog synth bass, bright arpeggiated plucks, crisp claps and hi-hats. Confident and hyped like a mobile battle game trailer, but clean and mid-scooped so a voiceover sits on top of it. Builds gradually, a short filtered breakdown in the middle, then a bigger final section. No vocals, no speech, instrumental only, seamless and steady throughout.",
+      "sample_rate": 44100,
+      "speech_rate": 0
+    },
+    "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_3Ad5izE2BSamDLSxFEJQ7GTV5F3/hf_20260809_060508_4c53faa1-6498-41fa-9d39-18160dc05ffa.wav",
+    "status": "completed"
+  }
+]

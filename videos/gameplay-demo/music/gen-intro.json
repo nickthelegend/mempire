@@ -1,0 +1,23 @@
+[
+  {
+    "created_at": "2026-08-09T06:06:17.300229Z",
+    "display_name": "Seed Audio 1.0",
+    "id": "429ed873-e6ae-47af-ba11-7c06515f95ad",
+    "job_type": "seed_audio",
+    "min_result_url": null,
+    "params": {
+      "batch_size": 1,
+      "expression_intensity": 5,
+      "format": "wav",
+      "loudness_rate": 0,
+      "mood": 0,
+      "pitch_rate": 0,
+      "prompt": "Electronic game trailer music, opening section. Sparse and atmospheric: a low filtered synth pad, a slow pulsing sub bass, distant bell arpeggio, light rising tension. 128 BPM. No drums yet, building anticipation. Instrumental only, no vocals, no speech.",
+      "sample_rate": 44100,
+      "speech_rate": 0
+    },
+    "result_url": null,
+    "status": "nsfw"
+  }
+]
+Error: job 429ed873-e6ae-47af-ba11-7c06515f95ad ended with status "nsfw"

@@ -27,3 +27,19 @@ videos/*/.hyperframes/
 # worthless, but still keys.
 app/.demo-wallets.json
 app/.demo-recording/
+
+# Demo video intermediates. All rebuildable from the scripts beside them:
+# frames/ and cards/ from make-intro.py + make-cards.py, vo/ from tts.mjs,
+# music/*.wav from the Higgsfield job ids in music/gen*.json. 450MB of PNGs and
+# audio does not belong in a git history.
+videos/*/frames/
+videos/*/cards/
+videos/*/vo/*.wav
+videos/*/music/*.wav
+videos/*/work/
+app/.demo-recording/
+
+# The rendered trailers themselves — large, and reproducible from the
+# assemble scripts plus the recordings.
+videos/*/renders/
+videos/product-demo/*.mp4
