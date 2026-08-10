@@ -315,7 +315,9 @@ function CoinRow({ coin }: { coin: Coin }) {
   const balance = onchain ? (chainBalances.get(coin.mint) ?? 0) : coin.balance;
   const value = balance * coin.priceUsd;
   const affordable = onchain ? chainSol >= FEES.mintSol : wallet.sol >= FEES.mintSol;
-  const noHoldings = onchain && balance <= 0;
+  // Holding the coin is no longer a requirement, on chain or here. The balance
+  // still renders on the row — how much of a coin you hold is interesting — it
+  // simply no longer decides whether you may mint its card.
 
   /**
    * Onchain: one wallet-signed transaction; the program re-checks eligibility,
@@ -373,17 +375,6 @@ function CoinRow({ coin }: { coin: Coin }) {
             }}
           >
             {reason}
-          </span>
-        ) : noHoldings ? (
-          <span
-            className="well"
-            style={{
-              display: 'inline-block', padding: '5px 8px', fontSize: 12,
-              fontWeight: 700, color: 'var(--dim)', maxWidth: 116,
-              textAlign: 'center', lineHeight: 1.25,
-            }}
-          >
-            none in wallet
           </span>
         ) : owned > 0 ? (
           /* One card per coin is a deck rule, so a second card for a coin you

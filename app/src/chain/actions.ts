@@ -4,7 +4,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
 } from '@solana/spl-token';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
-import { canSign, getProgram, getProvider } from './provider';
+import { canSign, getProgram, getProvider, getConnection } from './provider';
 import {
   PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
 } from './pdas';
@@ -70,10 +70,13 @@ export function readableChainError(e: unknown): string {
 export interface TxResult { signature: string }
 
 /**
- * Mint a card from a coin the wallet holds.
+ * Mint a card from any eligible coin.
  *
- * The program re-checks liquidity, age and a non-zero balance, so this cannot
- * be talked into minting an ineligible coin by a patched client.
+ * The program re-checks liquidity and age, so a patched client cannot talk it
+ * into minting an ineligible coin. It no longer checks the caller's balance:
+ * holding the coin stopped being a requirement, because gating the roster
+ * behind a wallet audit meant nobody could field a deck without first
+ * acquiring eight specific SPL tokens.
  */
 export async function mintCardTx(adapter: Adapter | null, mint: string): Promise<TxResult> {
   const wallet = requireSigner(adapter);
@@ -84,13 +87,26 @@ export async function mintCardTx(adapter: Adapter | null, mint: string): Promise
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
+  /*
+   * The token account is passed only when it exists.
+   *
+   * Minting no longer requires holding the coin, and someone who does not hold
+   * it has no associated token account for it — naming an address that has
+   * never been created fails account resolution before the program is even
+   * reached, which would have locked out precisely the players the change was
+   * made for. Null is a legal value for an optional account; a non-existent
+   * address is not.
+   */
+  const ata = getAssociatedTokenAddressSync(mintKey, owner);
+  const holdsIt = await getConnection().getAccountInfo(ata).catch(() => null);
+
   const signature = await program.methods
     .mintCard()
     .accounts({
       config: configPda(),
       coinInfo: coinPda(mintKey),
       card: cardPda(cfg.nextCardId),
-      ownerTokens: getAssociatedTokenAddressSync(mintKey, owner),
+      ownerTokens: holdsIt ? ata : null,
       owner,
       treasury: new PublicKey(cfg.treasury),
       systemProgram: SystemProgram.programId,

@@ -151,10 +151,21 @@ pub mod mempire {
             now.saturating_sub(info.first_seen_ts) >= cfg.min_age_secs,
             MempireError::CoinTooYoung
         );
-        require!(
-            ctx.accounts.owner_tokens.amount > 0,
-            MempireError::NoHoldings
-        );
+        // Holding the coin is no longer required to mint its card.
+        //
+        // "Your bags are your army" was the premise, and enforcing it here is
+        // what made it true rather than marketing. It also meant the only
+        // people who could field a deck were people who already held eight
+        // specific SPL tokens — on mainnet a rounding error of an audience,
+        // and on devnet a faucet dependency for every single new player. The
+        // game gated itself behind a wallet audit before anyone had seen a
+        // match.
+        //
+        // The eligibility rules above stay: liquidity and age are claims about
+        // the *coin*, and they are what stop someone minting a god card from a
+        // token they launched this morning. What is gone is the claim about
+        // the player's wallet. Power now comes from playing the card, which is
+        // a thing anyone can start doing.
 
         system_program::transfer(
             CpiContext::new(
@@ -1380,11 +1391,19 @@ pub struct MintCard<'info> {
         bump
     )]
     pub card: Account<'info, Card>,
+    /// Optional, and no longer checked for a balance.
+    ///
+    /// A player who does not hold the coin has no associated token account for
+    /// it at all, so leaving this required would make the transaction
+    /// unbuildable for exactly the people minting is now open to — the account
+    /// does not exist to pass. Kept as an option rather than deleted so a
+    /// client that still sends it is not broken by the change, and the mint
+    /// and owner constraints still hold for anyone who does.
     #[account(
         constraint = owner_tokens.mint == coin_info.mint,
         constraint = owner_tokens.owner == owner.key(),
     )]
-    pub owner_tokens: Account<'info, TokenAccount>,
+    pub owner_tokens: Option<Account<'info, TokenAccount>>,
     #[account(mut)]
     pub owner: Signer<'info>,
     /// CHECK: validated against config.treasury

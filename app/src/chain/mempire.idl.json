@@ -195,6 +195,39 @@
         {
           "name": "treasury",
           "writable": true
+        },
+        {
+          "name": "player_a",
+          "writable": true
+        },
+        {
+          "name": "player_b",
+          "writable": true
+        },
+        {
+          "name": "match_log",
+          "docs": [
+            "different account — or a blank one — to hide a disagreement. It may be",
+            "genuinely uninitialised (no log was ever created) or still delegated,",
+            "and the handler distinguishes those from a real dispute by ownership."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  108,
+                  111,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -393,7 +426,7 @@
           "type": "u64"
         },
         {
-          "name": "deck_hash",
+          "name": "_deck_hash",
           "type": {
             "array": [
               "u8",
@@ -905,7 +938,7 @@
       ],
       "args": [
         {
-          "name": "deck_hash",
+          "name": "_deck_hash",
           "type": {
             "array": [
               "u8",
@@ -1044,7 +1077,18 @@
           }
         },
         {
-          "name": "owner_tokens"
+          "name": "owner_tokens",
+          "docs": [
+            "Optional, and no longer checked for a balance.",
+            "",
+            "A player who does not hold the coin has no associated token account for",
+            "it at all, so leaving this required would make the transaction",
+            "unbuildable for exactly the people minting is now open to — the account",
+            "does not exist to pass. Kept as an option rather than deleted so a",
+            "client that still sends it is not broken by the change, and the mint",
+            "and owner constraints still hold for anyone who does."
+          ],
+          "optional": true
         },
         {
           "name": "owner",
