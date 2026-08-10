@@ -1,7 +1,11 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
+use anchor_spl::metadata::{
+    create_metadata_accounts_v3, CreateMetadataAccountsV3, Metadata,
+    mpl_token_metadata::types::DataV2,
+};
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
@@ -34,6 +38,9 @@ const MEMPIRE_MINT: Pubkey = pubkey!("AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFp
 /// tokens. Multiplied by the current level, so 1→2 costs 100 and 9→10 costs
 /// 900, and the climb is a decision rather than an afternoon.
 const UPGRADE_BASE_FEE: u64 = 100_000_000;
+
+/// Where a card's metadata JSON lives. The ticker is appended, lower-cased.
+const METADATA_BASE_URI: &str = "https://play.mempire.fun/nft/";
 const DECK_SIZE: usize = 8;
 
 fn level_for_micro_usd(usd: u64) -> u8 {
@@ -276,6 +283,104 @@ pub mod mempire {
             level: keep.level,
             burned: dupe.key(),
             paid: price,
+        });
+        Ok(())
+    }
+
+    /// Turn an existing card into a real NFT.
+    ///
+    /// # Why this is separate from `mint_card`
+    ///
+    /// A card has always been an Anchor PDA: correct, cheap, and completely
+    /// invisible to every wallet and explorer, which render it as a program
+    /// account full of bytes. "Your bags are your army" is a claim nobody could
+    /// see anywhere except inside this game.
+    ///
+    /// This mints the 1-of-1 that makes it visible — a 0-decimal mint with a
+    /// supply of one, a Metaplex metadata account carrying the fighter's name
+    /// and art, and mint authority burned afterwards so the supply can never
+    /// move off one.
+    ///
+    /// Additive rather than folded into `mint_card`, for two reasons: minting
+    /// stays cheap for anyone who does not want the NFT, and every card that
+    /// already exists can still be tokenised. Folding it in would have changed
+    /// `mint_card`'s account list and stranded the cards already on chain.
+    ///
+    /// `level` is deliberately *not* written into the metadata. It changes
+    /// every time a duplicate is merged, and metadata that lies within a minute
+    /// of being written is worse than metadata that stays quiet — the card
+    /// account is the authority on level, and the URI points at art, not stats.
+    pub fn tokenize_card(ctx: Context<TokenizeCard>, ticker: String) -> Result<()> {
+        require!(ticker.len() <= 12, MempireError::TickerTooLong);
+        let card = &ctx.accounts.card;
+        let card_id = card.id;
+
+        let bump = ctx.bumps.mint_authority;
+        let seeds: &[&[u8]] = &[b"nft", &card_id.to_le_bytes(), &[bump]];
+        let signer: &[&[&[u8]]] = &[seeds];
+
+        // One token, then the authority is dropped. A 1-of-1 whose issuer can
+        // still print is not a 1-of-1.
+        token::mint_to(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                MintTo {
+                    mint: ctx.accounts.nft_mint.to_account_info(),
+                    to: ctx.accounts.owner_nft.to_account_info(),
+                    authority: ctx.accounts.mint_authority.to_account_info(),
+                },
+                signer,
+            ),
+            1,
+        )?;
+
+        let upper = ticker.to_uppercase();
+        let lower = ticker.to_lowercase();
+        create_metadata_accounts_v3(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_metadata_program.to_account_info(),
+                CreateMetadataAccountsV3 {
+                    metadata: ctx.accounts.metadata.to_account_info(),
+                    mint: ctx.accounts.nft_mint.to_account_info(),
+                    mint_authority: ctx.accounts.mint_authority.to_account_info(),
+                    payer: ctx.accounts.owner.to_account_info(),
+                    update_authority: ctx.accounts.mint_authority.to_account_info(),
+                    system_program: ctx.accounts.system_program.to_account_info(),
+                    rent: ctx.accounts.rent.to_account_info(),
+                },
+                signer,
+            ),
+            DataV2 {
+                name: format!("Mempire ${}", upper),
+                symbol: "MEMFTR".to_string(),
+                uri: format!("{}{}.json", METADATA_BASE_URI, lower),
+                seller_fee_basis_points: 500,
+                creators: None,
+                collection: None,
+                uses: None,
+            },
+            true,
+            true,
+            None,
+        )?;
+
+        token::set_authority(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                token::SetAuthority {
+                    current_authority: ctx.accounts.mint_authority.to_account_info(),
+                    account_or_mint: ctx.accounts.nft_mint.to_account_info(),
+                },
+                signer,
+            ),
+            anchor_spl::token::spl_token::instruction::AuthorityType::MintTokens,
+            None,
+        )?;
+
+        emit!(CardTokenized {
+            card: card.key(),
+            owner: card.owner,
+            nft_mint: ctx.accounts.nft_mint.key(),
         });
         Ok(())
     }
@@ -1489,6 +1594,54 @@ pub struct MintCard<'info> {
 }
 
 #[derive(Accounts)]
+pub struct TokenizeCard<'info> {
+    #[account(
+        seeds = [b"card", card.id.to_le_bytes().as_ref()],
+        bump = card.bump,
+        has_one = owner @ MempireError::NotCardOwner,
+    )]
+    pub card: Account<'info, Card>,
+
+    /// The 1-of-1. Zero decimals so the supply cannot be fractional, and
+    /// derived from the card id so a card can be tokenised exactly once —
+    /// `init` fails the second time rather than minting a rival copy.
+    #[account(
+        init,
+        payer = owner,
+        seeds = [b"nftmint", card.id.to_le_bytes().as_ref()],
+        bump,
+        mint::decimals = 0,
+        mint::authority = mint_authority,
+        mint::freeze_authority = mint_authority,
+    )]
+    pub nft_mint: Account<'info, Mint>,
+
+    /// CHECK: PDA that signs the mint and the metadata write. Never holds data.
+    #[account(seeds = [b"nft", card.id.to_le_bytes().as_ref()], bump)]
+    pub mint_authority: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
+        payer = owner,
+        associated_token::mint = nft_mint,
+        associated_token::authority = owner,
+    )]
+    pub owner_nft: Account<'info, TokenAccount>,
+
+    /// CHECK: validated by the token metadata program, which owns this PDA.
+    #[account(mut)]
+    pub metadata: UncheckedAccount<'info>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub token_metadata_program: Program<'info, Metadata>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
 pub struct UpgradeCard<'info> {
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
@@ -1832,6 +1985,13 @@ pub struct SettleFromLog<'info> {
 // ── Events & errors ──────────────────────────────────────────────────────────
 
 #[event]
+pub struct CardTokenized {
+    pub card: Pubkey,
+    pub owner: Pubkey,
+    pub nft_mint: Pubkey,
+}
+
+#[event]
 pub struct CardUpgraded {
     pub card: Pubkey,
     pub owner: Pubkey,
@@ -1915,6 +2075,8 @@ pub enum MempireError {
     DifferentCoins,
     #[msg("card is already at the maximum level")]
     MaxLevel,
+    #[msg("ticker is too long")]
+    TickerTooLong,
     #[msg("an unstake is already pending")]
     UnstakePending,
     #[msg("nothing to claim")]

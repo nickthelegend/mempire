@@ -1,4 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { readableChainError, tokenizeCardTx } from '../chain/actions';
+import { useChain } from '../state/chain';
+import { signer } from '../state/wallet';
+import { play } from '../lib/audio';
+import { Spinner } from './ui';
 import { coinByMint, tickerOf } from '../lib/coins';
 import { fmtTokens, fmtUsd } from '../lib/format';
 import { nextLevelAt } from '../lib/leveling';
@@ -53,6 +58,34 @@ export function CardDetail({
 }: { card: MintedCard; onClose: () => void; onStake?: () => void }) {
   const sheet = useRef<HTMLDivElement>(null);
   const coin = coinByMint(card.mint);
+  const chainCards = useChain((s) => s.cards);
+  const noteSignature = useChain((s) => s.noteSignature);
+  const [minting, setMinting] = useState(false);
+  const [nft, setNft] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  /*
+   * The onchain twin of this card, if it has one. Only a card that exists on
+   * chain can be tokenised — a seeded starter has no id to derive a mint from.
+   */
+  const onChain = chainCards.find((c) => c.mint === card.mint);
+
+  const tokenize = async () => {
+    if (!onChain || !coin) return;
+    setMinting(true);
+    setErr(null);
+    try {
+      const res = await tokenizeCardTx(signer(), onChain.id, coin.ticker);
+      noteSignature(res.signature);
+      setNft(res.nftMint);
+      play('reward');
+    } catch (e) {
+      setErr(readableChainError(e));
+      play('error');
+    } finally {
+      setMinting(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -242,6 +275,60 @@ export function CardDetail({
             </span>
           </span>
         </div>
+
+        {/*
+          A card is an Anchor PDA: correct, cheap, and invisible to every wallet
+          and explorer, which render it as a program account full of bytes. This
+          mints the 1-of-1 that makes it visible — supply one, zero decimals,
+          Metaplex metadata pointing at the fighter's own art, mint authority
+          dropped afterwards. Optional on purpose, so minting a card stays cheap
+          for anyone who does not want the NFT.
+        */}
+        {onChain && (
+          nft ? (
+            <a
+              href={`https://explorer.solana.com/address/${nft}?cluster=devnet`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-3d"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                minHeight: 50, borderRadius: 'var(--r-pill)', textDecoration: 'none',
+                background: 'linear-gradient(180deg, var(--btn-green-hi), var(--btn-green) 50%)',
+                border: '3px solid var(--ink)',
+                fontFamily: 'var(--font-display)', fontSize: 17, color: '#fff',
+                WebkitTextStroke: '2.5px var(--ink)', paintOrder: 'stroke fill',
+                boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 5px 0 var(--btn-green-dark)',
+              }}
+            >
+              View your NFT on Solana
+            </a>
+          ) : (
+            <button
+              onClick={() => void tokenize()}
+              disabled={minting}
+              className="btn-3d"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                minHeight: 50, borderRadius: 'var(--r-pill)',
+                background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue) 50%)',
+                border: '3px solid var(--ink)',
+                fontFamily: 'var(--font-display)', fontSize: 17, color: '#fff',
+                WebkitTextStroke: '2.5px var(--ink)', paintOrder: 'stroke fill',
+                boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 5px 0 var(--btn-blue-dark)',
+              }}
+            >
+              {minting && <Spinner />}
+              {minting ? 'Minting the NFT' : 'Mint as NFT'}
+            </button>
+          )
+        )}
+
+        {err && (
+          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>
+            {err}
+          </p>
+        )}
 
         {onStake && (
           <button

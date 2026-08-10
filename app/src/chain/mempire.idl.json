@@ -2029,6 +2029,245 @@
       ]
     },
     {
+      "name": "tokenize_card",
+      "docs": [
+        "Turn an existing card into a real NFT.",
+        "",
+        "# Why this is separate from `mint_card`",
+        "",
+        "A card has always been an Anchor PDA: correct, cheap, and completely",
+        "invisible to every wallet and explorer, which render it as a program",
+        "account full of bytes. \"Your bags are your army\" is a claim nobody could",
+        "see anywhere except inside this game.",
+        "",
+        "This mints the 1-of-1 that makes it visible — a 0-decimal mint with a",
+        "supply of one, a Metaplex metadata account carrying the fighter's name",
+        "and art, and mint authority burned afterwards so the supply can never",
+        "move off one.",
+        "",
+        "Additive rather than folded into `mint_card`, for two reasons: minting",
+        "stays cheap for anyone who does not want the NFT, and every card that",
+        "already exists can still be tokenised. Folding it in would have changed",
+        "`mint_card`'s account list and stranded the cards already on chain.",
+        "",
+        "`level` is deliberately *not* written into the metadata. It changes",
+        "every time a duplicate is merged, and metadata that lies within a minute",
+        "of being written is worse than metadata that stays quiet — the card",
+        "account is the authority on level, and the URI points at art, not stats."
+      ],
+      "discriminator": [
+        173,
+        137,
+        85,
+        186,
+        239,
+        163,
+        65,
+        58
+      ],
+      "accounts": [
+        {
+          "name": "card",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "nft_mint",
+          "docs": [
+            "The 1-of-1. Zero decimals so the supply cannot be fractional, and",
+            "derived from the card id so a card can be tokenised exactly once —",
+            "`init` fails the second time rather than minting a rival copy."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_nft",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "owner"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "nft_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "card"
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "ticker",
+          "type": "string"
+        }
+      ]
+    },
+    {
       "name": "upgrade_card",
       "docs": [
         "Merge a duplicate card into one you keep, for a level.",
@@ -2241,6 +2480,19 @@
       ]
     },
     {
+      "name": "CardTokenized",
+      "discriminator": [
+        189,
+        164,
+        126,
+        83,
+        197,
+        180,
+        230,
+        89
+      ]
+    },
+    {
       "name": "CardUpgraded",
       "discriminator": [
         40,
@@ -2385,101 +2637,106 @@
     },
     {
       "code": 6010,
+      "name": "TickerTooLong",
+      "msg": "ticker is too long"
+    },
+    {
+      "code": 6011,
       "name": "UnstakePending",
       "msg": "an unstake is already pending"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "NothingToClaim",
       "msg": "nothing to claim"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "CooldownActive",
       "msg": "unstake cooldown still active"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "BadDeck",
       "msg": "deck must be exactly 8 owned, unlocked cards"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "NotCardOwner",
       "msg": "card not owned by player"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "DuplicateCoin",
       "msg": "deck may contain each coin only once"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "BadMatchState",
       "msg": "match is not in the required state"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "SelfMatch",
       "msg": "cannot battle yourself"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "PowerMismatch",
       "msg": "deck power outside the tier band"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "BadWinner",
       "msg": "invalid winner value"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "NotAPlayer",
       "msg": "signer is not a match player"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "TooEarly",
       "msg": "deadline has not passed"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "WrongTreasury",
       "msg": "fee account is not the treasury named in config"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "NotUpgradeAuthority",
       "msg": "signer is not the program's upgrade authority"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "BadCardLayout",
       "msg": "card account is not a recognised layout"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "AlreadyClaimed",
       "msg": "this seat has already recorded its result"
     },
     {
-      "code": 6029,
+      "code": 6030,
       "name": "TreasuryUnchanged",
       "msg": "the treasury is already that address"
     }
@@ -2568,6 +2825,26 @@
           {
             "name": "archetype",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CardTokenized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "card",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "nft_mint",
+            "type": "pubkey"
           }
         ]
       }

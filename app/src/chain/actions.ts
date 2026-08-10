@@ -155,6 +155,64 @@ export async function upgradeCardTx(
   return { signature };
 }
 
+/** Metaplex Token Metadata. Same address on every cluster. */
+export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+  'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
+);
+
+export const nftMintPda = (cardId: number): PublicKey => PublicKey.findProgramAddressSync(
+  [Buffer.from('nftmint'), new BN(cardId).toArrayLike(Buffer, 'le', 8)],
+  PROGRAM_ID,
+)[0];
+
+const metadataPda = (mint: PublicKey): PublicKey => PublicKey.findProgramAddressSync(
+  [Buffer.from('metadata'), TOKEN_METADATA_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+  TOKEN_METADATA_PROGRAM_ID,
+)[0];
+
+/**
+ * Turn a card into a real 1-of-1 NFT.
+ *
+ * A card is an Anchor PDA — correct, cheap, and invisible to every wallet and
+ * explorer, which render it as a program account full of bytes. This mints the
+ * token that makes it visible: 0 decimals, supply one, Metaplex metadata
+ * pointing at the fighter's art, mint authority dropped afterwards.
+ *
+ * Seeded on the card id, so a card can be tokenised exactly once — the second
+ * attempt fails on `init` rather than minting a rival copy.
+ */
+export async function tokenizeCardTx(
+  adapter: Adapter | null, cardId: number, ticker: string,
+): Promise<TxResult & { nftMint: string }> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(adapter);
+  const owner = wallet.publicKey!;
+  const nftMint = nftMintPda(cardId);
+
+  const signature = await program.methods
+    .tokenizeCard(ticker.replace(/^\$+/, '').toUpperCase())
+    .accounts({
+      card: cardPda(cardId),
+      nftMint,
+      mintAuthority: PublicKey.findProgramAddressSync(
+        [Buffer.from('nft'), new BN(cardId).toArrayLike(Buffer, 'le', 8)],
+        PROGRAM_ID,
+      )[0],
+      ownerNft: getAssociatedTokenAddressSync(nftMint, owner),
+      metadata: metadataPda(nftMint),
+      owner,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      tokenMetadataProgram: TOKEN_METADATA_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+      rent: new PublicKey('SysvarRent111111111111111111111111111111111'),
+    } as any)
+    .rpc();
+
+  track('card.tokenize', { cardId, ticker });
+  return { signature, nftMint: nftMint.toBase58() };
+}
+
 /** What merging the next level costs, in whole $MEMPIRE. Mirrors the program. */
 export const upgradeCost = (level: number): number => 100 * level;
 
