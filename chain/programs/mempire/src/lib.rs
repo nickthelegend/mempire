@@ -24,6 +24,16 @@ const LEVEL_THRESHOLDS_MICRO_USD: [u64; 10] = [
 ];
 
 const MIN_LIQUIDITY_USD: u64 = 25_000;
+
+/// The game's currency. Constants rather than `Config` fields on purpose:
+/// `Config::SIZE` is exact, so widening it would orphan the live config
+/// account the same way a wider `Card` would orphan every existing card.
+const MEMPIRE_MINT: Pubkey = pubkey!("AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFpR8");
+
+/// Base units of $MEMPIRE (6 decimals) for the first upgrade — 100 whole
+/// tokens. Multiplied by the current level, so 1→2 costs 100 and 9→10 costs
+/// 900, and the climb is a decision rather than an afternoon.
+const UPGRADE_BASE_FEE: u64 = 100_000_000;
 const DECK_SIZE: usize = 8;
 
 fn level_for_micro_usd(usd: u64) -> u8 {
@@ -203,6 +213,72 @@ pub mod mempire {
         Ok(())
     }
 
+
+    /// Merge a duplicate card into one you keep, for a level.
+    ///
+    /// # Why this is how cards level now
+    ///
+    /// Levels used to come from `stake`: lock more of a coin into its card and
+    /// the card got stronger. That made power a function of how much of a token
+    /// you could afford to immobilise, which is a wealth ladder wearing a
+    /// progression system's clothes — and it required holding the coin, which
+    /// `mint_card` no longer does either.
+    ///
+    /// So power comes from playing. You win, you earn a chest, the chest drops
+    /// a card. A card for a coin you already own is otherwise dead weight —
+    /// decks are one-per-coin, so a second `$BTC` can never be fielded — and
+    /// this is what turns that duplicate into the reward it should have been.
+    /// Eleven duplicate cards used to be eleven mint fees for nothing.
+    ///
+    /// The duplicate is closed and its rent returned to the owner, so merging
+    /// costs the fee below and nothing else.
+    ///
+    /// Both cards must be free. Levelling a card mid-match would change the
+    /// power band a match was opened under, and closing one that a match still
+    /// names would strand settlement on a missing account.
+    pub fn upgrade_card(ctx: Context<UpgradeCard>) -> Result<()> {
+        let keep = &ctx.accounts.card;
+        let dupe = &ctx.accounts.duplicate;
+
+        require!(keep.key() != dupe.key(), MempireError::SameCard);
+        require!(
+            keep.coin_mint == dupe.coin_mint,
+            MempireError::DifferentCoins
+        );
+        require!(!keep.is_locked() && !dupe.is_locked(), MempireError::CardLocked);
+        require!(keep.level < 10, MempireError::MaxLevel);
+
+        // Priced per level, so the last one costs what the whole climb did.
+        // A flat fee makes level 10 an afternoon's grinding; this makes it a
+        // decision. Charged in $MEMPIRE because that is the game's currency and
+        // the only sink that gives it a reason to be held.
+        let price = UPGRADE_BASE_FEE.saturating_mul(keep.level as u64);
+
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.owner_mempire.to_account_info(),
+                    to: ctx.accounts.treasury_mempire.to_account_info(),
+                    authority: ctx.accounts.owner.to_account_info(),
+                },
+            ),
+            price,
+        )?;
+
+        let keep = &mut ctx.accounts.card;
+        keep.level += 1;
+
+        emit!(CardUpgraded {
+            card: keep.key(),
+            owner: keep.owner,
+            mint: keep.coin_mint,
+            level: keep.level,
+            burned: dupe.key(),
+            paid: price,
+        });
+        Ok(())
+    }
 
     /// One-time: rewrite a `Card` written under the pre-`locked_by` layout.
     ///
@@ -1413,6 +1489,50 @@ pub struct MintCard<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpgradeCard<'info> {
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
+    /// The card that survives and gains the level.
+    #[account(
+        mut,
+        seeds = [b"card", card.id.to_le_bytes().as_ref()],
+        bump = card.bump,
+        has_one = owner @ MempireError::NotCardOwner,
+    )]
+    pub card: Account<'info, Card>,
+
+    /// The duplicate, closed into the owner. Its rent comes back, so a merge
+    /// costs the $MEMPIRE fee and nothing else.
+    #[account(
+        mut,
+        seeds = [b"card", duplicate.id.to_le_bytes().as_ref()],
+        bump = duplicate.bump,
+        has_one = owner @ MempireError::NotCardOwner,
+        close = owner,
+    )]
+    pub duplicate: Account<'info, Card>,
+
+    #[account(
+        mut,
+        constraint = owner_mempire.mint == MEMPIRE_MINT @ MempireError::WrongTreasury,
+        constraint = owner_mempire.owner == owner.key() @ MempireError::NotCardOwner,
+    )]
+    pub owner_mempire: Account<'info, TokenAccount>,
+
+    #[account(
+        mut,
+        constraint = treasury_mempire.mint == MEMPIRE_MINT @ MempireError::WrongTreasury,
+        constraint = treasury_mempire.owner == config.treasury @ MempireError::WrongTreasury,
+    )]
+    pub treasury_mempire: Account<'info, TokenAccount>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
 pub struct StakeTokens<'info> {
     #[account(seeds = [b"coin", coin_info.mint.as_ref()], bump = coin_info.bump)]
     pub coin_info: Account<'info, CoinInfo>,
@@ -1712,6 +1832,18 @@ pub struct SettleFromLog<'info> {
 // ── Events & errors ──────────────────────────────────────────────────────────
 
 #[event]
+pub struct CardUpgraded {
+    pub card: Pubkey,
+    pub owner: Pubkey,
+    pub mint: Pubkey,
+    pub level: u8,
+    /// The duplicate that was consumed.
+    pub burned: Pubkey,
+    /// Base units of $MEMPIRE paid to the treasury.
+    pub paid: u64,
+}
+
+#[event]
 pub struct CardMinted {
     pub card: Pubkey,
     pub owner: Pubkey,
@@ -1777,6 +1909,12 @@ pub enum MempireError {
     ZeroAmount,
     #[msg("card is locked in a match or cooldown")]
     CardLocked,
+    #[msg("a card cannot be merged into itself")]
+    SameCard,
+    #[msg("both cards must be the same coin")]
+    DifferentCoins,
+    #[msg("card is already at the maximum level")]
+    MaxLevel,
     #[msg("an unstake is already pending")]
     UnstakePending,
     #[msg("nothing to claim")]

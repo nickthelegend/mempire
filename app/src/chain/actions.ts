@@ -9,6 +9,7 @@ import {
   PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
 } from './pdas';
 import { fetchConfig } from './read';
+import { MEMPIRE_MINT } from './amm';
 import { track } from '../lib/track';
 
 /**
@@ -116,6 +117,46 @@ export async function mintCardTx(adapter: Adapter | null, mint: string): Promise
   track('card.mint', { count: 1, mint });
   return { signature };
 }
+
+/**
+ * Merge a duplicate card into one you keep, for a level.
+ *
+ * Decks are one-card-per-coin, so a second card for a coin you already own can
+ * never be fielded — before this it was a mint fee spent on nothing. Now it is
+ * the level. The duplicate is closed and its rent returned, so the merge costs
+ * the $MEMPIRE fee and the signature.
+ */
+export async function upgradeCardTx(
+  adapter: Adapter | null, keepCardId: number, duplicateCardId: number,
+): Promise<TxResult> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(adapter);
+  const owner = wallet.publicKey!;
+
+  const cfg = await fetchConfig();
+  if (!cfg) throw new Error('Program config not found on this cluster');
+
+  const signature = await program.methods
+    .upgradeCard()
+    .accounts({
+      config: configPda(),
+      card: cardPda(keepCardId),
+      duplicate: cardPda(duplicateCardId),
+      ownerMempire: getAssociatedTokenAddressSync(MEMPIRE_MINT, owner),
+      treasuryMempire: getAssociatedTokenAddressSync(
+        MEMPIRE_MINT, new PublicKey(cfg.treasury), true,
+      ),
+      owner,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    } as any)
+    .rpc();
+
+  track('card.upgrade', { keep: keepCardId, burned: duplicateCardId });
+  return { signature };
+}
+
+/** What merging the next level costs, in whole $MEMPIRE. Mirrors the program. */
+export const upgradeCost = (level: number): number => 100 * level;
 
 /** Stake raw token units into a card's vault. Level snapshots at the oracle price. */
 export async function stakeTx(

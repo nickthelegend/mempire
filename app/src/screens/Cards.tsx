@@ -8,7 +8,7 @@ import { ChestRail } from '../components/Chests';
 import { Shop } from '../components/Shop';
 import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
 import {
-  claimUnstakeTx, mintCardTx, readableChainError, requestUnstakeTx, stakeTx,
+  claimUnstakeTx, mintCardTx, readableChainError, requestUnstakeTx, stakeTx, upgradeCardTx,
 } from '../chain/actions';
 import { click, play } from '../lib/audio';
 import { useChain } from '../state/chain';
@@ -297,10 +297,12 @@ function CoinRow({ coin }: { coin: Coin }) {
   const { cards, mintCard } = useCollection();
   const chainMode = useChain((s) => s.mode);
   const chainBalances = useChain((s) => s.balances);
+  const chainCards = useChain((s) => s.cards);
   const chainSol = useChain((s) => s.solBalance);
   const refresh = useChain((s) => s.refresh);
   const noteSignature = useChain((s) => s.noteSignature);
   const [minting, setMinting] = useState(false);
+  const [merging, setMerging] = useState(false);
   const [chainError, setChainError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
@@ -310,6 +312,34 @@ function CoinRow({ coin }: { coin: Coin }) {
   // Starter cards excluded: they are not something this wallet minted, and
   // counting them hid the Mint button on all eight of them.
   const owned = cards.filter((c) => c.mint === coin.mint && !c.seeded).length;
+
+  /*
+   * The onchain cards for this coin, lowest id first. The oldest is the one
+   * kept — it is the one most likely to already be sitting in a deck — and
+   * every later one is a duplicate that can be merged into it for a level.
+   */
+  const mine = chainCards
+    .filter((c) => c.mint === coin.mint)
+    .sort((a, b) => a.id - b.id);
+  const keep = mine[0];
+  const dupes = mine.slice(1);
+
+  const merge = async () => {
+    if (!keep || !dupes.length) return;
+    setMerging(true);
+    setChainError(null);
+    try {
+      const { signature } = await upgradeCardTx(signer(), keep.id, dupes[0].id);
+      noteSignature(signature);
+      play('reward');
+      void refresh();
+    } catch (e) {
+      setChainError(readableChainError(e));
+      play('error');
+    } finally {
+      setMerging(false);
+    }
+  };
   // Onchain, the balance shown is the wallet's real SPL holding of this mint —
   // the whole premise made literal. Simulated keeps the demo balance.
   const balance = onchain ? (chainBalances.get(coin.mint) ?? 0) : coin.balance;
@@ -376,10 +406,41 @@ function CoinRow({ coin }: { coin: Coin }) {
           >
             {reason}
           </span>
+        ) : dupes.length > 0 && keep ? (
+          /* Duplicates are the progression now.
+             Decks are one-card-per-coin, so a second card for a coin you own
+             can never be fielded — it used to be a mint fee spent on nothing.
+             Merging it closes the duplicate, returns its rent, and buys a
+             level for the card you keep. */
+          <button
+            onClick={() => void merge()}
+            disabled={merging || keep.level >= 10}
+            aria-label={keep.level >= 10
+              ? `${tickerOf(coin)} is at maximum level`
+              : `Merge a duplicate into ${tickerOf(coin)} for level ${keep.level + 1}`}
+            className="btn-3d"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              padding: '0 11px', ...TAP, borderRadius: 'var(--r-pill)',
+              fontFamily: 'var(--font-display)', fontSize: 13,
+              background: keep.level >= 10
+                ? 'var(--recess)'
+                : 'linear-gradient(180deg, var(--btn-green-hi), var(--btn-green) 52%, var(--btn-green-dark))',
+              border: '2px solid var(--ink)',
+              boxShadow: keep.level >= 10
+                ? 'var(--bevel-in)'
+                : 'inset 0 2px 0 rgba(255,255,255,.45), 0 3px 0 var(--btn-green-dark)',
+              color: 'var(--text)',
+              WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {merging && <Spinner />}
+            {keep.level >= 10
+              ? 'Max level'
+              : merging ? 'Merging' : <>Merge · Lv {keep.level + 1}</>}
+          </button>
         ) : owned > 0 ? (
-          /* One card per coin is a deck rule, so a second card for a coin you
-             already hold can never be fielded — it just costs another mint fee
-             for a duplicate. The button used to stay live and charge for it. */
           <span
             className="well"
             style={{

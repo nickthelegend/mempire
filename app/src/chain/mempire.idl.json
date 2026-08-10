@@ -2027,6 +2027,136 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "upgrade_card",
+      "docs": [
+        "Merge a duplicate card into one you keep, for a level.",
+        "",
+        "# Why this is how cards level now",
+        "",
+        "Levels used to come from `stake`: lock more of a coin into its card and",
+        "the card got stronger. That made power a function of how much of a token",
+        "you could afford to immobilise, which is a wealth ladder wearing a",
+        "progression system's clothes — and it required holding the coin, which",
+        "`mint_card` no longer does either.",
+        "",
+        "So power comes from playing. You win, you earn a chest, the chest drops",
+        "a card. A card for a coin you already own is otherwise dead weight —",
+        "decks are one-per-coin, so a second `$BTC` can never be fielded — and",
+        "this is what turns that duplicate into the reward it should have been.",
+        "Eleven duplicate cards used to be eleven mint fees for nothing.",
+        "",
+        "The duplicate is closed and its rent returned to the owner, so merging",
+        "costs the fee below and nothing else.",
+        "",
+        "Both cards must be free. Levelling a card mid-match would change the",
+        "power band a match was opened under, and closing one that a match still",
+        "names would strand settlement on a missing account."
+      ],
+      "discriminator": [
+        192,
+        16,
+        120,
+        220,
+        55,
+        173,
+        65,
+        234
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "card",
+          "docs": [
+            "The card that survives and gains the level."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "card.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "duplicate",
+          "docs": [
+            "The duplicate, closed into the owner. Its rent comes back, so a merge",
+            "costs the $MEMPIRE fee and nothing else."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "duplicate.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
+          "name": "owner_mempire",
+          "writable": true
+        },
+        {
+          "name": "treasury_mempire",
+          "writable": true
+        },
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "card",
+            "duplicate"
+          ]
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -2108,6 +2238,19 @@
         74,
         63,
         30
+      ]
+    },
+    {
+      "name": "CardUpgraded",
+      "discriminator": [
+        40,
+        121,
+        43,
+        75,
+        116,
+        13,
+        40,
+        245
       ]
     },
     {
@@ -2227,101 +2370,116 @@
     },
     {
       "code": 6007,
+      "name": "SameCard",
+      "msg": "a card cannot be merged into itself"
+    },
+    {
+      "code": 6008,
+      "name": "DifferentCoins",
+      "msg": "both cards must be the same coin"
+    },
+    {
+      "code": 6009,
+      "name": "MaxLevel",
+      "msg": "card is already at the maximum level"
+    },
+    {
+      "code": 6010,
       "name": "UnstakePending",
       "msg": "an unstake is already pending"
     },
     {
-      "code": 6008,
+      "code": 6011,
       "name": "NothingToClaim",
       "msg": "nothing to claim"
     },
     {
-      "code": 6009,
+      "code": 6012,
       "name": "CooldownActive",
       "msg": "unstake cooldown still active"
     },
     {
-      "code": 6010,
+      "code": 6013,
       "name": "BadDeck",
       "msg": "deck must be exactly 8 owned, unlocked cards"
     },
     {
-      "code": 6011,
+      "code": 6014,
       "name": "NotCardOwner",
       "msg": "card not owned by player"
     },
     {
-      "code": 6012,
+      "code": 6015,
       "name": "DuplicateCoin",
       "msg": "deck may contain each coin only once"
     },
     {
-      "code": 6013,
+      "code": 6016,
       "name": "BadMatchState",
       "msg": "match is not in the required state"
     },
     {
-      "code": 6014,
+      "code": 6017,
       "name": "SelfMatch",
       "msg": "cannot battle yourself"
     },
     {
-      "code": 6015,
+      "code": 6018,
       "name": "PowerMismatch",
       "msg": "deck power outside the tier band"
     },
     {
-      "code": 6016,
+      "code": 6019,
       "name": "BadWinner",
       "msg": "invalid winner value"
     },
     {
-      "code": 6017,
+      "code": 6020,
       "name": "NotAPlayer",
       "msg": "signer is not a match player"
     },
     {
-      "code": 6018,
+      "code": 6021,
       "name": "TooEarly",
       "msg": "deadline has not passed"
     },
     {
-      "code": 6019,
+      "code": 6022,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6020,
+      "code": 6023,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6021,
+      "code": 6024,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
     },
     {
-      "code": 6022,
+      "code": 6025,
       "name": "WrongTreasury",
       "msg": "fee account is not the treasury named in config"
     },
     {
-      "code": 6023,
+      "code": 6026,
       "name": "NotUpgradeAuthority",
       "msg": "signer is not the program's upgrade authority"
     },
     {
-      "code": 6024,
+      "code": 6027,
       "name": "BadCardLayout",
       "msg": "card account is not a recognised layout"
     },
     {
-      "code": 6025,
+      "code": 6028,
       "name": "AlreadyClaimed",
       "msg": "this seat has already recorded its result"
     },
     {
-      "code": 6026,
+      "code": 6029,
       "name": "TreasuryUnchanged",
       "msg": "the treasury is already that address"
     }
@@ -2410,6 +2568,44 @@
           {
             "name": "archetype",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CardUpgraded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "card",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "level",
+            "type": "u8"
+          },
+          {
+            "name": "burned",
+            "docs": [
+              "The duplicate that was consumed."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "paid",
+            "docs": [
+              "Base units of $MEMPIRE paid to the treasury."
+            ],
+            "type": "u64"
           }
         ]
       }
