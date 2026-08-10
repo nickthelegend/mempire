@@ -406,12 +406,17 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
           toneMapping: THREE.ACESFilmicToneMapping,
           toneMappingExposure: 1.25,
         }}
-        // Soft shadows from the sun only. The board is read from directly
-        // above, so a shadow is the one cue that tells a tower from a decal —
-        // without it the whole field is flat colour. One 1024 map on one light
-        // is the cheapest version of that; a second shadow-casting light would
-        // double the cost for a second set of shadows nobody would read.
-        shadows={{ type: THREE.PCFSoftShadowMap }}
+        // Shadows from the sun only. The board is read from directly above, so
+        // a shadow is the one cue that tells a tower from a decal — without it
+        // the whole field is flat colour. One 1024 map on one light is the
+        // cheapest version of that; a second shadow-casting light would double
+        // the cost for a second set of shadows nobody would read.
+        //
+        // PCF, not PCFSoft: three deprecated PCFSoftShadowMap and silently
+        // substitutes PCFShadowMap anyway, so asking for it changed nothing
+        // except printing a deprecation warning into the console on every
+        // single match. Asking for what we actually get is free.
+        shadows={{ type: THREE.PCFShadowMap }}
       >
         <CameraRig seat={perspective} />
         {/* Bright daylight, not a dungeon — the genre reads as a sunny field. */}

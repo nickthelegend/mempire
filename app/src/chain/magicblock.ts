@@ -3,7 +3,7 @@ import { DELEGATION_PROGRAM_ID, GetCommitmentSignature } from '@magicblock-labs/
 import type { Adapter } from '@solana/wallet-adapter-base';
 import { Connection, PublicKey } from '@solana/web3.js';
 import idl from './mempire.idl.json';
-import { getConnection as getBaseConnection, getProvider } from './provider';
+import { getConnection as getBaseConnection, getProvider, resilientFetch } from './provider';
 
 /**
  * MagicBlock Ephemeral Rollup plumbing.
@@ -61,7 +61,10 @@ export interface DelegationStatus {
 
 /** Router JSON-RPC. Throws on a router-level error so callers can fall back. */
 export async function getDelegationStatus(account: PublicKey): Promise<DelegationStatus> {
-  const res = await fetch(ROUTER_URL, {
+  // Through the same backoff: placement is looked up before every rollup call
+  // and before delegating a match log, so a throttled router reads as "not
+  // delegated" and quietly downgrades the match off the rollup entirely.
+  const res = await resilientFetch(ROUTER_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
@@ -83,7 +86,13 @@ export function erConnection(fqdn: string): Connection {
   const url = fqdn.replace(/\/+$/, '');
   let c = erCache.get(url);
   if (!c) {
-    c = new Connection(url, { commitment: 'confirmed', confirmTransactionInitialTimeout: 30_000 });
+    c = new Connection(url, {
+      commitment: 'confirmed',
+      confirmTransactionInitialTimeout: 30_000,
+      // Same backoff as the base layer. A throttled rollup read is a card play
+      // that silently did not land, which in a 20-tick sim is worse than a slow one.
+      fetch: resilientFetch,
+    });
     erCache.set(url, c);
   }
   return c;

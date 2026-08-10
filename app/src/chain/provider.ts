@@ -30,6 +30,51 @@ export const CLUSTER = (import.meta.env.VITE_CLUSTER as string | undefined) ?? '
 
 let connection: Connection | null = null;
 
+/**
+ * Rate-limit-aware fetch for the RPC.
+ *
+ * The public devnet endpoint sheds load with 429s, and web3.js surfaces one as
+ * a rejected read rather than a retry. Every caller in this app treats a failed
+ * read as an empty answer, so a throttled `getBalance` presented a funded
+ * wallet as `◎ 0` — the stake tiers then greyed out and the game looked like it
+ * had lost matchmaking, when it had merely been told to slow down.
+ *
+ * Retries only the responses worth retrying: 429 and 5xx are the endpoint
+ * asking for time, and honouring `Retry-After` is the difference between
+ * backing off and being banned. Anything else is a real answer and is returned
+ * untouched. Four attempts caps the added wait at roughly three seconds, which
+ * is far less than a player spends deciding a deck.
+ */
+const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+
+export async function resilientFetch(
+  input: RequestInfo | URL, init?: RequestInit,
+): Promise<Response> {
+  let wait = 250;
+  for (let attempt = 0; ; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(input, init);
+    } catch (e) {
+      // A transport failure is worth one more try for the same reason a 503 is.
+      if (attempt >= 3) throw e;
+      await new Promise((r) => setTimeout(r, wait));
+      wait *= 2;
+      continue;
+    }
+    if (!RETRY_STATUS.has(res.status) || attempt >= 3) return res;
+
+    const after = Number(res.headers.get('retry-after'));
+    const delay = Number.isFinite(after) && after > 0
+      ? Math.min(after * 1000, 4000)
+      // Jittered, so a page that fires several reads at once does not line them
+      // all up to retry on the same tick and get throttled together again.
+      : wait + Math.floor(Math.random() * 150);
+    await new Promise((r) => setTimeout(r, delay));
+    wait *= 2;
+  }
+}
+
 export function getConnection(): Connection {
   if (!connection) {
     connection = new Connection(RPC_URL, {
@@ -37,6 +82,7 @@ export function getConnection(): Connection {
       // The public devnet RPC is slow under load; the default 30s times out on
       // confirmations that do in fact land.
       confirmTransactionInitialTimeout: 90_000,
+      fetch: resilientFetch,
     });
   }
   return connection;
