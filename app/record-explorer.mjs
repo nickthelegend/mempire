@@ -52,6 +52,11 @@ const SHOTS = [
     sig: '46gctQi5VbMA6Tgr9EgxZfUkVJtYeMZbnJxTqqrooNvVvrCWwdgyncXBUCjXJ2XZKAQHz5xT6puBTRpiaSN6uDJg',
     note: 'delegate_chests — the chest rail handed to MagicBlock, so rolls happen on the rollup',
   },
+  {
+    name: 'spend',
+    sig: '5m7yuV7stt59DuLGH6DwGnK92NbaaqHzJtXSAzVuqqK4kgm6EjSVKVTmVWLhbX6T4yFpgruL9aDatWvdksXP18JM',
+    note: 'the 25 $MEMPIRE skip — Token Balances shows 2000 -> 1975 and the treasury 1825 -> 1850',
+  },
 ];
 
 async function shot(browser, { name, sig, note }) {

@@ -1,26 +1,17 @@
 {
   "_comment": [
-    "The running order, with an explicit hold per shot.",
+    "Holds are sized from the narration in them plus about three seconds of air.",
     "",
-    "Holds are sized from the narration that sits in them plus roughly three",
-    "seconds of air, so nothing is clipped and nothing sits in silence waiting.",
-    "The rewritten script is nearly twice as long as the first one, so the video",
-    "is longer than three minutes \u2014 that is the right trade. A judge who",
-    "understands what MagicBlock is doing here is worth more than fifteen",
-    "seconds saved.",
+    "Queue and escrow use the menu capture, not the match recording: the match",
+    "recording's first 25 seconds is the client loading into the arena, and 22-24",
+    "of those are a bare brown gradient \u2014 the WebGL scene before it draws. That",
+    "was the glitch on screen at 0:59.",
     "",
-    "No split-screen. Two mirrored top-down arenas never read as one match, and",
-    "the claim they existed to support is not something this footage can carry",
-    "honestly. The match plays on a single client.",
+    "The arena beats run contiguously from 25s at 3x, so the match plays through",
+    "without gaps and the capture's dropped frames read as pace rather than lag.",
     "",
-    "Shot kinds:",
-    "  src    \u2014 a single-client capture, centred",
-    "  match  \u2014 seat A's recording of the staked match, same treatment",
-    "  frames \u2014 an animated title sequence rendered as PNGs",
-    "  web    \u2014 a desktop capture (Solana Explorer), letterboxed",
-    "",
-    "Three of the four silent beats are gameplay; the fourth is the settlement",
-    "screen, which is worth reading without a voice over it."
+    "The chest reveal is punched in: the reward is a Microsoft card, but at full",
+    "The chest runs as three beats off the tail of the match recording: the rack at 277s, the skip modal at 287s where the header goes 1,975 to 1,950 $MEMPIRE, and the ceremony at 300s where the card art and its ticker land."
   ],
   "playbackRate": 1.2,
   "shots": [
@@ -62,43 +53,47 @@
       "shot": "queue",
       "hold": 11,
       "line": "06_queue",
-      "match": true,
-      "from": 8
+      "src": "cold-open",
+      "from": 4
     },
     {
       "shot": "escrow",
       "hold": 14,
       "line": "07_escrow",
-      "match": true,
-      "from": 17
+      "src": "cold-open",
+      "from": 6
     },
     {
       "shot": "arena-open",
       "hold": 8,
       "line": "08_arena",
       "match": true,
-      "from": 32
+      "from": 25.0,
+      "speed": 3
     },
     {
       "shot": "arena-play",
-      "hold": 12,
+      "hold": 11,
       "line": "09_deploy",
       "match": true,
-      "from": 58
+      "from": 49.0,
+      "speed": 3
     },
     {
       "shot": "arena-play-long",
-      "hold": 9,
+      "hold": 10,
       "line": null,
       "match": true,
-      "from": 84
+      "from": 82.0,
+      "speed": 3
     },
     {
       "shot": "hash",
       "hold": 17,
       "line": "10_determinism",
       "match": true,
-      "from": 104
+      "from": 112.0,
+      "speed": 3
     },
     {
       "shot": "explorer-delegate",
@@ -112,35 +107,55 @@
       "hold": 18,
       "line": "12_per",
       "match": true,
-      "from": 140
+      "from": 163.0,
+      "speed": 3
     },
     {
       "shot": "arena-push",
-      "hold": 8,
+      "hold": 12,
       "line": null,
       "match": true,
-      "from": 200
+      "from": 217.0,
+      "speed": 3
     },
     {
       "shot": "explorer-settle",
-      "hold": 16,
+      "hold": 15,
       "line": "13_settle",
       "web": "undelegate",
       "from": 5
     },
     {
       "shot": "settle",
-      "hold": 10,
-      "line": null,
+      "hold": 14,
+      "line": "13b_payout",
       "match": true,
-      "from": 236
+      "from": 254,
+      "speed": 1
     },
     {
       "shot": "chest-buy",
-      "hold": 13,
+      "hold": 11,
       "line": "14_chest",
       "match": true,
-      "from": 357
+      "from": 277,
+      "speed": 1
+    },
+    {
+      "shot": "chest-skip",
+      "hold": 15,
+      "line": "15a_open",
+      "match": true,
+      "from": 287,
+      "speed": 1
+    },
+    {
+      "shot": "chest-open",
+      "hold": 12,
+      "line": "15b_msft",
+      "match": true,
+      "from": 300,
+      "speed": 1
     },
     {
       "shot": "explorer-chests",
@@ -157,8 +172,15 @@
       "from": 2
     },
     {
+      "shot": "swap",
+      "hold": 12,
+      "line": "16b_swap",
+      "src": "swap",
+      "from": 9
+    },
+    {
       "shot": "outro",
-      "hold": 18,
+      "hold": 17,
       "line": "17_close",
       "frames": "outro"
     }

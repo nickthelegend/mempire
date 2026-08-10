@@ -24,6 +24,15 @@ export interface MintedCard {
   level: number;
   pendingUnstakeUsd: number; // locked in cooldown, still counts against holdings
   cooldownUntil: number; // 0 = none; else timestamp while unstake pends
+  /**
+   * A starter card, not something the player minted.
+   *
+   * These exist so a deck is fieldable before anyone spends anything, and they
+   * merge alongside the real chain cards (see `useChainSync`). Anything asking
+   * "has this coin been minted?" has to exclude them, or the answer is yes for
+   * all eight starters and their Mint buttons vanish before they were ever used.
+   */
+  seeded?: boolean;
 }
 
 interface CollectionState {
@@ -44,7 +53,7 @@ interface CollectionState {
 // Pre-seeded so the first run demos instantly (8 cards ≈ one full deck).
 const SEED_LEVEL_USD = [100, 25, 50, 10, 200, 30, 12, 60];
 
-const seedCards = (): MintedCard[] =>
+export const seedCards = (): MintedCard[] =>
   COINS.slice(0, 8).map((c, i) => {
     const usd = SEED_LEVEL_USD[i];
     return {
@@ -56,6 +65,7 @@ const seedCards = (): MintedCard[] =>
       level: levelForUsd(usd),
       pendingUnstakeUsd: 0,
       cooldownUntil: 0,
+      seeded: true,
     };
   });
 
@@ -78,8 +88,12 @@ export const useCollection = create<CollectionState>((set, get) => ({
     set((s) => ({ cards: [...s.cards, card], nextId: s.nextId + 1 }));
     return card;
   },
+  // Seeded cards carry a level for show and lock no actual tokens, so they must
+  // not count against what is left to stake. Since they now sit in the same
+  // collection as real chain cards, counting them would tell a connected player
+  // their coin was already committed when the chain says it is free.
   stakedUsdFor: (mint) =>
-    get().cards.filter((c) => c.mint === mint)
+    get().cards.filter((c) => c.mint === mint && !c.seeded)
       .reduce((sum, c) => sum + c.stakedUsd + (c.pendingUnstakeUsd ?? 0), 0),
 
   /**

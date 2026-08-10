@@ -170,9 +170,13 @@ export function Shop() {
               other on the same panel, and the one a judge can time is the
               countdown. */}
           You hold {gems} Crowns · a new set each shop day
-          {/* The bags section can be live-onchain while the Shop stays simulated;
-              saying so here beats letting the badge above imply otherwise. */}
-          {chainMode === 'onchain' && ' · shop purchases are simulated on devnet'}
+          {/* The bags section can be live-onchain while the Shop is not, and
+              saying so beats letting the badge above imply otherwise. Naming
+              Crowns as the offchain currency rather than calling the purchase
+              "simulated" also stops the disclosure reading as though the rest
+              of the game were simulated too — mints, stakes and match escrow
+              on this same screen are real transactions. */}
+          {chainMode === 'onchain' && ' · Crowns are an offchain currency, so shop purchases settle locally'}
         </p>
       </div>
     </section>

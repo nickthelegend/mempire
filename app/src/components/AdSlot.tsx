@@ -49,7 +49,13 @@ export function AdSlot({ side }: { side: 'left' | 'right' }) {
         paddingTop: 48, minWidth: 0,
       }}
     >
-      <div style={{ position: 'sticky', top: 48, width: 300, maxWidth: '100%' }}>
+      {/* Held back until pointed at. Two unsold boards at full strength flanked
+          the column with a pair of gold CTAs brighter than anything in the
+          game, so the first read of the page was "empty inventory" rather than
+          "arena" — the hall's own rule is that nothing out here should compete.
+          Sold creative would replace this board entirely and can be as loud as
+          it likes; a vacancy notice should not be. */}
+      <div className="adboard" style={{ position: 'sticky', top: 48, width: 300, maxWidth: '100%' }}>
         <div style={{ position: 'relative', width: '100%', aspectRatio: '512 / 762' }}>
           <img
             src="/art/ad_frame.webp"
@@ -109,11 +115,11 @@ export function AdSlot({ side }: { side: 'left' | 'right' }) {
               style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 minHeight: 44, padding: '0 16px', borderRadius: 'var(--r-pill)',
-                background: 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 52%, var(--btn-gold-dark))',
+                background: 'var(--recess)',
                 border: '2px solid var(--ink)',
-                boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-gold-dark)',
+                boxShadow: 'var(--bevel-in)',
                 fontFamily: 'var(--font-display)', fontSize: 15, letterSpacing: '.03em',
-                color: 'var(--text)', textDecoration: 'none',
+                color: 'var(--gold-hi)', textDecoration: 'none',
                 WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
                 textTransform: 'uppercase', whiteSpace: 'nowrap',
               }}

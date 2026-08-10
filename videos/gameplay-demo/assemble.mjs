@@ -117,13 +117,44 @@ function web(src, from, seconds, out) {
   ]);
 }
 
-/** One clip, centred. */
-function single(src, from, seconds, out) {
+/**
+ * One clip, centred, optionally sped up.
+ *
+ * `speed` multiplies how much source a shot consumes: a 12-second hold at 3x
+ * plays 36 seconds of recording. Two reasons it matters here.
+ *
+ * The arena was captured at 25fps by a browser recorder while a WebGL game ran
+ * beside it, so the match footage has real frame drops in it. Played at 1x
+ * those read as lag. Played at 3x the same frames read as pace — the eye stops
+ * tracking individual units and reads the push instead, which is how sped-up
+ * gameplay works in every trailer.
+ *
+ * And it buys coverage. At 1x the match beats sampled six disconnected windows
+ * out of a four-minute recording and skipped everything between them; at 3x the
+ * same screen time covers the match continuously, start to finish.
+ */
+function single(src, from, seconds, out, speed = 1, zoom = null) {
+  const take = seconds * speed;
+  /**
+   * `zoom` punches into part of the phone frame and fills the height with it.
+   *
+   * The chest ceremony is the case that needs it: the reward is a Microsoft
+   * card, but the frame is mostly exploding chest art and the "$MSFT" that
+   * names the card is a caption a few pixels tall. Shown whole, the beat reads
+   * as "a chest opened"; punched in, it reads as "I won a Microsoft card",
+   * which is the thing worth saying.
+   *
+   * `cx`/`cy` are the centre of interest as fractions of the source frame.
+   */
+  const pre = zoom
+    ? `crop=iw/${zoom.scale}:ih/${zoom.scale}:`
+      + `(iw-iw/${zoom.scale})*${zoom.cx}:(ih-ih/${zoom.scale})*${zoom.cy},`
+    : '';
   ff([
     '-f', 'lavfi', '-t', String(seconds), '-i', `color=c=${BG}:s=${W}x${H}:r=30`,
-    '-ss', String(from), '-t', String(seconds), '-i', src,
+    '-ss', String(from), '-t', String(take), '-i', src,
     '-filter_complex',
-    `[1:v]scale=${COL_W}:${H}:flags=lanczos,setsar=1[c];`
+    `[1:v]setpts=PTS/${speed},fps=30,${pre}scale=${COL_W}:${H}:flags=lanczos,setsar=1[c];`
     + `[0:v][c]overlay=(W-w)/2:0:shortest=1,format=yuv420p[v]`,
     '-map', '[v]', '-an', '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-r', '30',
     '-t', String(seconds), out, '-y',
@@ -177,7 +208,8 @@ for (const [i, step] of timeline.shots.entries()) {
     // client shot — no second panel, no labels, nothing to reconcile.
     const a = seat('pvp', 'A');
     if (!a) { console.log(`  skip ${step.shot} — no match take`); continue; }
-    single(a, Math.min(step.from, Math.max(0, dur(a) - seconds - 0.5)), seconds, out);
+    const sp = step.speed ?? 1;
+    single(a, Math.min(step.from, Math.max(0, dur(a) - seconds * sp - 0.5)), seconds, out, sp, step.zoom ?? null);
   } else if (step.web) {
     const src = join(REC, 'explorer', `${step.web}.webm`);
     if (!existsSync(src)) { console.log(`  skip ${step.shot} — no explorer clip ${step.web}`); continue; }
@@ -185,7 +217,8 @@ for (const [i, step] of timeline.shots.entries()) {
   } else {
     const src = feat(step.src);
     if (!existsSync(src)) { console.log(`  skip ${step.shot} — missing ${step.src}`); continue; }
-    single(src, Math.min(step.from, Math.max(0, dur(src) - seconds - 0.3)), seconds, out);
+    const sp = step.speed ?? 1;
+    single(src, Math.min(step.from, Math.max(0, dur(src) - seconds * sp - 0.3)), seconds, out, sp, step.zoom ?? null);
   }
 
   // A shot that opens on a blank frame is a mis-chosen offset, not a style.

@@ -87,14 +87,24 @@
       "text": "When the match ends, the rollup commits the final state back to Solana and undelegates. That's this transaction. The program reads the settled log, decides the winner from it, and pays the pot out on chain."
     },
     {
+      "id": "13b_payout",
+      "shot": "settle",
+      "text": "And there's the payout. Pot secured, half a SOL, the house rake taken, and point four five SOL straight back into the winner's wallet \u2014 paid by the program, not by us."
+    },
+    {
       "id": "14_chest",
       "shot": "chest-buy",
       "text": "Winning a match earns you a chest. You can wait out its timer, skip it with MEMPIRE, the game's own token, or buy one outright."
     },
     {
       "id": "15a_open",
+      "shot": "chest-buy",
+      "text": "Skip the timer and watch the balance up top: one thousand nine hundred and seventy-five MEMPIRE, down to one thousand nine hundred and fifty. A real transfer to the treasury, not a counter."
+    },
+    {
+      "id": "15b_msft",
       "shot": "chest-open",
-      "text": "Win, and a chest lands in your rack. Skip the timer with MEMPIRE, open it, and the cards inside are minted straight into your collection."
+      "text": "Then the chest opens, and there's the card \u2014 an Apple fighter, minted straight into my collection. A brand new unit I can put in my deck for the next match."
     },
     {
       "id": "15_vrf",
@@ -105,6 +115,11 @@
       "id": "16_clan",
       "shot": "clan",
       "text": "Beyond the matches there's a clan to start, a ladder to climb, and an in-app swap so you can pick up MEMPIRE without leaving the game."
+    },
+    {
+      "id": "16b_swap",
+      "shot": "swap",
+      "text": "And the swap is right there in the app \u2014 a real constant-product pool, MEMPIRE against Circle's U S D C, quoted live from the pool itself."
     },
     {
       "id": "17_close",

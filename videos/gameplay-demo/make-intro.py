@@ -257,7 +257,7 @@ def outro_frame(i, n):
     return img.convert("RGB")
 
 
-SECONDS = 9 if which == "intro" else 18
+SECONDS = 9 if which == "intro" else 17
 n = SECONDS * FPS
 maker = intro_frame if which == "intro" else outro_frame
 for i in range(n):

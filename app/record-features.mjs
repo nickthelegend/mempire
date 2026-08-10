@@ -145,8 +145,11 @@ const BEATS = {
   /** The wallet as a roster: real cards, minted from coins actually held. */
   collection: async (page) => {
     await tab(page, 'Cards');
-    await sleep(1500);
-    await browse(page, 1500, 4200);
+    await sleep(2500);
+    await browse(page, 1400, 5000);
+    await sleep(2500);
+    await browse(page, 1000, 4500);
+    await sleep(3000);
   },
 
   /** A single fighter: its coin, its level, what staking does. */
@@ -175,8 +178,9 @@ const BEATS = {
   /** Eight cards, eight coins, one deck. */
   deck: async (page) => {
     await tab(page, 'Deck');
-    await sleep(2500);
-    await browse(page, 900, 3000);
+    await sleep(3000);
+    await browse(page, 800, 3200);
+    await sleep(3500);
   },
 
   /**
@@ -238,6 +242,34 @@ const BEATS = {
   },
 
   /**
+   * The card the chest actually gave you.
+   *
+   * The open ceremony shows the chest bursting and a small "$MSFT" pill, then
+   * sits on "tap to continue" — so the reward reads as *a chest*, not as the
+   * Microsoft card you just won. The card itself only shows up once the
+   * ceremony is dismissed and you look at the collection, which the match
+   * recording never reached because it ended on the ceremony.
+   */
+  'msft-card': async (page) => {
+    await tab(page, 'Cards');
+    await sleep(1500);
+    await browse(page, 1300, 3800);
+    await sleep(1200);
+    const card = page.locator('button, [role="button"]').filter({ hasText: /\$MSFT/i }).first();
+    if (await card.isVisible().catch(() => false)) {
+      await card.click({ force: true }).catch(() => {});
+      await sleep(5500);
+      log('opened the $MSFT card');
+    } else {
+      log('$MSFT not visible — scrolling further');
+      await browse(page, 900, 2600);
+      await sleep(3000);
+    }
+    await sleep(2500);
+  },
+
+
+  /**
    * The AMM: $MEMPIRE priced against real USDC, quoted from the pool.
    *
    * Long enough to carry the closing line. The first cut of this clip was 8.5s
@@ -257,9 +289,16 @@ const BEATS = {
 
   /** The home screen, held long enough to open on. */
   'cold-open': async (page) => {
-    await sleep(6000);
-    await browse(page, 2, 180);
-    await sleep(3000);
+    // Long enough to carry both the queue and the escrow beats — together they
+    // read 25s of this clip, and a source shorter than its hold makes the
+    // assembler clamp the start to zero, which is the app still loading.
+    // (The old `browse(page, 2, 180)` was also the pre-smooth-scroll signature:
+    // 2px over 180ms, i.e. no visible movement at all.)
+    await sleep(7000);
+    await browse(page, 420, 3000);
+    await sleep(4500);
+    await browse(page, 380, 2600);
+    await sleep(5000);
   },
 
   /** Clans and the ladder — the reasons to come back. */

@@ -32,6 +32,10 @@ function Row({
     <button
       onClick={() => { click(); onClick(); }}
       disabled={disabled}
+      /* Every row here is an icon plus styled spans, and the tree was computing
+         no accessible name at all from them — the whole connect step read as a
+         stack of unlabelled buttons to a screen reader. */
+      aria-label={`${title} — ${sub}`}
       className="btn-3d"
       style={{
         display: 'flex', alignItems: 'center', gap: 11, width: '100%',

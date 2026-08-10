@@ -1,10 +1,11 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Suspense, useEffect, useMemo, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PALETTE } from '../lib/palette';
 import { FP, fp } from '../sim/fixed';
 import { ARENA_W, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
+import { Spinner } from '../components/ui';
 import { Arena } from './Arena';
 import { World } from './World';
 import { HORIZON } from './textures';
@@ -346,6 +347,7 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
   // Set before the camera effect runs so the first painted frame and the first
   // deploy clamp already agree about which half is "mine".
   setViewSeat(perspective);
+  const [drawn, setDrawn] = useState(false);
   return (
     <div
       ref={sceneRef}
@@ -356,10 +358,40 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
         if (hit) onPlace(fp(hit.x), fp(hit.z));
       }}
     >
+      {/* Until the first frame lands, say so.
+       *
+       * Compiling shaders and building the arena's canvas textures takes the
+       * better part of ten seconds on a cold load, and the match clock is
+       * already running — it has to be, because both clients tick the same
+       * lockstep sim from a server-set start. So the player sat looking at a
+       * flat dark rectangle with the timer counting down, which reads as a
+       * broken game rather than a loading one. The clock is untouched; only
+       * the silence is fixed. */}
+      {!drawn && (
+        <div
+          style={{
+            position: 'absolute', inset: 0, zIndex: 5, display: 'flex',
+            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            gap: 12, background: 'var(--ink)', pointerEvents: 'none',
+          }}
+        >
+          <Spinner />
+          <span className="label" style={{ fontSize: 13, color: 'var(--dim)' }}>
+            building the arena
+          </span>
+        </div>
+      )}
       <Canvas
         dpr={[1, 1.75]}
         camera={{ position: [W / 2, 33, -11.5], fov: 52, near: 1, far: 140 }}
         style={{ touchAction: 'none' }}
+        onCreated={({ gl }) => {
+          // `onCreated` fires once the renderer exists, which is still before
+          // anything has been rasterised — two frames later is the first one
+          // the player can actually see.
+          gl.domElement.getContext('webgl2');
+          requestAnimationFrame(() => requestAnimationFrame(() => setDrawn(true)));
+        }}
         gl={{
           antialias: true,
           powerPreference: 'high-performance',

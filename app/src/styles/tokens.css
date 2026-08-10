@@ -344,6 +344,15 @@ button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
   50% { transform: translateY(-2px); }
 }
 
+/* An unsold ad board is scenery until someone looks at it. */
+.adboard {
+  opacity: 0.58;
+  filter: saturate(0.75);
+  transition: opacity 200ms var(--ease-snap), filter 200ms var(--ease-snap);
+}
+.adboard:hover,
+.adboard:focus-within { opacity: 1; filter: none; }
+
 /* ── Reserved gutters ────────────────────────────────────────────────────── */
 /* The layout law keeps the space either side of the column for ads. There is no
    such space on a phone, so below 900px the gutters do not exist at all — the

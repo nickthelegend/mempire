@@ -66,6 +66,11 @@ export function ConfirmSpend({
     void spendMempire(signer(), kind, address)
       .then((sig) => {
         track('spend', { kind, price });
+        // Tell the balance pill its number is stale. The transfer has confirmed
+        // but this dialog is about to close, and without this the only surface
+        // that shows $MEMPIRE would keep its pre-spend figure until a reload —
+        // which is exactly how a real deduction looked like nothing happening.
+        window.dispatchEvent(new Event('mempire-spent'));
         onDone(sig);
       })
       .catch((e) => {

@@ -138,7 +138,8 @@ function ResultOverlay() {
           style={{ fontSize: 12, color: 'var(--dim)', margin: '10px 0 0', lineHeight: 1.35 }}
         >
           Nobody else was queuing, so this one was against the AI — no trophies
-          either way. Ranked only counts a real opponent.
+          either way, and nothing was escrowed onchain. Ranked only counts a
+          real opponent.
         </p>
       )}
 

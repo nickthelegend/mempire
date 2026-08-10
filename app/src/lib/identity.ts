@@ -120,4 +120,28 @@ export function guestSolanaSigner(cluster: string): {
 /** Wipe the guest key. The only way to abandon a browser-held identity. */
 export function clearGuestIdentity(): void {
   try { localStorage.removeItem(GUEST_SK); } catch { /* nothing to clear */ }
+  markGuestActive(false);
+}
+
+/**
+ * Whether this browser is mid-session as a guest.
+ *
+ * Separate from the key itself, and deliberately so: `guestKeypair` *creates* a
+ * key when it finds none, so any "do we have a guest?" check written against
+ * the key would mint an identity for a first-time visitor and skip the connect
+ * screen entirely. This flag only ever says yes to someone who already chose
+ * Play as Guest — which is what lets a reload put them back where they were
+ * instead of dropping them on Connect Wallet with a live keypair in storage.
+ */
+const GUEST_ON = 'mempire_guest_on';
+
+export function markGuestActive(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(GUEST_ON, '1');
+    else localStorage.removeItem(GUEST_ON);
+  } catch { /* private mode — the session simply will not survive a reload */ }
+}
+
+export function guestWasActive(): boolean {
+  try { return localStorage.getItem(GUEST_ON) === '1'; } catch { return false; }
 }

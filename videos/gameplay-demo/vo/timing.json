@@ -2,9 +2,9 @@
   "voice": "am_puck",
   "speed": 1,
   "gapSeconds": 0.45,
-  "totalSeconds": 193.528,
+  "totalSeconds": 227.049,
   "playbackRate": 1.2,
-  "finalSeconds": 161.273,
+  "finalSeconds": 189.208,
   "lines": [
     {
       "id": "01_hook",
@@ -124,22 +124,40 @@
       "endsAt": 135.896
     },
     {
+      "id": "13b_payout",
+      "shot": "settle",
+      "text": "And there's the payout. Pot secured, half a SOL, the house rake taken, and point four five SOL straight back into the winner's wallet — paid by the program, not by us.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/13b_payout.wav",
+      "seconds": 10.624,
+      "startsAt": 136.346,
+      "endsAt": 146.97
+    },
+    {
       "id": "14_chest",
       "shot": "chest-buy",
       "text": "Winning a match earns you a chest. You can wait out its timer, skip it with MEMPIRE, the game's own token, or buy one outright.",
       "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/14_chest.wav",
       "seconds": 7.765,
-      "startsAt": 136.346,
-      "endsAt": 144.111
+      "startsAt": 147.42,
+      "endsAt": 155.185
     },
     {
       "id": "15a_open",
-      "shot": "chest-open",
-      "text": "Win, and a chest lands in your rack. Skip the timer with MEMPIRE, open it, and the cards inside are minted straight into your collection.",
+      "shot": "chest-buy",
+      "text": "Skip the timer and watch the balance up top: one thousand nine hundred and seventy-five MEMPIRE, down to one thousand nine hundred and fifty. A real transfer to the treasury, not a counter.",
       "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/15a_open.wav",
-      "seconds": 8.512,
-      "startsAt": 144.561,
-      "endsAt": 153.073
+      "seconds": 11.691,
+      "startsAt": 155.635,
+      "endsAt": 167.326
+    },
+    {
+      "id": "15b_msft",
+      "shot": "chest-open",
+      "text": "Then the chest opens, and there's the card — an Apple fighter, minted straight into my collection. A brand new unit I can put in my deck for the next match.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/15b_msft.wav",
+      "seconds": 9.173,
+      "startsAt": 167.776,
+      "endsAt": 176.949
     },
     {
       "id": "15_vrf",
@@ -147,8 +165,8 @@
       "text": "Chest rewards run through MagicBlock's V R F. The chest rail is delegated to the rollup — that's this transaction — so a roll is requested on chain, and every chest records the seed it came from. Which means the loot table is something you can verify, not something you take on trust.",
       "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/15_vrf.wav",
       "seconds": 17.045,
-      "startsAt": 153.523,
-      "endsAt": 170.568
+      "startsAt": 177.399,
+      "endsAt": 194.444
     },
     {
       "id": "16_clan",
@@ -156,8 +174,17 @@
       "text": "Beyond the matches there's a clan to start, a ladder to climb, and an in-app swap so you can pick up MEMPIRE without leaving the game.",
       "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/16_clan.wav",
       "seconds": 7.893,
-      "startsAt": 171.018,
-      "endsAt": 178.911
+      "startsAt": 194.894,
+      "endsAt": 202.787
+    },
+    {
+      "id": "16b_swap",
+      "shot": "swap",
+      "text": "And the swap is right there in the app — a real constant-product pool, MEMPIRE against Circle's U S D C, quoted live from the pool itself.",
+      "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/16b_swap.wav",
+      "seconds": 9.195,
+      "startsAt": 203.237,
+      "endsAt": 212.432
     },
     {
       "id": "17_close",
@@ -165,8 +192,8 @@
       "text": "Mempire. Your bags, your army. Built on Solana, running on MagicBlock. Every program is deployed and every match in this video settled on chain. Go and play it at app dot mempire dot fun. Thanks for watching.",
       "file": "/Volumes/Extreme SSD/Projects/mempire/videos/gameplay-demo/vo/17_close.wav",
       "seconds": 13.717,
-      "startsAt": 179.361,
-      "endsAt": 193.078
+      "startsAt": 212.882,
+      "endsAt": 226.599
     }
   ]
 }

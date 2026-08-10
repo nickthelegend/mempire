@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useChain } from './chain';
-import { useCollection, type MintedCard } from './collection';
+import { seedCards, useCollection, type MintedCard } from './collection';
 import { useDeck } from './deck';
 import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
@@ -139,9 +139,30 @@ function useChainCollection(): void {
       cooldownUntil: c.unstakeReadyAt > 0 ? c.unstakeReadyAt * 1000 : 0,
     }));
 
+    /**
+     * Chain cards, plus a seeded card for every coin not yet minted.
+     *
+     * Replacing the collection outright was a trap. A wallet with one minted
+     * card ended up with a one-card collection, `repoint` could fill exactly
+     * one deck slot, and `deck needs 8 cards` then blocked every mode —
+     * including free Practice, which had worked a moment earlier. Minting your
+     * first fighter, the thing the app tells you to do, locked you out of the
+     * game, and the only way back was minting seven more distinct coins.
+     *
+     * So the chain still wins for any coin it knows about, and the seeded card
+     * survives for the rest. An unminted card is honest about what it is: the
+     * Arena already reports "N of your cards are not minted onchain yet" and
+     * holds the match to rating only, which is precisely the pre-mint state.
+     */
+    const onChainMints = new Set(mapped.map((c) => c.mint));
+    const merged: MintedCard[] = [
+      ...mapped,
+      ...seedCards().filter((s) => !onChainMints.has(s.mint)),
+    ];
+
     const current = useCollection.getState().cards;
-    const collectionMatches = current.length === mapped.length
-      && current.every((c, i) => c.id === mapped[i].id && c.level === mapped[i].level);
+    const collectionMatches = current.length === merged.length
+      && current.every((c, i) => c.id === merged[i].id && c.level === merged[i].level);
 
     const fieldableMints = new Set(COINS.map((c) => c.mint));
     // Cards that exist *and* this build can field. A card whose coin was
@@ -150,7 +171,7 @@ function useChainCollection(): void {
     // dangling id — so staleness has to mean both, or the re-point below never
     // runs for the case that needs it most.
     const valid0 = new Set(
-      mapped.filter((c) => fieldableMints.has(c.mint)).map((c) => c.id),
+      merged.filter((c) => fieldableMints.has(c.mint)).map((c) => c.id),
     );
     const deckNow = useDeck.getState();
     // Checked separately from the collection because the two are restored by
@@ -162,14 +183,14 @@ function useChainCollection(): void {
     if (collectionMatches && !deckStale) return;
 
     if (!collectionMatches) {
-      useCollection.setState({ cards: mapped, nextId: mapped.length + 1 });
+      useCollection.setState({ cards: merged, nextId: merged.length + 1 });
     }
 
     // Re-point the decks at the cards that now exist. A deck naming ids from
     // the old local set would be eight dangling references, which reads to the
     // player as their deck having been wiped.
     const deck = useDeck.getState();
-    const valid = new Set(mapped.map((c) => c.id));
+    const valid = new Set(merged.map((c) => c.id));
 
     /**
      * Only cards this build can actually field.
@@ -186,13 +207,13 @@ function useChainCollection(): void {
      * The card stays in the collection — the player does own it — but it is
      * never chosen for them.
      */
-    const usable = mapped.filter((c) => fieldableMints.has(c.mint));
+    const usable = merged.filter((c) => fieldableMints.has(c.mint));
 
     const repoint = (slot: string[]): string[] => {
       const kept = slot.filter((id) => valid.has(id) && usable.some((c) => c.id === id));
       if (kept.length >= 8) return kept.slice(0, 8);
       // Fill from what the wallet actually holds, one card per coin.
-      const usedMints = new Set(kept.map((id) => mapped.find((c) => c.id === id)?.mint));
+      const usedMints = new Set(kept.map((id) => merged.find((c) => c.id === id)?.mint));
       for (const c of usable) {
         if (kept.length >= 8) break;
         if (!kept.includes(c.id) && !usedMints.has(c.mint)) {

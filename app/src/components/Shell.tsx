@@ -46,12 +46,25 @@ export function Shell({ children }: { children: ReactNode }) {
   const showGutters = !inBattle;
 
   return (
-    <div className={inBattle ? undefined : 'hall'} style={{ minHeight: '100dvh', display: 'flex', justifyContent: 'center' }}>
+    <div
+      className={inBattle ? undefined : 'hall'}
+      /* Height, not min-height, and the scroll lives inside the column.
+       *
+       * With the page free to grow, a full coin list made the document ~5700px
+       * tall, and the column carries six layered repeating gradients. Chrome
+       * gave up rasterising a strip that big: past roughly 900px of scroll the
+       * whole viewport painted flat background colour while the DOM underneath
+       * still laid out and hit-tested correctly — content was there, it simply
+       * never drew. It also scrolled the tab bar off the screen, which no
+       * game shell should ever do. Capping the shell at the viewport keeps the
+       * painted layer one screen tall no matter how long the list gets. */
+      style={{ height: '100dvh', overflow: 'hidden', display: 'flex', justifyContent: 'center' }}
+    >
       {showGutters && <div className="gutter"><AdSlot side="left" /></div>}
       <div
         className={inBattle ? undefined : 'quilt'}
         style={{
-          width: 'min(100vw, 430px)', minHeight: '100dvh', position: 'relative',
+          width: 'min(100vw, 430px)', height: '100dvh', minHeight: 0, position: 'relative',
           display: 'flex', flexDirection: 'column', flexShrink: 0,
           // The gold rule is what makes the column an object standing in the
           // hall rather than a lit patch of the same wall.
@@ -72,7 +85,11 @@ export function Shell({ children }: { children: ReactNode }) {
           className={inBattle ? undefined : 'screen-in'}
           style={{
             flex: 1, display: 'flex', flexDirection: 'column',
-            paddingBottom: inBattle ? 0 : 'calc(80px + env(safe-area-inset-bottom))',
+            // The one scroller. The tab bar is a flex sibling below, so the
+            // screen no longer has to reserve height for a fixed bar.
+            minHeight: 0,
+            overflowY: inBattle ? 'hidden' : 'auto',
+            overscrollBehavior: 'contain',
           }}
         >
           {children}
@@ -83,7 +100,10 @@ export function Shell({ children }: { children: ReactNode }) {
             aria-label="Main"
             className="wood"
             style={{
-              position: 'fixed', bottom: 0, width: 'min(100vw, 430px)', zIndex: 20,
+              // In flow at the foot of the column rather than fixed to the
+              // viewport: fixed positioning is what let the bar leave the
+              // screen once the document itself became the scroller.
+              flexShrink: 0, width: '100%', zIndex: 20,
               display: 'grid', gridTemplateColumns: `repeat(${TABS.length}, 1fr)`,
               borderTop: '3px solid var(--wood-edge)',
               boxShadow: '0 -6px 18px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,255,255,.16)',

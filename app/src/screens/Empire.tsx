@@ -21,7 +21,17 @@ function Leaderboard({ me }: { me: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    void loadLeaderboard().then((r) => { if (!cancelled) setRows(r); });
+    void loadLeaderboard().then((r) => {
+      if (cancelled) return;
+      /* Drop the harness accounts.
+       *
+       * A load-test wallet sat in the public top ten at 0W · 162L · +0 SOL,
+       * which is not a player and reads to anyone looking as a bot farming the
+       * ladder. A row earns its place by having won something or moved some
+       * SOL; nothing legitimate is excluded by that, because a real player with
+       * zero wins and zero net is also ranked nowhere. */
+      setRows(r.filter((row) => row.wins > 0 || row.netSol !== 0));
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -183,8 +193,14 @@ export function Empire() {
           <StakeRecovery />
 
           <p className="fine" style={{ fontSize: 12 }}>
+            {/* This used to read "play money and nothing is escrowed", which was
+                simply untrue: on devnet the guest keypair signs its own
+                transactions, so mints and stakes spend the same real SOL a
+                connected wallet would. Saying otherwise contradicted the
+                connect screen and undersold the one thing that is genuinely
+                onchain here. */}
             {wallet.isGuest
-              ? 'Guest mode — your SOL balance is play money and nothing is escrowed. '
+              ? 'Guest mode — this browser holds a real devnet keypair, so mints and stakes spend real devnet SOL and escrow for real. Back it up before you fund it. '
               : 'Devnet — your SOL balance is read from the chain and staked matches escrow for real. '}
             Mint fee 0.02 SOL · rake 10% · unstake fee 2%.
           </p>

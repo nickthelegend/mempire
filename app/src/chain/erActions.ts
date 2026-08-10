@@ -9,7 +9,7 @@ import {
 } from './session';
 import {
   IS_LOCALNET, LOCALNET_VALIDATOR, MAGIC_CONTEXT_ID, MAGIC_PROGRAM_ID,
-  confirmCommit, resolveEr, waitUndelegated,
+  confirmCommit, getDelegationStatus, resolveEr, waitUndelegated,
 } from './magicblock';
 
 /**
@@ -150,16 +150,41 @@ export async function delegateLogTx(
   const wallet = requireSigner(adapter);
   const program = baseProgram(adapter);
 
-  const signature = await program.methods
+  /*
+   * Put the log on the validator that already holds this wallet's chest rail.
+   *
+   * `end_log` grants the winner's chest only when the rail is an account the
+   * same rollup can write, and `endLogEr` drops the rail rather than risk the
+   * settlement when it is not. Left to the router, the log and the rail are
+   * placed by two independent decisions — so the rail was routinely somewhere
+   * else, the grant was skipped every time, and the chest fell back to a local
+   * roll with no VRF badge ever reaching the UI. Nothing looked broken; the
+   * one account that had to be co-located simply never was.
+   *
+   * Falls back to router assignment if the hint is unusable. A missed chest is
+   * worth far less than a match that cannot start.
+   */
+  let validator: PublicKey | null = localnet ? LOCALNET_VALIDATOR : null;
+  if (!localnet) {
+    try {
+      const rail = chestsPda(wallet.publicKey!);
+      const status = await getDelegationStatus(rail);
+      const authority = status.isDelegated ? status.delegationRecord?.authority : undefined;
+      if (authority) validator = new PublicKey(authority);
+    } catch { /* router unreachable — let it assign */ }
+  }
+
+  const send = (v: PublicKey | null) => program.methods
     .delegateLog(new BN(matchId))
-    .accounts({
-      payer: wallet.publicKey!,
-      log: matchLogPda(matchId),
-      validator: localnet ? LOCALNET_VALIDATOR : null,
-    } as any)
+    .accounts({ payer: wallet.publicKey!, log: matchLogPda(matchId), validator: v } as any)
     .rpc();
 
-  return { signature };
+  try {
+    return { signature: await send(validator) };
+  } catch (e) {
+    if (localnet || !validator) throw e;
+    return { signature: await send(null) };
+  }
 }
 
 /**

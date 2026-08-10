@@ -23,6 +23,8 @@ import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../st
 import { useEconomy } from '../state/economy';
 import { signer, useWallet } from '../state/wallet';
 import { Token } from '../components/Token';
+import { PublicKey } from '@solana/web3.js';
+import { MEMPIRE_MINT, UNIT, tokenBalance } from '../chain/amm';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
 
@@ -306,7 +308,9 @@ function CoinRow({ coin }: { coin: Coin }) {
 
   const onchain = chainMode === 'onchain';
   const reason = ineligibleReason(coin);
-  const owned = cards.filter((c) => c.mint === coin.mint).length;
+  // Starter cards excluded: they are not something this wallet minted, and
+  // counting them hid the Mint button on all eight of them.
+  const owned = cards.filter((c) => c.mint === coin.mint && !c.seeded).length;
   // Onchain, the balance shown is the wallet's real SPL holding of this mint —
   // the whole premise made literal. Simulated keeps the demo balance.
   const balance = onchain ? (chainBalances.get(coin.mint) ?? 0) : coin.balance;
@@ -382,6 +386,20 @@ function CoinRow({ coin }: { coin: Coin }) {
           >
             none in wallet
           </span>
+        ) : owned > 0 ? (
+          /* One card per coin is a deck rule, so a second card for a coin you
+             already hold can never be fielded — it just costs another mint fee
+             for a duplicate. The button used to stay live and charge for it. */
+          <span
+            className="well"
+            style={{
+              display: 'inline-block', padding: '5px 10px', fontSize: 12,
+              fontWeight: 700, color: 'var(--teal)', maxWidth: 116,
+              textAlign: 'center', lineHeight: 1.25,
+            }}
+          >
+            minted
+          </span>
         ) : (
           <button
             onClick={() => {
@@ -453,6 +471,53 @@ function TxReceipt() {
   );
 }
 
+
+/**
+ * The wallet's $MEMPIRE, live, next to the Crowns it is constantly confused with.
+ *
+ * Refreshes on the `mempire-spent` event that `ConfirmSpend` fires after a
+ * successful transfer, because the whole reason this exists is so a spend is
+ * visible: the number has to be different a second after you pay, or it may as
+ * well not be here.
+ */
+function MempireBalance() {
+  const address = useWallet((s) => s.address);
+  const [bal, setBal] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!address) { setBal(null); return; }
+    let live = true;
+    const read = () => {
+      void tokenBalance(new PublicKey(address), MEMPIRE_MINT)
+        .then((raw) => { if (live) setBal(Number(raw / UNIT)); })
+        .catch(() => { /* leave the last known value rather than flashing zero */ });
+    };
+    read();
+    // A transfer confirms a beat before the RPC reports the new balance.
+    const after = () => setTimeout(read, 1200);
+    window.addEventListener('mempire-spent', after);
+    return () => { live = false; window.removeEventListener('mempire-spent', after); };
+  }, [address]);
+
+  if (bal === null) return null;
+  return (
+    <span
+      aria-label={`${bal.toLocaleString()} MEMPIRE`}
+      className="well"
+      style={{
+        marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6,
+        minHeight: 44, padding: '0 13px', borderRadius: 999,
+        borderColor: 'var(--teal)',
+      }}
+    >
+      <span className="display display--sm" style={{ fontSize: 16, color: 'var(--teal)' }}>
+        {bal.toLocaleString()}
+      </span>
+      <span className="fine" style={{ color: 'var(--dim)', fontSize: 11 }}>$MEMPIRE</span>
+    </span>
+  );
+}
+
 export function Cards() {
   const cards = useCollection((s) => s.cards);
   const connected = useWallet((s) => s.connected);
@@ -476,7 +541,10 @@ export function Cards() {
   ], { duration: 440, easing: EASE_SNAP });
   const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
   const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
-  const totalStaked = cards.reduce((s, c) => s + c.stakedUsd, 0);
+  // Real stake only. Starter cards carry a level for show, and letting them into
+  // this total put "$387 staked" next to "11 minted onchain" for a wallet whose
+  // chain stake was zero — the one number on the screen that must match the chain.
+  const totalStaked = cards.reduce((s, c) => s + (c.seeded ? 0 : c.stakedUsd), 0);
 
   if (!connected) {
     return (
@@ -509,12 +577,23 @@ export function Cards() {
               : <>{cards.length} cards · not minted onchain yet</>}
           </p>
         </div>
+        {/*
+          The $MEMPIRE balance, on the screen where $MEMPIRE is spent.
+
+          Chests are skipped and bought with $MEMPIRE, and until now the only
+          place that balance appeared was inside the spend dialog — which closes
+          the moment you pay. So a player spent 25 $MEMPIRE, watched the Crowns
+          counter beside it stay on 120 (a different currency entirely), and had
+          no way to tell the transfer had happened. It had; there was simply
+          nothing on screen that could show it.
+        */}
+        <MempireBalance />
         <button
           onClick={() => setGemShop(true)}
           aria-label="Get Crowns"
           className="btn-3d"
           style={{
-            marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5,
+            display: 'flex', alignItems: 'center', gap: 5,
             minHeight: 44, padding: '0 13px', borderRadius: 999,
             background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
             border: '2.5px solid var(--ink)',
@@ -629,7 +708,12 @@ export function Cards() {
           ))}
         </div>
         <p style={{ fontSize: 12, color: 'var(--dim)', marginTop: 8 }}>
-          Eligibility: ≥$25k liquidity and ≥48h old. Price via Jupiter (mocked on devnet).
+          {/* "mocked on devnet" was accurate and still the wrong word: it reads
+              as a stub someone left in, when the fact is that a devnet mint has
+              no market to quote. Naming the reason keeps the disclosure and
+              drops the implication. */}
+          Eligibility: ≥$25k liquidity and ≥48h old. Prices come from Jupiter on
+          mainnet; devnet mints have no market, so these are fixed reference prices.
         </p>
         <TxReceipt />
       </section>

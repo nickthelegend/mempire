@@ -9,7 +9,7 @@ import {
   TrustWalletAdapter,
 } from '@solana/wallet-adapter-wallets';
 import { create } from 'zustand';
-import { guestAddress } from '../lib/identity';
+import { guestAddress, guestWasActive, markGuestActive } from '../lib/identity';
 
 /**
  * Wallet connection on the official Solana wallet adapters.
@@ -126,9 +126,14 @@ interface WalletState {
   walletIcon: string | null;
   sol: number;
   /**
-   * Guest holds no funds and can never submit a transaction. It *can* sign a
-   * message — see lib/identity.ts — so it still has a provable identity to
-   * the API.
+   * True when this session is the browser-local keypair rather than a wallet
+   * extension.
+   *
+   * It signs messages (lib/identity.ts) *and*, on devnet only, transactions
+   * (chain/provider.ts `guestSigningWallet`) — so a guest genuinely mints and
+   * stakes with real SOL. The stale claim here was "holds no funds and can
+   * never submit a transaction", which is what put the false "play money" line
+   * on the Empire tab.
    */
   isGuest: boolean;
   /**
@@ -214,9 +219,10 @@ export const useWallet = create<WalletState>((set, get) => ({
     }
   },
 
-  /** Simulated wallet so the whole game is playable with nothing installed. */
+  /** Browser-held keypair so the whole game is playable with nothing installed. */
   connectGuest: () => {
     activeAdapter = null;
+    markGuestActive(true);
     set({
       connected: true, connecting: null, pickerOpen: false,
       address: guestAddress(), walletName: 'Guest', walletIcon: null,
@@ -248,9 +254,15 @@ export const useWallet = create<WalletState>((set, get) => ({
         // not trusted yet — the picker handles it
       }
     }
+    // No extension took the session. If this browser was already playing as a
+    // guest, put it back: the keypair never left localStorage, so landing on
+    // Connect Wallet after a refresh threw away a live identity — and, mid
+    // match, the match with it.
+    if (!get().connected && guestWasActive()) get().connectGuest();
   },
 
   disconnect: () => {
+    markGuestActive(false);
     const name = get().walletName;
     const adapter = getAdapters().find((a) => a.name === name);
     void adapter?.disconnect().catch(() => { /* already gone */ });

@@ -154,19 +154,58 @@ function OpenCeremony({
               </span>
             </span>
           </div>
+          {/*
+            The cards you actually won, as cards.
+
+            These used to be text pills — "$MSFT" in a small well — under a
+            large exploding chest. So the moment read as "a chest opened" and
+            the reward, which is the whole point of opening it, was a caption
+            you could miss. Someone watching over your shoulder could not tell
+            you what you had won.
+
+            Now the art leads: the fighter's portrait at the size the rest of
+            the game shows a card, its ticker under it. The chest is the
+            packaging; this is the thing.
+          */}
           {def.droppedTickers.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center', maxWidth: 300 }}>
+            <div style={{
+              display: 'flex', gap: 10, flexWrap: 'wrap',
+              justifyContent: 'center', maxWidth: 320,
+            }}
+            >
               {def.droppedTickers.map((t, i) => (
-                <span
+                <div
                   key={`${t}_${i}`}
                   className="well"
                   style={{
-                    padding: '5px 10px', fontSize: 13, fontWeight: 800,
-                    color: 'var(--gold-hi)',
+                    padding: 6, display: 'flex', flexDirection: 'column',
+                    alignItems: 'center', gap: 4, width: 96,
+                    borderColor: 'var(--gold)',
                   }}
                 >
-                  ${t}
-                </span>
+                  <img
+                    src={`/art/card_${t.toLowerCase()}.png`}
+                    alt={`$${t}`}
+                    width={84}
+                    height={84}
+                    loading="eager"
+                    /* A missing portrait must not leave a broken-image glyph in
+                       the middle of the reward — hide the art and let the
+                       ticker carry it, which is what this used to be anyway. */
+                    onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    style={{
+                      width: 84, height: 84, objectFit: 'cover',
+                      borderRadius: 8, border: '2px solid var(--ink)',
+                      background: 'var(--recess)',
+                    }}
+                  />
+                  <span
+                    className="display"
+                    style={{ fontSize: 15, color: 'var(--gold-hi)', lineHeight: 1 }}
+                  >
+                    ${t}
+                  </span>
+                </div>
               ))}
             </div>
           )}
