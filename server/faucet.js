@@ -44,6 +44,23 @@ const DRIP_TOKENS = 25;
 /** How many distinct coins a new player is handed. A legal deck is eight. */
 const STARTER_COINS = 8;
 
+/**
+ * The $MEMPIRE a new player starts with.
+ *
+ * $MEMPIRE is now the game's only currency — Crowns are gone — so a player
+ * who arrives with none of it cannot mint, upgrade, or skip anything. This is
+ * the grant that used to be 120 Crowns, denominated in the token the game is
+ * actually named after and readable on any explorer.
+ *
+ * Enough for a full deck of mints plus a first upgrade or two, and no more:
+ * the AMM is right there for anyone who wants more than the game hands out.
+ */
+const DRIP_MEMPIRE = 2000;
+const MEMPIRE_MINT = new PublicKey(
+  process.env.MEMPIRE_MINT ?? 'AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFpR8',
+);
+const MEMPIRE_DECIMALS = 6;
+
 function faucetKeypair() {
   const secret = process.env.FAUCET_SECRET;
   if (!secret) return null;
@@ -71,6 +88,7 @@ export function registerFaucetRoutes(app, db, coins) {
       available: sol > DRIP_SOL * LAMPORTS_PER_SOL * 2,
       address: kp.publicKey.toBase58(),
       dripSol: DRIP_SOL,
+      dripMempire: DRIP_MEMPIRE,
       coins: starters.map((c) => c.ticker),
       balanceSol: sol / LAMPORTS_PER_SOL,
     });
@@ -148,6 +166,18 @@ export function registerFaucetRoutes(app, db, coins) {
             toPubkey: owner,
             lamports: Math.round(DRIP_SOL * LAMPORTS_PER_SOL),
           }));
+          // Rides the first batch for the same reason the SOL does: it is two
+          // instructions, and the second batch is the one closer to the size
+          // limit that split these in half to begin with.
+          const mTo = getAssociatedTokenAddressSync(MEMPIRE_MINT, owner);
+          tx.add(createAssociatedTokenAccountIdempotentInstruction(
+            kp.publicKey, mTo, owner, MEMPIRE_MINT,
+          ));
+          tx.add(createTransferInstruction(
+            getAssociatedTokenAddressSync(MEMPIRE_MINT, kp.publicKey),
+            mTo, kp.publicKey,
+            BigInt(DRIP_MEMPIRE) * BigInt(10) ** BigInt(MEMPIRE_DECIMALS),
+          ));
         }
         for (const c of batch) {
           const mint = new PublicKey(c.mint);
@@ -174,7 +204,7 @@ export function registerFaucetRoutes(app, db, coins) {
       recordEvent(db, {
         type: 'faucet.claim',
         address,
-        props: { sol: DRIP_SOL, coins: starters.length },
+        props: { sol: DRIP_SOL, mempire: DRIP_MEMPIRE, coins: starters.length },
       });
 
       res.json({

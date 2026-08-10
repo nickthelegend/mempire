@@ -131,12 +131,13 @@ export function usePlayerSync(): void {
         useWallet.setState({ sol: saved.sol });
       }
       if (saved.history?.length) useMatch.setState({ history: saved.history });
-      // The premium economy is real progress and must survive a reload:
-      // gems, chest slots mid-unlock (absolute timestamps, so a timer that was
-      // running keeps running), and the day's shop state.
-      if (typeof saved.gems === 'number' && Number.isFinite(saved.gems)) {
+      // Chest slots mid-unlock are real progress and must survive a reload —
+      // absolute timestamps, so a timer that was running keeps running — along
+      // with the day's shop state. The currency is no longer restored here:
+      // $MEMPIRE is an SPL balance read from the chain, and a saved copy of it
+      // would be a second, staler answer to a question the chain settles.
+      if (Array.isArray(saved.chests)) {
         useEconomy.setState({
-          gems: Math.max(0, Math.floor(saved.gems)),
           // Chests saved before drops became seed-derived carry no seed, and
           // opening one would throw on decode. Backfilling a local seed keeps
           // them openable and — correctly — labels them as not oracle-rolled,
@@ -147,8 +148,6 @@ export function usePlayerSync(): void {
               : { ...c, seed: bytesToHex(localSeed()), source: c.source ?? 'local' }))
             : [],
           nextChestId: saved.nextChestId || 1,
-          gemsSpent: saved.gemsSpent ?? 0,
-          solSpentOnGems: saved.solSpentOnGems ?? 0,
         });
       }
       if (saved.shop?.offers?.length) {
@@ -186,11 +185,8 @@ export function usePlayerSync(): void {
         sol: useWallet.getState().sol,
         nextId: useCollection.getState().nextId,
         history: useMatch.getState().history,
-        gems: eco.gems,
         chests: eco.chests,
         nextChestId: eco.nextChestId,
-        gemsSpent: eco.gemsSpent,
-        solSpentOnGems: eco.solSpentOnGems,
         shop: { offers: shop.offers, day: shop.day, rerollsUsed: shop.rerollsUsed },
       });
     };

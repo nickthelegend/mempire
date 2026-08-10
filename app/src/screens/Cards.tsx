@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CardDetail } from '../components/CardDetail';
 import { StarterKit } from '../components/StarterKit';
 import { CardFrame } from '../components/CardFrame';
 import { ChainBadge } from '../components/ChainBadge';
-import { ChestRail, GemShop } from '../components/Chests';
+import { ChestRail } from '../components/Chests';
 import { Shop } from '../components/Shop';
 import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
 import {
@@ -20,11 +21,9 @@ import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { EASE_SNAP, usePulse } from '../lib/motion';
 import { revealSection } from '../lib/scroll';
 import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
-import { useEconomy } from '../state/economy';
 import { signer, useWallet } from '../state/wallet';
 import { Token } from '../components/Token';
-import { PublicKey } from '@solana/web3.js';
-import { MEMPIRE_MINT, UNIT, tokenBalance } from '../chain/amm';
+import { useMempire } from '../state/mempire';
 
 const STAKE_CHIPS = [10, 25, 50, 100, 500];
 
@@ -473,72 +472,76 @@ function TxReceipt() {
 
 
 /**
- * The wallet's $MEMPIRE, live, next to the Crowns it is constantly confused with.
+ * The wallet's $MEMPIRE. The game's only currency, and the only counter here.
  *
- * Refreshes on the `mempire-spent` event that `ConfirmSpend` fires after a
- * successful transfer, because the whole reason this exists is so a spend is
- * visible: the number has to be different a second after you pay, or it may as
- * well not be here.
+ * This used to sit beside a Crowns pill showing a different, offchain number,
+ * and the Crowns one was bigger, gold, and had a `+` on it — so that is the
+ * one players watched. They would spend 25 $MEMPIRE on a chest skip, see the
+ * gold counter stay on 120, and conclude nothing had been charged. The
+ * transfer had happened every time. There were simply two currencies on one
+ * header and the wrong one looked like the token.
+ *
+ * Tapping it opens the Swap, because "I need more" is the only question this
+ * number ever prompts and the AMM is the answer.
  */
-function MempireBalance() {
+function MempireBalance({ onGet }: { onGet: () => void }) {
   const address = useWallet((s) => s.address);
-  const [bal, setBal] = useState<number | null>(null);
+  const balance = useMempire((s) => s.balance);
+  const refresh = useMempire((s) => s.refresh);
 
-  useEffect(() => {
-    if (!address) { setBal(null); return; }
-    let live = true;
-    const read = () => {
-      void tokenBalance(new PublicKey(address), MEMPIRE_MINT)
-        .then((raw) => { if (live) setBal(Number(raw / UNIT)); })
-        .catch(() => { /* leave the last known value rather than flashing zero */ });
-    };
-    read();
-    // A transfer confirms a beat before the RPC reports the new balance.
-    const after = () => setTimeout(read, 1200);
-    window.addEventListener('mempire-spent', after);
-    return () => { live = false; window.removeEventListener('mempire-spent', after); };
-  }, [address]);
+  useEffect(() => { void refresh(address || null); }, [address, refresh]);
 
-  if (bal === null) return null;
+  const pulse = usePulse(balance ?? 0, [
+    { transform: 'scale(1)' },
+    { transform: 'scale(1.28)', offset: 0.38 },
+    { transform: 'scale(1)' },
+  ], { duration: 440, easing: EASE_SNAP });
+
   return (
-    <span
-      aria-label={`${bal.toLocaleString()} MEMPIRE`}
-      className="well"
+    <button
+      onClick={onGet}
+      aria-label={balance === null
+        ? 'Get $MEMPIRE'
+        : `${balance.toLocaleString()} MEMPIRE — get more`}
+      className="btn-3d"
       style={{
-        marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 6,
+        marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6,
         minHeight: 44, padding: '0 13px', borderRadius: 999,
-        borderColor: 'var(--teal)',
+        background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
+        border: '2.5px solid var(--ink)',
+        boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)',
       }}
     >
-      <span className="display display--sm" style={{ fontSize: 16, color: 'var(--teal)' }}>
-        {bal.toLocaleString()}
+      <Token size={17} />
+      <span
+        ref={pulse as React.RefObject<HTMLSpanElement>}
+        className="display display--sm"
+        style={{ fontSize: 16, display: 'inline-block' }}
+      >
+        {/* An em dash until the first read lands. Rendering 0 here is the same
+            lie the throttled-RPC bug told: a funded wallet reading empty. */}
+        {balance === null ? '—' : balance.toLocaleString()}
       </span>
-      <span className="fine" style={{ color: 'var(--dim)', fontSize: 11 }}>$MEMPIRE</span>
-    </span>
+      <span className="display display--sm" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
+    </button>
   );
 }
 
 export function Cards() {
+  const nav = useNavigate();
   const cards = useCollection((s) => s.cards);
   const connected = useWallet((s) => s.connected);
   const openPicker = useWallet((s) => s.openPicker);
-  const gems = useEconomy((s) => s.gems);
   /** What actually exists on chain, so the header can stop guessing. */
   const chainCards = useChain((s) => s.cards);
   const [openCard, setOpenCard] = useState<string | null>(null);
   const [stakeCard, setStakeCard] = useState<string | null>(null);
-  const [gemShop, setGemShop] = useState(false);
   const bagsRef = useRef<HTMLElement>(null);
   const [kind, setKind] = useState<AssetKind | 'all'>('all');
   const shownCoins = useMemo(
     () => (kind === 'all' ? COINS : COINS.filter((c) => c.kind === kind)),
     [kind],
   );
-  const gemRef = usePulse(gems, [
-    { transform: 'scale(1)' },
-    { transform: 'scale(1.28)', offset: 0.38 },
-    { transform: 'scale(1)' },
-  ], { duration: 440, easing: EASE_SNAP });
   const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
   const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
   // Real stake only. Starter cards carry a level for show, and letting them into
@@ -577,41 +580,7 @@ export function Cards() {
               : <>{cards.length} cards · not minted onchain yet</>}
           </p>
         </div>
-        {/*
-          The $MEMPIRE balance, on the screen where $MEMPIRE is spent.
-
-          Chests are skipped and bought with $MEMPIRE, and until now the only
-          place that balance appeared was inside the spend dialog — which closes
-          the moment you pay. So a player spent 25 $MEMPIRE, watched the Crowns
-          counter beside it stay on 120 (a different currency entirely), and had
-          no way to tell the transfer had happened. It had; there was simply
-          nothing on screen that could show it.
-        */}
-        <MempireBalance />
-        <button
-          onClick={() => setGemShop(true)}
-          aria-label="Get Crowns"
-          className="btn-3d"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            minHeight: 44, padding: '0 13px', borderRadius: 999,
-            background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
-            border: '2.5px solid var(--ink)',
-            boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)',
-          }}
-        >
-          <Token size={17} />
-          {/* Crowns arrive from chests, lending and purchases — all of which happen
-              elsewhere on the screen, so the counter has to announce itself. */}
-          <span
-            ref={gemRef as React.RefObject<HTMLSpanElement>}
-            className="display display--sm"
-            style={{ fontSize: 16, display: 'inline-block' }}
-          >
-            {gems}
-          </span>
-          <span className="display display--sm" style={{ fontSize: 16, opacity: 0.85 }}>+</span>
-        </button>
+        <MempireBalance onGet={() => nav('/swap')} />
       </header>
 
       <StarterKit />
@@ -726,7 +695,6 @@ export function Cards() {
         />
       )}
       {selected && <StakeSheet card={selected} onClose={() => setStakeCard(null)} />}
-      {gemShop && <GemShop onClose={() => setGemShop(false)} />}
     </div>
   );
 }

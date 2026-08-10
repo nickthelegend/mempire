@@ -4,10 +4,12 @@ import { coinByMint, tickerOf } from '../lib/coins';
 import { fmtSol, fmtUsd } from '../lib/format';
 import { useChain } from '../state/chain';
 import { useCollection } from '../state/collection';
-import { useEconomy } from '../state/economy';
-import { FREE_REROLLS, REROLL_GEM_COST, useShop } from '../state/shop';
+import { useMempire } from '../state/mempire';
+import { spendMempire } from '../chain/spend';
+import { signer } from '../state/wallet';
+import { FREE_REROLLS, REROLL_COST, useShop } from '../state/shop';
 import { useWallet } from '../state/wallet';
-import { CoinBadge } from './ui';
+import { CoinBadge, Spinner } from './ui';
 import { TokenAmount } from './Token';
 
 function fmtLeft(ms: number): string {
@@ -20,14 +22,22 @@ function fmtLeft(ms: number): string {
 /**
  * Daily card offers.
  *
- * Both prices are shown because the two currencies serve different players: a
- * A Crown price spends what winning already earned; a SOL price is the impulse buy.
- * The rotation clock is visible so waiting is a real choice against rerolling.
+ * Two prices, because two kinds of player buy here: $MEMPIRE spends what the
+ * game already gave you, SOL is the impulse buy. The left-hand price used to
+ * be Crowns — a currency with no chain behind it — which meant the shop's main
+ * checkout never touched the token the game is named after. It does now, and
+ * every purchase is a transfer anyone can read.
+ *
+ * The cost of that honesty is latency: a Crowns purchase was instant, and this
+ * one waits on a signature. Hence `pending`, which disables the row being
+ * bought rather than the whole panel.
  */
 export function Shop() {
   const { offers, ensureFresh, reroll, rerollsUsed, markBought, msUntilRotation } = useShop();
-  const gems = useEconomy((s) => s.gems);
-  const spendGems = useEconomy((s) => s.spendGems);
+  const balance = useMempire((s) => s.balance);
+  const canAfford = useMempire((s) => s.canAfford);
+  const refreshMempire = useMempire((s) => s.refresh);
+  const [pending, setPending] = useState<string | null>(null);
   const chainMode = useChain((s) => s.mode);
   const wallet = useWallet();
   const { mintCard, cards } = useCollection();
@@ -40,15 +50,9 @@ export function Shop() {
     return () => clearInterval(t);
   }, [ensureFresh]);
 
-  const buy = (mint: string, gemPrice: number, solPrice: number, withGems: boolean) => {
-    click();
-    if (withGems) {
-      if (!spendGems(gemPrice)) { play('error'); setError(`need ${gemPrice} Crowns`); return; }
-    } else if (!wallet.spend(solPrice)) {
-      play('error');
-      setError(`need ${fmtSol(solPrice)}`);
-      return;
-    }
+  const freeLeft = Math.max(0, FREE_REROLLS - rerollsUsed);
+
+  const grant = (mint: string) => {
     mintCard(mint);
     markBought(mint);
     play('reward');
@@ -56,7 +60,68 @@ export function Shop() {
     setError(null);
   };
 
-  const freeLeft = Math.max(0, FREE_REROLLS - rerollsUsed);
+  /**
+   * $MEMPIRE is a real transfer, so this can fail after the click and has to
+   * say why. Nothing is granted until the signature confirms — granting first
+   * and reconciling later is how a shop hands out a card it was never paid for.
+   */
+  const buyWithToken = async (mint: string, price: number) => {
+    click();
+    if (!canAfford(price)) {
+      play('error');
+      setError(`need ${price} $MEMPIRE${balance === null ? '' : ` — you hold ${balance}`}`);
+      return;
+    }
+    setPending(mint);
+    setError(null);
+    try {
+      await spendMempire(signer(), price, wallet.address);
+      grant(mint);
+      void refreshMempire(wallet.address);
+    } catch (e) {
+      play('error');
+      setError(e instanceof Error ? e.message : 'The purchase did not go through.');
+    } finally {
+      setPending(null);
+    }
+  };
+
+  /**
+   * A free reroll costs nothing and stays instant. A paid one is a transfer,
+   * so the spend has to land before the offers are replaced — reroll first and
+   * the player gets a new shop whether or not they paid for it.
+   */
+  const doReroll = async () => {
+    if (freeLeft > 0) { setError(reroll(() => true)); return; }
+    if (!canAfford(REROLL_COST)) {
+      play('error');
+      setError(`need ${REROLL_COST} $MEMPIRE to reroll`);
+      return;
+    }
+    setPending('reroll');
+    setError(null);
+    try {
+      await spendMempire(signer(), REROLL_COST, wallet.address);
+      setError(reroll(() => true));
+      void refreshMempire(wallet.address);
+    } catch (e) {
+      play('error');
+      setError(e instanceof Error ? e.message : 'The reroll did not go through.');
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const buyWithSol = (mint: string, solPrice: number) => {
+    click();
+    if (!wallet.spend(solPrice)) {
+      play('error');
+      setError(`need ${fmtSol(solPrice)}`);
+      return;
+    }
+    grant(mint);
+  };
+
 
   return (
     <section aria-label="Shop">
@@ -71,7 +136,7 @@ export function Shop() {
         {offers.map((o) => {
           const coin = coinByMint(o.mint);
           if (!coin) return null;
-          const gemPrice = Math.round(o.gemPrice * (1 - o.discountPct / 100));
+          const tokenPrice = Math.round(o.tokenPrice * (1 - o.discountPct / 100));
           const solPrice = +(o.solPrice * (1 - o.discountPct / 100)).toFixed(3);
           const owned = cards.some((c) => c.mint === o.mint);
 
@@ -108,8 +173,9 @@ export function Shop() {
               ) : (
                 <span style={{ display: 'flex', gap: 5 }}>
                   <button
-                    onClick={() => buy(o.mint, gemPrice, solPrice, true)}
-                    aria-label={`Buy ${tickerOf(coin)} for ${gemPrice} Crowns`}
+                    onClick={() => void buyWithToken(o.mint, tokenPrice)}
+                    disabled={pending !== null}
+                    aria-label={`Buy ${tickerOf(coin)} for ${tokenPrice} $MEMPIRE`}
                     className="btn-3d"
                     style={{
                       minHeight: 44, padding: '0 10px', borderRadius: 9,
@@ -121,10 +187,12 @@ export function Shop() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    <TokenAmount amount={gemPrice} size={14} />
+                    {pending === o.mint
+                      ? <Spinner />
+                      : <TokenAmount amount={tokenPrice} size={14} />}
                   </button>
                   <button
-                    onClick={() => buy(o.mint, gemPrice, solPrice, false)}
+                    onClick={() => buyWithSol(o.mint, solPrice)}
                     aria-label={`Buy ${tickerOf(coin)} for ${solPrice} SOL`}
                     className="btn-3d"
                     style={{
@@ -146,7 +214,8 @@ export function Shop() {
         })}
 
         <button
-          onClick={() => { click(); setError(reroll(spendGems)); }}
+          onClick={() => { click(); void doReroll(); }}
+          disabled={pending !== null}
           className="btn-3d"
           style={{
             minHeight: 44, borderRadius: 9, marginTop: 1,
@@ -158,7 +227,7 @@ export function Shop() {
         >
           {freeLeft > 0
             ? `Reroll · free (${freeLeft})`
-            : <>Reroll · <TokenAmount amount={REROLL_GEM_COST} size={14} /></>}
+            : <>Reroll · <TokenAmount amount={REROLL_COST} size={14} /></>}
         </button>
 
         {error && (
@@ -169,14 +238,13 @@ export function Shop() {
               three minutes on this build — so the two lines contradicted each
               other on the same panel, and the one a judge can time is the
               countdown. */}
-          You hold {gems} Crowns · a new set each shop day
-          {/* The bags section can be live-onchain while the Shop is not, and
-              saying so beats letting the badge above imply otherwise. Naming
-              Crowns as the offchain currency rather than calling the purchase
-              "simulated" also stops the disclosure reading as though the rest
-              of the game were simulated too — mints, stakes and match escrow
-              on this same screen are real transactions. */}
-          {chainMode === 'onchain' && ' · Crowns are an offchain currency, so shop purchases settle locally'}
+          You hold {balance === null ? '—' : balance.toLocaleString()} $MEMPIRE · a new set each shop day
+          {/* Was "Crowns are an offchain currency, so shop purchases settle
+              locally". Both halves stopped being true the moment the shop
+              started charging $MEMPIRE: there is no offchain currency left,
+              and a purchase here is a transfer to the treasury like any
+              other. */}
+          {chainMode === 'onchain' && ' · purchases transfer $MEMPIRE to the treasury'}
         </p>
       </div>
     </section>

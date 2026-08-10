@@ -7,11 +7,24 @@ import { useCollection } from './collection';
 import { forget, remind } from '../lib/native';
 
 /**
- * Gems and chests — the premium economy.
+ * Chests — what winning pays out.
  *
- * Design rule that must not be broken: Gems buy *time, access and cosmetics*,
- * never stats. Card power comes only from staking real tokens, so a paying
- * player never out-stats a skilled one and matchmaking survives whales.
+ * # Crowns are gone
+ *
+ * This store used to hold `gems`: a soft currency granted freely, spent on
+ * shop cards and rerolls, never touching the chain. The argument for it was
+ * that a currency the game *spends* should not be repriced by traders. The
+ * argument against it was on screen the whole time — a header reading
+ * `0 $MEMPIRE` beside `120 ♛`, where the number players watched was the one
+ * that did not exist. There is one currency now and it is the SPL token; see
+ * `state/mempire.ts`.
+ *
+ * Chests therefore pay in **cards**, not currency. That is also the better
+ * game: a chest you open for a fighter you can field is a reason to play the
+ * next match, and a chest that pays a number is a reason to check a balance.
+ *
+ * The rule that survives unchanged: nothing bought here may sell stats. Power
+ * comes from playing, so a paying player never out-levels a skilled one.
  */
 
 export type ChestTier = 'silver' | 'golden' | 'magic' | 'legendary';
@@ -21,7 +34,6 @@ export interface ChestDef {
   name: string;
   unlockMs: number;
   cards: number;
-  gems: number;
   /** Relative weight when a win rolls a chest. */
   weight: number;
   colors: [string, string];
@@ -38,19 +50,19 @@ export interface OpenedChest extends ChestDef {
 export const CHESTS: Record<ChestTier, ChestDef> = {
   silver: {
     tier: 'silver', name: 'Silver Chest', unlockMs: 15 * 60_000,
-    cards: 1, gems: 2, weight: 62, colors: ['#dfe8f5', '#8b9dbb'],
+    cards: 1, weight: 62, colors: ['#dfe8f5', '#8b9dbb'],
   },
   golden: {
     tier: 'golden', name: 'Golden Chest', unlockMs: 3 * 3_600_000,
-    cards: 2, gems: 8, weight: 26, colors: ['#ffd766', '#c8890b'],
+    cards: 2, weight: 26, colors: ['#ffd766', '#c8890b'],
   },
   magic: {
     tier: 'magic', name: 'Magic Chest', unlockMs: 8 * 3_600_000,
-    cards: 3, gems: 20, weight: 9, colors: ['#c77dff', '#6a2fb5'],
+    cards: 3, weight: 9, colors: ['#c77dff', '#6a2fb5'],
   },
   legendary: {
     tier: 'legendary', name: 'Legendary Chest', unlockMs: 12 * 3_600_000,
-    cards: 4, gems: 50, weight: 3, colors: ['#7cf6d8', '#12a88a'],
+    cards: 4, weight: 3, colors: ['#7cf6d8', '#12a88a'],
   },
 };
 
@@ -95,20 +107,6 @@ export interface ChestSlot {
   seed: string;
 }
 
-export interface GemBundle {
-  gems: number;
-  sol: number;
-  bonus?: string;
-}
-
-/** Published rate, with volume discount — the treasury keeps the spread. */
-export const GEM_BUNDLES: GemBundle[] = [
-  { gems: 80, sol: 0.05 },
-  { gems: 500, sol: 0.25, bonus: 'Best value' },
-  { gems: 1200, sol: 0.5, bonus: '+20% free' },
-  { gems: 2500, sol: 1, bonus: '+25% free' },
-];
-
 /** Skipping the wait is the product. Price scales with time left. */
 export function skipCost(remainingMs: number): number {
   const hours = remainingMs / 3_600_000;
@@ -116,14 +114,9 @@ export function skipCost(remainingMs: number): number {
 }
 
 interface EconomyState {
-  gems: number;
   chests: ChestSlot[];
   nextChestId: number;
-  /** Lifetime spend, surfaced in Empire so the rake is never hidden. */
-  gemsSpent: number;
-  solSpentOnGems: number;
 
-  buyGems: (bundle: GemBundle) => void;
   /**
    * Awards a chest, seeded locally.
    *
@@ -152,8 +145,6 @@ interface EconomyState {
    * wins — it is the authority — and the chest stops claiming to be local.
    */
   reconcileNewestChest: (tier: number, randomness: string) => void;
-  spendGems: (n: number) => boolean;
-  addGems: (n: number) => void;
 }
 
 /**
@@ -185,17 +176,8 @@ function dropCards(n: number, seed: Uint8Array): string[] {
 
 
 export const useEconomy = create<EconomyState>((set, get) => ({
-  gems: 120, // starter grant so the loop is demonstrable immediately
   chests: [],
   nextChestId: 1,
-  gemsSpent: 0,
-  solSpentOnGems: 0,
-
-  buyGems: (bundle) =>
-    set((s) => ({
-      gems: s.gems + bundle.gems,
-      solSpentOnGems: +(s.solSpentOnGems + bundle.sol).toFixed(4),
-    })),
 
   /** Called on a win. Returns null when every slot is full — that's the hook. */
   awardChest: () => {
@@ -255,7 +237,7 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       remind(
         `chest:${id}`,
         `${def.name} is ready`,
-        `${def.cards} cards and ${def.gems} gems are waiting in your empire.`,
+        `${def.cards} ${def.cards === 1 ? 'card is' : 'cards are'} waiting in your empire.`,
         (def.unlockMs * DEMO_TIME_SCALE) / 1000,
       );
     }
@@ -278,8 +260,8 @@ export const useEconomy = create<EconomyState>((set, get) => ({
    *
    * Deliberately free at this layer. This used to also spend Crowns, from
    * before $MEMPIRE was the price — so a skip took 25 $MEMPIRE on chain and
-   * *then* asked for a second currency, and `spendGems` returning false is a
-   * silent no-op. A player with no Crowns paid and watched the timer not move.
+   * *then* asked for a second currency that could silently refuse. Crowns are
+   * gone entirely now, but the rule they broke is worth keeping written down.
    *
    * The price is stated once, in `ConfirmSpend`, and collected once. Anything
    * charging again below that is a second price nobody agreed to.
@@ -302,10 +284,7 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     const ready = chest.unlocking && chest.readyAt <= Date.now();
     if (!ready) return null;
     const def = CHESTS[chest.tier];
-    set((s) => ({
-      chests: s.chests.filter((c) => c.id !== id),
-      gems: s.gems + def.gems,
-    }));
+    set((s) => ({ chests: s.chests.filter((c) => c.id !== id) }));
     // The chest's card count mints real cards, not a number on a toast — and
     // which ones is derived from the seed the chest has been carrying since it
     // was awarded, so the contents were fixed before the player pressed OPEN.
@@ -343,16 +322,4 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     });
   },
 
-  spendGems: (n) => {
-    if (get().gems < n) return false;
-    set((s) => ({ gems: s.gems - n, gemsSpent: s.gemsSpent + n }));
-    return true;
-  },
-
-  /**
-   * Gems granted for something earned — currently answering a clanmate's lend
-   * request. Deliberately not counted in `gemsSpent`, which tracks what the
-   * treasury took, not what it gave back.
-   */
-  addGems: (n) => set((s) => ({ gems: s.gems + Math.max(0, Math.floor(n)) })),
 }));

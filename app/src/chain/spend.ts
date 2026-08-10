@@ -42,6 +42,18 @@ export const PRICES = {
 
 export type SpendKind = keyof typeof PRICES;
 
+/**
+ * What a spend costs, in whole $MEMPIRE.
+ *
+ * Takes a named kind or a bare number, because the shop's prices are per-offer
+ * and there is no sensible way to name them ahead of time. Crowns used to
+ * cover that case — they were the currency with arbitrary, game-set prices —
+ * and with one currency left the price simply travels with the call.
+ */
+export type SpendPrice = SpendKind | number;
+
+export const priceOf = (p: SpendPrice): number => (typeof p === 'number' ? p : PRICES[p]);
+
 export interface SpendCheck {
   /** Whole tokens the wallet holds. */
   balance: number;
@@ -64,10 +76,10 @@ export interface SpendCheck {
  */
 export async function checkSpend(
   adapter: Adapter | null,
-  kind: SpendKind,
+  kind: SpendPrice,
   address: string | null,
 ): Promise<SpendCheck> {
-  const price = PRICES[kind];
+  const price = priceOf(kind);
   const base: SpendCheck = {
     balance: 0, price, affordable: false, shortfall: price, blocker: '',
   };
@@ -106,7 +118,7 @@ export async function checkSpend(
  */
 export async function spendMempire(
   adapter: Adapter | null,
-  kind: SpendKind,
+  kind: SpendPrice,
   address: string,
 ): Promise<string> {
   const check = await checkSpend(adapter, kind, address);
@@ -128,7 +140,7 @@ export async function spendMempire(
   // account once costs the first buyer a little rent and nobody after them.
   tx.add(createAssociatedTokenAccountIdempotentInstruction(owner, to, treasury, MEMPIRE_MINT));
   tx.add(createTransferInstruction(
-    from, to, owner, BigInt(PRICES[kind]) * UNIT,
+    from, to, owner, BigInt(priceOf(kind)) * UNIT,
   ));
 
   const conn = getConnection();

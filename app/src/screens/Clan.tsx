@@ -10,7 +10,7 @@ import { ARCHETYPES } from '../sim/archetypes';
 import { ARCHETYPE_NAMES, type Archetype } from '../sim/types';
 import { useClan, type ClanSummary } from '../state/clan';
 import { useDeck } from '../state/deck';
-import { useEconomy } from '../state/economy';
+import { useMempire } from '../state/mempire';
 import { useWallet } from '../state/wallet';
 import { Token, TokenAmount } from '../components/Token';
 
@@ -26,7 +26,7 @@ import { Token, TokenAmount } from '../components/Token';
 function Browse({ onFounded }: { onFounded: (name: string) => void }) {
   const address = useWallet((s) => s.address);
   const power = useDeck((s) => s.power());
-  const gems = useEconomy((s) => s.gems);
+  const balance = useMempire((s) => s.balance);
   const { results, loading, offline, error, search, open, join, busy } = useClan();
 
   const [term, setTerm] = useState('');
@@ -192,7 +192,7 @@ function Browse({ onFounded }: { onFounded: (name: string) => void }) {
       )}
 
       <p className="fine" style={{ textAlign: 'center', fontSize: 12 }}>
-        You hold {gems} Crowns · one clan per wallet
+        You hold {balance === null ? '—' : balance.toLocaleString()} $MEMPIRE · one clan per wallet
       </p>
 
       <ClanSheet onJoin={doJoin} />
@@ -211,7 +211,6 @@ const CREATE_COST = 500;
 // ── in a clan ──────────────────────────────────────────────────────────────
 function Home() {
   const address = useWallet((s) => s.address);
-  const addGems = useEconomy((s) => s.addGems);
   const {
     mine, busy, error, leave, requestCard, lend, myRole,
   } = useClan();
@@ -229,9 +228,10 @@ function Home() {
   const doLend = async (id: string) => {
     const err = await lend(address, id);
     setLocalError(err);
-    // The server awards the Crowns; mirroring it locally keeps the counter honest
-    // without a second round trip.
-    if (!err) addGems(5);
+    // The lend reward used to be 5 Crowns mirrored locally. Crowns are gone,
+    // and $MEMPIRE cannot be minted client-side — it is a real SPL balance, so
+    // the only honest way to pay this is a transfer from the treasury. Until
+    // the relay does that, lending is thanks and standing, not a payout.
   };
 
   return (

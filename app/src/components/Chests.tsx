@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { buzz, click, play } from '../lib/audio';
 import {
-  CHESTS, CHEST_SLOTS, GEM_BUNDLES, useEconomy,
+  CHESTS, CHEST_SLOTS, useEconomy,
   type ChestSlot, type OpenedChest,
 } from '../state/economy';
-import { SwapPanel } from '../screens/Swap';
-import { Token } from './Token';
 import { ConfirmSpend } from './ConfirmSpend';
 import { PRICES } from '../chain/spend';
 
@@ -147,11 +145,6 @@ function OpenCeremony({
           <div style={{ display: 'flex', gap: 10 }}>
             <span className="well" style={{ padding: '9px 15px' }}>
               <span className="display" style={{ fontSize: 19 }}>+{def.cards} cards</span>
-            </span>
-            <span className="well" style={{ padding: '9px 15px' }}>
-              <span className="display" style={{ fontSize: 19, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                +{def.gems} <Token size={19} />
-              </span>
             </span>
           </div>
           {/*
@@ -433,7 +426,7 @@ export function ChestRail() {
         <ConfirmSpend
           kind="chestBuy"
           title="Buy a golden chest"
-          detail={`A ${CHESTS.golden.name} straight into a free slot — ${CHESTS.golden.cards} cards and ${CHESTS.golden.gems} gems, no battle needed.`}
+          detail={`A ${CHESTS.golden.name} straight into a free slot — ${CHESTS.golden.cards} cards, no battle needed.`}
           onCancel={() => setBuying(false)}
           onDone={() => {
             useEconomy.getState().buyChest('golden');
@@ -446,134 +439,3 @@ export function ChestRail() {
   );
 }
 
-/**
- * The + on the Crowns balance.
- *
- * Two currencies, kept apart on purpose.
- *
- * **Crowns** are the game's soft currency. They skip chest timers, found
- * clans and buy cosmetics, they are earned by playing, and they never leave
- * the game. **$MEMPIRE** is a real SPL token with a real constant-product
- * pool against USDC.
- *
- * They were the same thing for one commit and that was a mistake: a currency
- * the game *spends* has to be stable, and a traded token's price is set by
- * traders. Run it up 50x and a chest skip costs forty dollars so nobody
- * spends it; drop it to zero and the economy is denominated in nothing.
- * Either way the game's balance stops being the game's to set.
- *
- * So Crowns lead here — they are what the + is for — and $MEMPIRE is offered
- * beside them as the separate, tradable thing it is.
- */
-export function GemShop({ onClose }: { onClose: () => void }) {
-  const { gems, buyGems } = useEconomy();
-  // Crowns first: this sheet is reached from the Crowns balance, so opening
-  // on a token swap would answer a question the player did not ask.
-  const [tab, setTab] = useState<'swap' | 'bundles'>('bundles');
-
-  // Escape closes this, as it closes the wallet picker and the card sheet.
-  // It did not, and a dialog that ignores the key every other dialog honours
-  // reads as broken rather than as different.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex', justifyContent: 'center' }}>
-      <div aria-hidden onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'var(--scrim)' }} />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Get Crowns"
-        className="panel sheet"
-        style={{ gap: 10 }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <h2 className="display" style={{ fontSize: 24 }}>Crowns</h2>
-          {/* The balance is the coin, not a SOL amount — gold lettering here
-              would read as "you hold this much SOL", which is the one thing it
-              never means. */}
-          <span
-            className="display display--sm"
-            style={{
-              marginLeft: 10, fontSize: 18, color: 'var(--blue-pale)',
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-            }}
-          >
-            {gems}<Token size={18} />
-          </span>
-          <button onClick={() => { click(); onClose(); }} aria-label="Close" className="icon-btn" style={{ marginLeft: 'auto', fontSize: 26, width: 44, height: 44, color: 'var(--dim-on-wood)' }}>×</button>
-        </div>
-
-        <div role="tablist" aria-label="How to get Crowns" style={{ display: 'flex', gap: 6 }}>
-          {([['bundles', 'Crowns'], ['swap', '$MEMPIRE']] as const).map(([id, label]) => (
-            <button
-              key={id}
-              role="tab"
-              aria-selected={tab === id}
-              onClick={() => { click(); setTab(id); }}
-              className="display display--sm"
-              style={{
-                flex: 1, minHeight: 40, borderRadius: 'var(--r-pill)', fontSize: 15,
-                border: '2px solid var(--ink)', cursor: 'pointer',
-                background: tab === id
-                  ? 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold))'
-                  : 'rgba(0,0,0,.28)',
-                color: tab === id ? '#3a2600' : 'var(--dim-on-wood)',
-                WebkitTextStroke: tab === id ? 0 : undefined,
-                textShadow: tab === id ? 'none' : undefined,
-                boxShadow: tab === id ? 'inset 0 2px 0 rgba(255,255,255,.4)' : 'var(--bevel-in)',
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {tab === 'swap' ? (
-          <>
-            <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
-              <strong>$MEMPIRE is a separate, tradable token</strong> — not
-              Crowns. Traded against USDC on a live constant-product pool.
-              It buys no stats and no Crowns; it is the project&apos;s token.
-            </p>
-            <SwapPanel compact />
-          </>
-        ) : (
-        <>
-        <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>
-          Crowns skip chest timers, found clans and buy cosmetics. They never
-          buy stats — card power comes only from staking a card&apos;s own coin.
-        </p>
-        {GEM_BUNDLES.map((b) => (
-          <button
-            key={b.gems}
-            onClick={() => { click(); buyGems(b); }}
-            className="btn-3d"
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10, minHeight: 52,
-              padding: '8px 14px', borderRadius: 'var(--r-card)',
-              background: 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))',
-              border: '2.5px solid var(--ink)',
-              boxShadow: 'inset 0 2px 0 rgba(255,255,255,.45), 0 4px 0 var(--btn-blue-dark)',
-            }}
-          >
-            <Token size={24} />
-            <span className="display" style={{ fontSize: 19 }}>{b.gems}</span>
-            {b.bonus && (
-              <span className="label" style={{ fontSize: 12, color: '#d8ffe9' }}>{b.bonus}</span>
-            )}
-            <span className="money" style={{ marginLeft: 'auto', fontSize: 16 }}>{b.sol} SOL</span>
-          </button>
-        ))}
-        <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
-          Devnet build — no real SOL is charged.
-        </p>
-        </>
-        )}
-      </div>
-    </div>
-  );
-}

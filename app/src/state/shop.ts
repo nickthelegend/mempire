@@ -12,14 +12,16 @@ import { COINS } from '../lib/coins';
 
 export const SHOP_SLOTS = 4;
 export const FREE_REROLLS = 1;
-export const REROLL_GEM_COST = 35;
+/** Reroll, in whole $MEMPIRE. Was 35 Crowns; the currency changed, not the cost. */
+export const REROLL_COST = 35;
 const DAY_MS = 86_400_000;
 /** Devnet demo pacing so a judge sees a rotation without waiting a day. */
 export const DEMO_DAY_MS = 3 * 60_000;
 
 export interface ShopOffer {
   mint: string;
-  gemPrice: number;
+  /** Whole $MEMPIRE. */
+  tokenPrice: number;
   solPrice: number;
   /** 0 = plain, else a percentage off shown as a flash-sale tag. */
   discountPct: number;
@@ -31,12 +33,12 @@ function dayIndex(): number {
   return Math.floor(Date.now() / DEMO_DAY_MS);
 }
 
-function priceFor(mint: string): { gemPrice: number; solPrice: number } {
+function priceFor(mint: string): { tokenPrice: number; solPrice: number } {
   const coin = COINS.find((c) => c.mint === mint);
   // Deeper liquidity means a more desirable card, so it costs more.
   const liq = coin?.liquidityUsd ?? 50_000;
   const tier = liq > 300_000 ? 3 : liq > 120_000 ? 2 : 1;
-  return { gemPrice: [0, 60, 120, 250][tier], solPrice: [0, 0.03, 0.06, 0.12][tier] };
+  return { tokenPrice: [0, 60, 120, 250][tier], solPrice: [0, 0.03, 0.06, 0.12][tier] };
 }
 
 function rollOffers(seed: number, exclude: Set<string> = new Set()): ShopOffer[] {
@@ -53,10 +55,10 @@ function rollOffers(seed: number, exclude: Set<string> = new Set()): ShopOffer[]
     if (taken.has(i)) continue;
     taken.add(i);
     const coin = pool[i];
-    const { gemPrice, solPrice } = priceFor(coin.mint);
+    const { tokenPrice, solPrice } = priceFor(coin.mint);
     // one slot in four carries a flash discount — the reason to look daily
     const discountPct = next() > 0.78 ? [20, 30, 50][Math.floor(next() * 3)] : 0;
-    picks.push({ mint: coin.mint, gemPrice, solPrice, discountPct, bought: false });
+    picks.push({ mint: coin.mint, tokenPrice, solPrice, discountPct, bought: false });
   }
   return picks;
 }
@@ -67,7 +69,7 @@ interface ShopState {
   rerollsUsed: number;
   /** Refresh when the day rolls over. Called on mount and on focus. */
   ensureFresh: () => void;
-  reroll: (spendGems: (n: number) => boolean) => string | null;
+  reroll: (pay: (n: number) => boolean) => string | null;
   markBought: (mint: string) => void;
   msUntilRotation: () => number;
 }
@@ -83,10 +85,10 @@ export const useShop = create<ShopState>((set, get) => ({
     set({ offers: rollOffers(today), day: today, rerollsUsed: 0 });
   },
 
-  reroll: (spendGems) => {
+  reroll: (pay) => {
     const used = get().rerollsUsed;
     if (used >= FREE_REROLLS) {
-      if (!spendGems(REROLL_GEM_COST)) return `need ${REROLL_GEM_COST} Crowns to reroll`;
+      if (!pay(REROLL_COST)) return `need ${REROLL_COST} $MEMPIRE to reroll`;
     }
     // exclude what is already on the shelf so a reroll always changes something
     const shown = new Set(get().offers.map((o) => o.mint));
