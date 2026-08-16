@@ -138,7 +138,7 @@ export function MemberRow({
     <>
       <RankChip rank={rank} />
       <img
-        src="/art/avatar_guest.png"
+        src="/art/avatar_guest.webp"
         alt=""
         aria-hidden
         width={28}

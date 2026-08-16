@@ -171,7 +171,7 @@ const ARCH_SLUGS = ['tank', 'swarm', 'ranged', 'splash', 'support', 'spell'] as 
 export function ArchetypeIcon({ archetype, size = 14 }: { archetype: Archetype; size?: number }) {
   return (
     <img
-      src={`/art/icon_${ARCH_SLUGS[archetype]}.png`}
+      src={`/art/icon_${ARCH_SLUGS[archetype]}.webp`}
       alt=""
       aria-hidden
       width={size}

@@ -29,7 +29,7 @@ function ChestArt({ tier, size = 54, glow }: { tier: ChestSlot['tier']; size?: n
   return (
     <>
       <img
-        src={`/art/chest_${tier}.png`}
+        src={`/art/chest_${tier}.webp`}
         alt=""
         aria-hidden
         width={size}
@@ -124,7 +124,7 @@ function OpenCeremony({
       ))}
 
       <img
-        src={phase === 'burst' ? '/art/chest_open.png' : `/art/chest_${def.tier}.png`}
+        src={phase === 'burst' ? '/art/chest_open.webp' : `/art/chest_${def.tier}.webp`}
         alt=""
         aria-hidden
         width={phase === 'burst' ? 210 : 150}
@@ -177,7 +177,7 @@ function OpenCeremony({
                   }}
                 >
                   <img
-                    src={`/art/card_${t.toLowerCase()}.png`}
+                    src={`/art/card_${t.toLowerCase()}.webp`}
                     alt={`$${t}`}
                     width={84}
                     height={84}

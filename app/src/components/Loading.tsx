@@ -40,7 +40,7 @@ export function Loading({ label = 'Entering the arena' }: { label?: string }) {
       }}
     >
       <img
-        src="/art/logo.png"
+        src="/art/logo.webp"
         alt="Mempire"
         width={270}
         draggable={false}

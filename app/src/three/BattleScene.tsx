@@ -1,11 +1,10 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { PALETTE } from '../lib/palette';
 import { FP, fp } from '../sim/fixed';
 import { ARENA_W, RIVER_BOT, RIVER_TOP } from '../sim/engine';
 import { useMatch } from '../state/match';
-import { Spinner } from '../components/ui';
 import { Arena } from './Arena';
 import { World } from './World';
 import { HORIZON } from './textures';
@@ -336,6 +335,75 @@ function DropMarker({ at }: { at: { x: number; z: number; legal: boolean } | nul
   );
 }
 
+/**
+ * Force one measurement after mount.
+ *
+ * r3f sizes the canvas from a `ResizeObserver` on its container, and a
+ * `ResizeObserver` only fires when a size *changes*. If the container measures
+ * zero on the frame the Canvas mounts — which is what happens when the battle
+ * route commits — the canvas is left at the HTML default of 300x150 and
+ * nothing ever fires again, because the container's size never changes after
+ * that. It just becomes 430x900 and stays there.
+ *
+ * The result looked exactly like a slow load: a dark rectangle, for thirteen
+ * seconds, or twenty-five, or forty. It was not slow. It was waiting for an
+ * unrelated event — a real window resize, an orientation change — to trigger
+ * the re-measure it had missed. Dispatching a synthetic `resize` fixed it
+ * instantly, which is what gave the game away.
+ *
+ * So measure once, on mount, from the element itself rather than from an
+ * observer that has no reason to fire.
+ */
+/**
+ * Kick r3f into measuring its container.
+ *
+ * `<Canvas>` only renders its children once `useMeasure` reports a non-zero
+ * size, and it measures through a ResizeObserver attached on mount. On the
+ * frame the battle route commits the container measures zero, the observer
+ * only fires on a *change*, and the container then settles at 430x900 and
+ * never changes again — so the observation never comes, the children never
+ * mount, and the canvas keeps the HTML default of 300x150.
+ *
+ * That is why this cannot live inside the Canvas: anything in there is part of
+ * the subtree that never mounts. It has to poke the observer from outside.
+ *
+ * A window resize is what r3f listens to as its other measurement trigger, and
+ * dispatching one by hand was the experiment that identified this — the canvas
+ * went from 300x150 to 430x900 instantly. One frame after mount, once, is
+ * enough; the observer takes over from there for genuine resizes.
+ */
+function useKickCanvasMeasure(el: React.RefObject<HTMLDivElement | null>): void {
+  useEffect(() => {
+    const node = el.current;
+    if (!node) return;
+
+    let settled = false;
+    const kick = () => {
+      const { width, height } = node.getBoundingClientRect();
+      if (width < 1 || height < 1) return;
+      const cv = node.querySelector('canvas');
+      // Already the right size: r3f measured correctly and there is nothing to do.
+      if (cv && Math.abs(cv.clientWidth - width) <= 1) { settled = true; return; }
+      window.dispatchEvent(new Event('resize'));
+    };
+
+    // Whenever the wrapper reports a size — this is the observation r3f missed.
+    const ro = new ResizeObserver(kick);
+    ro.observe(node);
+
+    // And a short bounded poll, because the failure mode is precisely that no
+    // observation ever arrives: the container is 430x900 from its first layout
+    // and simply never changes, so an observer has nothing to report. Two
+    // seconds at 100ms is far cheaper than a match spent looking at nothing,
+    // and it stops the moment the canvas matches its container.
+    const t = setInterval(() => { if (settled) clearInterval(t); else kick(); }, 100);
+    const stop = setTimeout(() => clearInterval(t), 2000);
+    kick();
+
+    return () => { ro.disconnect(); clearInterval(t); clearTimeout(stop); };
+  }, [el]);
+}
+
 export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 0 }: {
   onPlace: (xFp: number, yFp: number) => void;
   placing: boolean;
@@ -347,10 +415,17 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
   // Set before the camera effect runs so the first painted frame and the first
   // deploy clamp already agree about which half is "mine".
   setViewSeat(perspective);
-  const [drawn, setDrawn] = useState(false);
+  const wrap = useRef<HTMLDivElement>(null);
+  useKickCanvasMeasure(wrap);
   return (
     <div
-      ref={sceneRef}
+      /* Both refs: `sceneRef` belongs to the parent (deploy raycasts project
+         through it) and `wrap` is ours for the measurement kick below. */
+      ref={(node) => {
+        wrap.current = node;
+        if (typeof sceneRef === 'function') sceneRef(node);
+        else if (sceneRef) (sceneRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      }}
       style={{ position: 'absolute', inset: 0 }}
       onPointerDown={(e) => {
         // tap-to-deploy; drag-to-deploy is driven from the HUD
@@ -358,40 +433,28 @@ export function BattleScene({ onPlace, placing, marker, sceneRef, perspective = 
         if (hit) onPlace(fp(hit.x), fp(hit.z));
       }}
     >
-      {/* Until the first frame lands, say so.
-       *
-       * Compiling shaders and building the arena's canvas textures takes the
-       * better part of ten seconds on a cold load, and the match clock is
-       * already running — it has to be, because both clients tick the same
-       * lockstep sim from a server-set start. So the player sat looking at a
-       * flat dark rectangle with the timer counting down, which reads as a
-       * broken game rather than a loading one. The clock is untouched; only
-       * the silence is fixed. */}
-      {!drawn && (
-        <div
-          style={{
-            position: 'absolute', inset: 0, zIndex: 5, display: 'flex',
-            flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            gap: 12, background: 'var(--ink)', pointerEvents: 'none',
-          }}
-        >
-          <Spinner />
-          <span className="label" style={{ fontSize: 13, color: 'var(--dim)' }}>
-            building the arena
-          </span>
-        </div>
-      )}
+      {/*
+        No loading overlay here, deliberately.
+
+        There used to be one, because the arena spent thirteen to twenty-five
+        seconds as a flat dark rectangle with the match clock already running.
+        That was never load time. r3f sizes its canvas from a ResizeObserver,
+        the container measured zero on the frame the battle route committed,
+        and an observer only fires on *change* — so the canvas sat at the HTML
+        default of 300x150 and nothing ever fired again. The scene was drawing
+        the whole time, into a canvas the size of a postage stamp. Dispatching
+        one synthetic resize event fixed it instantly, which is what gave it
+        away. `useKickCanvasMeasure` above dispatches exactly that, one frame
+        after mount, instead of waiting for an observer with no reason to fire.
+
+        With the cause fixed the arena is up immediately, and an overlay would
+        now be hiding a working scene rather than covering a broken one.
+      */}
       <Canvas
         dpr={[1, 1.75]}
         camera={{ position: [W / 2, 33, -11.5], fov: 52, near: 1, far: 140 }}
         style={{ touchAction: 'none' }}
-        onCreated={({ gl }) => {
-          // `onCreated` fires once the renderer exists, which is still before
-          // anything has been rasterised — two frames later is the first one
-          // the player can actually see.
-          gl.domElement.getContext('webgl2');
-          requestAnimationFrame(() => requestAnimationFrame(() => setDrawn(true)));
-        }}
+
         gl={{
           antialias: true,
           powerPreference: 'high-performance',

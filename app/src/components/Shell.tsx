@@ -8,11 +8,11 @@ import { usePlayerSync } from '../state/sync';
 import { useWallet } from '../state/wallet';
 
 const TABS = [
-  { to: '/', label: 'Arena', icon: '/art/tab_arena.png' },
-  { to: '/cards', label: 'Cards', icon: '/art/tab_cards.png' },
-  { to: '/deck', label: 'Deck', icon: '/art/tab_deck.png' },
-  { to: '/clan', label: 'Clan', icon: '/art/clan_badge.png' },
-  { to: '/empire', label: 'Empire', icon: '/art/tab_empire.png' },
+  { to: '/', label: 'Arena', icon: '/art/tab_arena.webp' },
+  { to: '/cards', label: 'Cards', icon: '/art/tab_cards.webp' },
+  { to: '/deck', label: 'Deck', icon: '/art/tab_deck.webp' },
+  { to: '/clan', label: 'Clan', icon: '/art/clan_badge.webp' },
+  { to: '/empire', label: 'Empire', icon: '/art/tab_empire.webp' },
 ];
 // Swap is deliberately not a tab. It is a thing you do *to* your balance, not
 // a place you go, so it lives behind the + on the Crowns pill — next to the

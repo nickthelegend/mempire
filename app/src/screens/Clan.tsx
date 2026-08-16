@@ -449,7 +449,7 @@ export function Clan() {
           <h1 className="display" style={{ fontSize: 30 }}>Clan</h1>
         </header>
         <div className="panel" style={{ padding: '22px 18px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, textAlign: 'center' }}>
-          <img src="/art/clan_badge.png" alt="" aria-hidden width={72} height={72} draggable={false} style={{ display: 'block' }} />
+          <img src="/art/clan_badge.webp" alt="" aria-hidden width={72} height={72} draggable={false} style={{ display: 'block' }} />
           <span style={{ color: 'var(--dim-on-wood)', fontSize: 14, maxWidth: 260 }}>
             Clans pool crowns and lend cards. Connect a wallet to found one or join.
           </span>
@@ -471,7 +471,7 @@ export function Clan() {
           </p>
         </div>
         <img
-          src="/art/clan_badge.png"
+          src="/art/clan_badge.webp"
           alt=""
           aria-hidden
           width={44}

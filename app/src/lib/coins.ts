@@ -133,12 +133,26 @@ function build(): Coin[] {
       kind: KIND_BY_TICKER.get(c.ticker.toUpperCase()) ?? 'meme',
       // Round badge only for the originally-arted coins; everything else relies
       // on its character card, with CoinBadge's procedural fallback behind it.
-      logoUrl: look ? `/art/${look.art}.png` : undefined,
-      // Always the conventional path. The file may not exist yet; both the card
-      // frame and the battle billboard fall back to the round badge on a load
-      // error, so dropping `card_<ticker>.png` into /art is the whole install
-      // step — no registry edit, no rebuild.
-      cardArt: `/art/card_${c.ticker.toLowerCase()}.png`,
+      logoUrl: look ? `/art/${look.art}.webp` : undefined,
+      /*
+       * WebP, and the conventional path.
+       *
+       * The art is AI-rendered at 512x679, which PNG compresses terribly —
+       * 413 KB each, 26 MB across the set. A match pulls eight of these at
+       * once and decodes them on the main thread while the clock is already
+       * running, which was most of the cold-start cost. The same images as
+       * WebP q86 are ~58 KB, an eight-fold cut, at a size nobody can tell
+       * apart at the 200px these render at.
+       *
+       * The PNGs stay on disk: an NFT's metadata `image` points at
+       * `card_<ticker>.png` and that URI is on chain, so deleting them would
+       * break every card already tokenised.
+       *
+       * The file may not exist yet; both the card frame and the battle
+       * billboard fall back to the round badge on a load error, so dropping
+       * `card_<ticker>.webp` into /art is the whole install step.
+       */
+      cardArt: `/art/card_${c.ticker.toLowerCase()}.webp`,
     };
   });
 }

@@ -7,7 +7,7 @@ import { Spinner } from './ui';
 function GuestMark({ size = 34 }: { size?: number }) {
   return (
     <img
-      src="/art/avatar_guest.png"
+      src="/art/avatar_guest.webp"
       alt=""
       aria-hidden
       width={size}

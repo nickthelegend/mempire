@@ -19,6 +19,7 @@ import { useClan } from './clan';
 import { useLadder } from './ladder';
 import { useCollection, FEES } from './collection';
 import { useEconomy, type ChestTier } from './economy';
+import { warmBattleChunk, warmMatchArt } from '../lib/warm';
 import { useDeck, TIERS } from './deck';
 import { canSign } from '../chain/provider';
 import { useChain } from './chain';
@@ -472,6 +473,12 @@ export const useMatch = create<MatchStore>((set, get) => ({
       result: null,
       opponentName: practice ? 'Training Dummy' : 'searching…',
     });
+
+    // Queueing is dead time; spend it on the fetch the arena was going to do
+    // anyway. Both decks, because the opponent's fighters render on the same
+    // first frame as yours.
+    warmMatchArt([...player, ...bot].map((c) => c.coinId));
+    warmBattleChunk();
 
     // Practice goes straight to the bot — its whole point is a private arena.
     if (practice) {

@@ -291,7 +291,7 @@ export function UnitsBillboard() {
     const coin = coinByMint(coinId);
     // Card art when the file exists, the round coin badge until it does — so
     // the battlefield stays populated while the art set fills in.
-    const fallback = coin?.logoUrl ?? '/art/avatar_guest.png';
+    const fallback = coin?.logoUrl ?? '/art/avatar_guest.webp';
     const url = coin?.cardArt ?? fallback;
     const mine = u.owner === me;
     const tint = mine ? OWN_TINT : ENEMY_TINT;

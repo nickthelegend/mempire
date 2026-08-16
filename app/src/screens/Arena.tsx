@@ -11,6 +11,7 @@ import { FEES, useCollection } from '../state/collection';
 import { TIERS, useDeck } from '../state/deck';
 import { useLadder } from '../state/ladder';
 import { useMatch } from '../state/match';
+import { warmBattleChunk } from '../lib/warm';
 import { signer, useWallet } from '../state/wallet';
 import { useChain } from '../state/chain';
 import { fetchRecentSettlements, type ChainMatch } from '../chain/read';
@@ -53,7 +54,7 @@ const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 export function Logo({ width = 260 }: { width?: number }) {
   return (
     <img
-      src="/art/logo.png"
+      src="/art/logo.webp"
       alt="Mempire"
       width={width}
       draggable={false}
@@ -151,7 +152,7 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
         }}
       >
         <img
-          src="/art/avatar_guest.png"
+          src="/art/avatar_guest.webp"
           alt=""
           aria-hidden
           width={34}
@@ -260,6 +261,14 @@ function TopHud({ onReplayTutorial }: { onReplayTutorial: () => void }) {
 }
 
 export function Arena() {
+  /*
+   * Start the battle chunk downloading while the player is still choosing a
+   * tier. Practice goes straight from click to arena with no queue to hide the
+   * fetch behind, so warming it only at queue time would leave the one mode
+   * that needs it most exactly as slow as before.
+   */
+  useEffect(() => { warmBattleChunk(); }, []);
+
   const wallet = useWallet();
   const trophies = useLadder((s) => s.trophies);
   const deck = useDeck();
