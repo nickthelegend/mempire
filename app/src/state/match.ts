@@ -495,7 +495,23 @@ export const useMatch = create<MatchStore>((set, get) => ({
       fellBack = true;
       pvpClose();
       if (get().status === 'idle') return; // player cancelled while waiting
-      set({ opponentName: BOT_NAMES[deck.tier], mode: 'bot', perspective: 0 });
+      /*
+       * `soloVsBot` is set here, not only on the wait-timeout path.
+       *
+       * `onUnavailable` routes here too — an unreachable relay falls back to
+       * the machine exactly like an empty queue does — and it used to leave the
+       * flag false. The match was then a bot match that did not know it was
+       * one: the result screen skipped "nobody else was queuing, so this was
+       * against the AI", and it read as a real opponent. It also misled this
+       * project's own testing into reporting a PvP escrow failure that was
+       * really a bot match all along.
+       */
+      set({
+        soloVsBot: true,
+        opponentName: BOT_NAMES[deck.tier],
+        mode: 'bot',
+        perspective: 0,
+      });
       beginBotFlow(false, deck.tier, player, bot);
     };
 
@@ -515,10 +531,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
      * wrong trade.
      */
     queueTimers.push(setTimeout(() => {
-      if (get().status === 'queuing' && !fellBack) {
-        set({ soloVsBot: true });
-        fallBack();
-      }
+      if (get().status === 'queuing' && !fellBack) fallBack();
     }, SOLO_WAIT_MS));
 
     pvpConnect({
@@ -996,6 +1009,11 @@ function beginHumanBattle(
     && useChain.getState().mode === 'onchain'
     && canSign(signer());
   const chainDeck = canStake ? onchainDeckIds() : null;
+  // Money path: say out loud what was decided and why. A stake that silently
+  // does not happen is the worst failure this app has, and it left no trace.
+  console.info('[escrow] role', m.role, 'stakeSol', stakeSol,
+    'mode', useChain.getState().mode, 'canSign', canSign(signer()),
+    'canStake', canStake, 'chainDeck', chainDeck ? chainDeck.length : null);
   if (canStake && chainDeck) {
     const hash = deckHashBytes(myDeck);
     if (m.role === 0) {

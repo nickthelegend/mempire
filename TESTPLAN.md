@@ -316,3 +316,51 @@ be, that reason belongs on screen.
   index.html, and the browser reported "expected a JavaScript module, got
   text/html" — observed live in this project's own console. `vite:preloadError`
   now triggers one guarded reload.
+
+
+---
+
+# Run 4 — C5 resolved, and a correction
+
+## C5 — PASS (and run 3's FAIL was wrong)
+
+Run 3 reported "a real PvP match escrows nothing". **That was incorrect.** Every
+match measured there was the bot fallback, and two separate mistakes made it
+look like PvP:
+
+1. **The `isBot` check was meaningless mid-match.** It matched on the phrase
+   "against the AI", which only appears on the *result* screen — so during a
+   match it always returned false, whatever the opponent was.
+2. **Two browser tabs cannot be made to queue together here.** Only one tab is
+   foreground at a time and background tabs have their timers throttled, so
+   scheduled clicks never overlapped inside the 20s fallback window — however
+   precisely the epoch was shared.
+
+Replaced the second client with a node sparring partner holding a real queue
+slot on the deployed relay. With the browser queueing *first* (the waiting
+player is seat 0, the joining player seat 1):
+
+| Evidence | Result |
+|---|---|
+| Relay pairing | `spar: matched opponent=2cmeus9p` |
+| Time to match | 2s — not the 20s fallback |
+| Badge | `STAKE IN` — "Your stake is escrowed; waiting for your opponent" |
+| Instruction on chain | `CreateMatch` |
+| Balance | 0.72499 → **0.67279** — the 0.05 stake, plus fees |
+
+Escrow works. It had simply never been reached, because a bot match never
+escrows and every match under test was one.
+
+## Real bugs this run surfaced anyway
+
+| Item | Failure | Fix |
+|---|---|---|
+| Bot fallback honesty | `onUnavailable` (relay unreachable) fell back to the bot **without** setting `soloVsBot`, so the match did not know it was a bot match — the result screen skipped "nobody else was queuing, so this was against the AI" and it read as a real opponent. It also misled this project's own testing. | `fallBack()` sets the flag on every path |
+| Deck composition (run 3) | `repoint` kept seeded starters whenever the saved deck was merely fillable, so wallets holding ten minted coins queued with seven unminted cards and could never stake | seeded cards yield a slot to any free minted coin |
+| Escrow diagnosability | A skipped stake left no trace anywhere | the decision is logged with role, mode, signability and deck length |
+
+## Note for the next run
+
+The dev server points its API and socket at `http://localhost:8787`, which is
+not running. A dev client therefore cannot pair on the real relay and always
+falls back to a bot. Test PvP against production, or start the local relay.
