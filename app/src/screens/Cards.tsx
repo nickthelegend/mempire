@@ -142,6 +142,10 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
   const afterLevel = levelForUsd(card.stakedUsd + amount);
   const available = availableUsdFor(card.mint);
   const cooling = remaining > 0;
+  /**
+   * Onchain, but this card is not. Staking would only write a local fiction.
+   */
+  const needsMint = chainMode === 'onchain' && !chainCard;
   const claimable = card.pendingUnstakeUsd > 0 && remaining === 0;
 
   return (
@@ -242,15 +246,28 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
           </Pill>
         ) : (
           <Pill
-            disabled={cooling || pending || amount > available}
+            disabled={cooling || pending || amount > available || needsMint}
             onClick={() => {
+              /*
+               * Onchain sessions stake onchain or not at all.
+               *
+               * This used to fall through to the local store whenever the card
+               * had no chain twin, which is every card that has not been
+               * minted. The sheet then read "Staked $75" and the level went up
+               * while not one token had moved — a stake that existed only in
+               * the client, inflating deck power, which is what matchmaking
+               * brackets on. Refusing is the honest answer, and the card can
+               * be minted first.
+               */
               if (chainCard) { void stakeOnchain(amount); return; }
+              if (needsMint) return;
               setError(stake(card.id, amount));
             }}
           >
             {pending ? 'Confirm in wallet…'
               : cooling ? 'Unstake pending'
-                : `Stake $${amount} → Lv ${afterLevel}`}
+                : needsMint ? 'Mint this card first'
+                  : `Stake $${amount} → Lv ${afterLevel}`}
           </Pill>
         )}
 
@@ -284,7 +301,13 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
               opacity: card.stakedUsd === 0 ? 0.5 : 1,
             }}
           >
-            Unstake ${Math.min(amount, card.stakedUsd)} · {FEES.unstakePct}% fee, 72h cooldown
+            {/* The real number, not the mainnet one — the line above already
+                says which is which, and a button that states a cooldown it
+                does not enforce is just a false label. */}
+            Unstake ${Math.min(amount, card.stakedUsd)} · {FEES.unstakePct}% fee,{' '}
+            {UNSTAKE_COOLDOWN_MS >= 3600_000
+              ? `${Math.round(UNSTAKE_COOLDOWN_MS / 3600_000)}h`
+              : `${UNSTAKE_COOLDOWN_MS / 1000}s`} cooldown
           </button>
         )}
       </div>

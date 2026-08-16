@@ -4,7 +4,7 @@ import { seedCards, useCollection, type MintedCard } from './collection';
 import { useDeck } from './deck';
 import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
-import { COINS } from '../lib/coins';
+import { COINS, coinByMint, fromRawAmount } from '../lib/coins';
 import { MATCH_STATE_SETTLED, fetchMatchByAddress } from '../chain/read';
 import { releaseCardsTx } from '../chain/actions';
 import { canSign } from '../chain/provider';
@@ -104,6 +104,13 @@ function useChestRail(): void {
   }, [connected, address, isGuest, mode]);
 }
 
+/** A pending unstake in dollars, using the same catalogue the stake used. */
+function pendingUsd(mint: string, rawTokens: number): number {
+  const coin = coinByMint(mint);
+  if (!coin || rawTokens <= 0) return 0;
+  return fromRawAmount(coin, rawTokens) * coin.priceUsd;
+}
+
 /**
  * Make the collection *be* the wallet's on-chain cards.
  *
@@ -137,7 +144,19 @@ function useChainCollection(): void {
       stakedUsd: c.stakedUsd,
       stakedTokens: c.stakedTokens,
       level: c.level,
-      pendingUnstakeUsd: 0,
+      /*
+       * A pending unstake is real money mid-flight, so it has to survive the
+       * refresh that follows it.
+       *
+       * This was hardcoded to 0 while the line below faithfully carried the
+       * cooldown, and the combination stranded funds: `claimable` is
+       * `pendingUnstakeUsd > 0 && cooldown elapsed`, so the instant a chain
+       * refresh landed the Claim button stopped rendering — permanently. The
+       * tokens sat in the vault, the chain still said `pendingUnstakeTokens:
+       * 20000000` and ready, and the client offered no way to ask for them.
+       * The chain knew; only the UI had forgotten.
+       */
+      pendingUnstakeUsd: pendingUsd(c.mint, c.pendingUnstakeTokens),
       cooldownUntil: c.unstakeReadyAt > 0 ? c.unstakeReadyAt * 1000 : 0,
     }));
 
