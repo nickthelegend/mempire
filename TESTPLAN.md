@@ -262,3 +262,57 @@ swap execution), D2/D3 ER placement, D5 DexScreener pricing, E8 full a11y audit.
 
 C5 (escrow + settle) needs two funded clients in parallel; it is the highest
 -value remaining item and the one with real money attached.
+
+
+---
+
+# Run 3 — PvP escrow
+
+## C5 — FAIL (confirmed, reproducible, not yet fixed)
+
+**A genuine human-vs-human staked match escrows nothing.**
+
+Reproduced with two clients queued at the identical millisecond
+(`__qAt` equal on both), both reporting `soloVsBot: false` and
+`stakeSol: 0.05`, wallets `2cmeus9p` and `GKLFeUT1`:
+
+- both balances stayed at **0.72499 SOL** — not one lamport moved
+- no escrow instruction appears on chain for either wallet
+- the HUD badge reads `0.1 SOL` / "This match is for the ladder only"
+
+Everything the escrow path depends on is correct:
+
+| Precondition | State |
+|---|---|
+| `chain.mode` | `onchain` |
+| Cards on chain | 19 (A) / 9 (B) |
+| Cards locked by another match | **0** |
+| Deck | 8 cards, every one resolving to an unlocked chain card |
+| Relay pairing (B14) | PASS — verified over the raw socket |
+
+Subscribing to the escrow store *before* the match and reading it during
+recorded **zero transitions**, with `phase: "none"` and `lastError: null`.
+`escrow.reset()` is the first statement of that block, so the block never
+runs — this is not a failing escrow, it is an escrow that is never attempted.
+Next step is to instrument entry to `beginHumanBattle` and find where the
+match path diverges before it.
+
+**Fixed on the way here (real, verified):** decks were being kept as seeded
+starter cards even for wallets holding ten minted coins, because `repoint`
+preserved any saved deck that was merely *fillable*. A staked match needs all
+eight cards minted, so that alone forced every match to ladder-only. Both
+wallets went from "7 of your cards are not minted onchain yet" to no warning
+at all. That was a genuine blocker; it was not the only one.
+
+**Also a defect in its own right:** when escrow is skipped the reason is
+computed into `lastError` and never rendered anywhere. The player sees
+"ladder only" and cannot find out why. Whatever the root cause turns out to
+be, that reason belongs on screen.
+
+## Also fixed this run
+
+- Stale chunk after a deploy: a session open across a deploy asked for a
+  content-hashed chunk that no longer existed, Vercel answered with
+  index.html, and the browser reported "expected a JavaScript module, got
+  text/html" — observed live in this project's own console. `vite:preloadError`
+  now triggers one guarded reload.

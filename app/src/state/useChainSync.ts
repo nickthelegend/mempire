@@ -209,19 +209,54 @@ function useChainCollection(): void {
      */
     const usable = merged.filter((c) => fieldableMints.has(c.mint));
 
+    const cardById = new Map(merged.map((c) => [c.id, c]));
+
+    /**
+     * Re-point one deck slot, preferring cards that actually exist on chain.
+     *
+     * Keeping whatever was saved is not enough. A staked match requires all
+     * eight deck cards to be minted, so a single seeded starter squatting in a
+     * slot is the difference between escrow opening and the match dropping to
+     * "ladder only" — and that is what happened: a wallet holding ten minted
+     * coins queued with seven seeded cards, matched a real opponent, and
+     * neither side staked a lamport. The deck had simply never been rebuilt
+     * after they minted, because the saved one was still fillable.
+     *
+     * So a seeded card is swapped out whenever there is a minted coin free to
+     * take its place. Seeded cards remain the fallback for a wallet that has
+     * not minted anything — they are what makes the game playable before you
+     * spend — but they never hold a slot a real card could occupy.
+     */
     const repoint = (slot: string[]): string[] => {
       const kept = slot.filter((id) => valid.has(id) && usable.some((c) => c.id === id));
-      if (kept.length >= 8) return kept.slice(0, 8);
-      // Fill from what the wallet actually holds, one card per coin.
-      const usedMints = new Set(kept.map((id) => merged.find((c) => c.id === id)?.mint));
+      const usedMints = new Set(kept.map((id) => cardById.get(id)?.mint));
+
+      // Minted, fieldable, and not already represented — one card per coin.
+      const spare = mapped
+        .filter((c) => fieldableMints.has(c.mint) && !usedMints.has(c.mint));
+
+      const promoted = kept.map((id) => {
+        const card = cardById.get(id);
+        if (!card?.seeded) return id;
+        const swap = spare.shift();
+        if (!swap) return id;
+        usedMints.delete(card.mint);
+        usedMints.add(swap.mint);
+        return swap.id;
+      });
+
+      if (promoted.length >= 8) return promoted.slice(0, 8);
+
+      // Still short: fill from anything left, minted first (`merged` is ordered
+      // chain-then-seeded), one card per coin.
       for (const c of usable) {
-        if (kept.length >= 8) break;
-        if (!kept.includes(c.id) && !usedMints.has(c.mint)) {
-          kept.push(c.id);
+        if (promoted.length >= 8) break;
+        if (!promoted.includes(c.id) && !usedMints.has(c.mint)) {
+          promoted.push(c.id);
           usedMints.add(c.mint);
         }
       }
-      return kept;
+      return promoted;
     };
 
     const slots = deck.slots.map(repoint);

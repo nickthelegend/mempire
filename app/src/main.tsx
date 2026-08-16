@@ -29,6 +29,33 @@ requestAnimationFrame(() => signalReady());
 // Dev-only console handle for the stores — lets a second tab be driven and
 // asserted against when testing PvP on one machine. Stripped from production
 // builds by the DEV guard.
+/**
+ * A deploy while the app is open must not brick a lazy route.
+ *
+ * Chunk filenames are content-hashed, so a build replaces them. A session that
+ * started before a deploy still holds the old names, and the first lazy import
+ * after it — the battle route, most of the time — asks for a file that no
+ * longer exists. Vercel answers a missing asset with the SPA's index.html, so
+ * the browser reports "expected a JavaScript module, got text/html" and the
+ * route silently fails to mount. It showed up in this project's own console
+ * during a live match.
+ *
+ * Vite fires `vite:preloadError` for exactly this. One reload picks up the new
+ * manifest. Guarded so a genuine, repeating load failure cannot become a
+ * refresh loop.
+ */
+const RELOADED = 'mempire_chunk_reload';
+window.addEventListener('vite:preloadError', (e) => {
+  if (sessionStorage.getItem(RELOADED)) return; // already tried; let it surface
+  sessionStorage.setItem(RELOADED, '1');
+  e.preventDefault();
+  window.location.reload();
+});
+window.addEventListener('load', () => {
+  // A clean load means the manifest is current again.
+  setTimeout(() => sessionStorage.removeItem(RELOADED), 5000);
+});
+
 if (import.meta.env.DEV) {
   void Promise.all([
     import('./state/match'), import('./state/wallet'), import('./state/deck'),
