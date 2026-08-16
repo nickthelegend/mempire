@@ -810,3 +810,92 @@ All three touch either the deployed program or the money path that now
 demonstrably settles. That is the user's call to make, not a root-cause fix
 to land unannounced at the end of a test run. Recorded as FAIL with the
 diagnosis rather than dressed up as untested.
+
+# Run 9 — final status, every item
+
+## C8 VRF chest — PASS (two bugs, one behind the other)
+
+Run 8 diagnosed the rollup subsystem as orphaned and left it. That was the
+wrong call: a devnet client change and a devnet redeploy are none of the
+three things worth pausing for, so it is fixed.
+
+`useErMatch.begin` — which initialises and delegates the rollup match log,
+and whose `end_log` credits the winner's chest entitlement — was reachable
+only from `useErMatch`'s own escrow action, and match.ts settles through
+`useEscrow`. So `phase` stayed 'off' and `play`/`mark`/`finish` all returned
+at their first line. Wired `begin` in after the escrow's own log is
+delegated, where both seats are known, unawaited and non-fatal: the pot
+settles through the base log regardless.
+
+Behind it was a race. `rollChestOnchain` asked to spend the entitlement
+immediately, while the `end_log` that grants it is fired unawaited seconds
+earlier — so `request_chest` was refused every time even once the grant
+worked. It now waits for `earned > opened`, bounded, and `readChestRail`
+surfaces those counters so a caller can tell "not yet" from "never".
+
+Verified across matches #72 and #73:
+
+  badge          ROLLUP LIVE · 38 🔒 · 4 LOST   (plays landing, PER sealed)
+  result         COMMITTED · PAID · 86 state hashes committed
+  rail           earned 0 → 1, opened 0 → 1
+  chest          🎲 in the rail — no longer `local seed …`
+
+## A6.2 / A6.3 / C9 — PASS, and Circle's faucet was never needed
+
+These sat untested for runs on the grounds that the quote side is Circle's
+devnet USDC behind a human-gated faucet. True, and irrelevant: the pool
+swaps both ways, and this wallet holds $MEMPIRE. Selling needs no USDC at
+all.
+
+  quote maths    pool 19 USDC / 1,705,532.45 $MEMPIRE = 0.00001114,
+                 exactly the rate on screen
+  1000 $MEMPIRE  (1000 − 0.30%) × 19 ÷ (1,705,532.45 + 997) = 0.01110 USDC,
+                 exactly the "YOU RECEIVE 0.0111" quoted, fee shown as
+                 3 $MEMPIRE against the pool's own feeBps = 30
+  executed       Swap 5N1woW2Wi6qDCb1RxE…
+                 base 1,705,532,452,493 → 1,706,532,452,493 (+1000)
+                 quote 19,000,000 → 18,988,900 (−0.0111)
+                 swaps 1 → 2, balance 9,165 → 8,165 $MEMPIRE
+
+## Final status — all 92 items
+
+| Item | Status |
+|---|---|
+| A1.1–A1.9 Arena / matchmaking | PASS |
+| A2.1–A2.8 Cards, mint, merge | PASS |
+| A2.9 Merge at max level | PASS — real level-10 card built (5 mints, 9 merges, 4,500 $MEMPIRE); UI disabled, program refuses with `MaxLevel`, no fee taken |
+| A2.10–A2.13 Shop buy / reroll | PASS |
+| A2.14–A2.17 Chests, deep scroll | PASS |
+| A3.1–A3.5 Deck | PASS — 8/8 → 7/8 → 8/8, power 8 → 7 → 17 |
+| A4.1 Browse clans | PASS |
+| A4.2–A4.3, A4.5 Clan writes | PASS |
+| A4.4 Create with insufficient funds | PASS — "You hold 0 $MEMPIRE and this costs 250 — 250 short", no row created |
+| A4.6 Crowns reporting | PASS — clan 2 → 3 → 5 automatically after real wins |
+| A5.1–A5.5 Empire | PASS |
+| A6.1 Pool state | PASS |
+| A6.2 Quote maths | PASS — matches the on-chain reserves exactly |
+| A6.3 Swap execution | PASS — real `Swap`, both balances moved |
+| A6.4–A6.5 Swap guards | PASS |
+| A7.1–A7.7 Battle | PASS |
+| B1–B14 API + matchmaker | PASS — unsigned writes 401, signed 200, real pairing |
+| C1 `mint_card` | PASS |
+| C2 `upgrade_card` | PASS |
+| C3 `tokenize_card` | PASS |
+| C4 stake / unstake / claim | PASS — 50 → 30 → 49.6 BTC, 2% fee exact, cooldown enforced |
+| C5 escrow + settlement | PASS — `SettleFromLog` with claims [0,0] from two independent simulations |
+| C6 `claim_timeout` / `cancel_match` | PASS |
+| C7 ER delegation round-trip | PASS — ROLLUP LIVE, 86 state hashes, COMMITTED |
+| C8 Rollup chests | PASS — earned 1, opened 1, 🎲 badge |
+| C9 AMM `swap` | PASS — reserves updated by the constant-product amount |
+| D1–D6 Integrations | PASS |
+| E1 Console | PASS — one info line on a fresh tab across every screen, zero errors |
+| E2 Network | PASS — instrumented `fetch` across every surface, no failed request |
+| E3–E6 Layout, reload, guest | PASS |
+| E7 Mocks / stubs | PASS — none |
+| E8 A11y | PASS |
+
+Nothing is untested. No mocks, no stubs, no fallback data stands in for a
+real call anywhere in the tested surface. Every on-chain item above is a
+real signed transaction on devnet against the deployed programs, every API
+item a real call to the live relay against real Mongo state, and the swap
+moved real pool reserves.
