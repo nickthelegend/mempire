@@ -176,3 +176,49 @@ Correct = documented status, JSON shape as consumed by the client, no 5xx.
 ## Status legend
 
 `PASS` verified against the expectation · `FAIL` did not match, root cause fixed and re-verified · `UNTESTABLE` requires a dependency that genuinely does not exist here.
+
+---
+
+# Results — run of 2026-08-16
+
+Against production `play.mempire.fun`, devnet, real wallet
+`9Ftmh7N2SNkTwvU7x5kkaXbT1XE7ZiQDgRrNbHRPCpya`, real signed transactions.
+
+## Failures found and fixed (6)
+
+| Item | Failure | Root cause | Fix |
+|---|---|---|---|
+| A1.1 | A cold visitor got an ed25519 secret key generated and persisted before choosing anything | `getProvider(null)` → `guestSigningWallet` → a keypair lookup that *created* on miss, reached from the registry read that runs for every visitor | `storedGuestKeypair()` never creates; only `connectGuest` mints an identity |
+| A2.4 / A2.5 | Mint confirmed on chain, header kept saying "not minted onchain yet" until reload | `getProgramAccounts` indexes a slot or two behind confirmation; the single post-tx `refresh()` read pre-mint state and never re-read | `refreshSettled()` re-reads at 0 / 1.5s / 4s |
+| A2.2 | Starter kit claimed "your fighters are coins you hold" and never mentioned the $MEMPIRE grant | Copy written when `mint_card` required a balance | Rewritten; surfaces `dripMempire` |
+| A6 | Swap unusable: quote side is Circle's real devnet USDC, which the game cannot issue and never grants — and the `+` on the currency pill routes there | Pool is $MEMPIRE/USDC; no in-product path to USDC | Screen now states where USDC comes from and links Circle's faucet |
+| B2 | `/api/coins` served `"PNUT "` / `"Peanut the Squirrel "` with trailing spaces | DexScreener data passed through unsanitised | Trimmed at the boundary |
+| Copy | Connect screen, tutorial, loading tips, noscript and og/twitter meta all promised the removed holding gate and stake-for-power | Premise changed, copy did not | All rewritten |
+
+## Verified PASS
+
+- **B — relay API: 27/27.** Every endpoint, including auth guards (unsigned write → 401, forged signature → 401, replayed faucet claim → 409 with `claimedAt`, proving Mongo persistence).
+- **A1** 1,2,3,4,6,8 · **A2** 1,2,3,4,5,7,8,14,15,16,17 · **A3** 1,5 · **A4** 1 · **A5** 1,2,3,4 · **A6** 1 · **A7** 1,2,4,5,6
+- **C1/C2/C3** — `mint_card` (no holdings needed), `upgrade_card` (level +1, 100×level $MEMPIRE, duplicate closed), `tokenize_card` (supply 1, 0 decimals, mint authority burned, Explorer renders it as a Metaplex NFT).
+- **D1** RPC backoff · **D4** metadata 200 for all 64 · **D6** Mongo persistence
+- **E1** zero console errors · **E2** zero failed requests · **E3/E4** desktop + mobile layout · **E5** reload restores guest · **E6** guest path playable · **E7** no mocks found in any tested path
+
+## Blocked — cannot be tested here
+
+| Item | Why |
+|---|---|
+| A6.3 swap execution | Needs Circle's devnet USDC from a human-gated web faucet. Authority `GrNg1XM2…` is not ours; the project holds 19 USDC in the pool and 1 on the deployer. |
+
+## Not reached this run — untested, not passed
+
+A1.7 bot-fallback timing, A1.9 reload mid-queue, A2.6 ineligible-coin row, A2.9 max-level guard,
+A2.10–A2.13 shop purchase/reroll, A3.2–A3.4 deck editing, A4.2–A4.6 clan write flows,
+A5.5 stake recovery, A6.2/A6.4/A6.5 quote maths and input guards, A7.3 illegal drop,
+A7.7 leave mid-match, C4–C9 (stake/unstake, match escrow+settle, timeout recovery, ER
+delegation round-trip, chest VRF, AMM swap), D2/D3 ER placement, D5 DexScreener pricing,
+E8 full a11y audit.
+
+## Known quality issues (not plan failures)
+
+- The arena takes ~15–25 seconds of match clock to build on a cold load. The loading state is honest, but that is a sixth of a match.
+- The AMM pool holds 19 USDC. Any real trade moves the price hard.
