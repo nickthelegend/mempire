@@ -731,3 +731,82 @@ seats to report, which is the same blocker as `settle_from_log`.
 A match where neither side played a card ran to overtime 0-0 and settled on
 equal tower HP: SPLIT POT, HOUSE RAKE (5%) — half the 10% a win is charged —
 RETURNED +0.048 SOL, and the disclosure that nothing had been escrowed.
+
+# Run 8 — C5 settles on the happy path; C8 diagnosed to its root
+
+## C5 `settle_from_log` — PASS
+
+The blocker was never a missing credential: it was that no second seat ever
+ran the simulation. `settle_from_log` reads `log.claims[0]` and
+`log.claims[1]`, refuses to pay while either is 3 ("has not spoken"), and
+voids when they disagree — so the happy path is unreachable unless both
+seats compute the result independently and arrive at the same answer.
+
+So `spar-full.mjs` now runs the real engine. Not a reimplementation —
+`sim-node-entry.ts` re-exports `createMatch`, `stepSim` and `hashState` from
+`app/src/sim/engine.ts` and esbuild bundles them for node. A reimplementation
+would be a different simulation wearing the same name, and the program is
+built to catch exactly that.
+
+Two false starts worth recording:
+
+  - The first report failed with "expected this account to be already
+    initialized". Two programs here have a `log` PDA under the same seeds,
+    and I derived it under the rollup program. The match log that
+    `init_match_log` creates, that gets delegated, and that
+    `settle_from_log` reads is the *base* program's.
+  - `end_log` (rollup program) is not the instruction either seat sends;
+    `end_match_log` (base program, executed on the rollup where the log is
+    delegated) is.
+
+Match #71, both seats staking, both simulating, neither trusting the other:
+
+  CreateMatch    48v7UxFpbPbW68…   A escrows
+  JoinMatch      4gjY253hKES9pQ…   B escrows
+  InitMatchLog   5BTFarDErVPKbY…   log created and delegated
+  SettleFromLog  5GLMmqLLoZ1WZD…   paid on the happy path
+
+  spar-full: sim ended tick 3601 winner 0 hash 3363221021
+  claims: [0,0] · ended: true · log owner back to the base program
+  match state 2 · A 0.6164 → 0.6606 SOL
+
+`claims: [0,0]` is the whole point: two independent simulations of the same
+match agreed on the winner, which is what the anti-cheat design is for.
+
+## C8 VRF chest — FAIL, root cause found, not fixed
+
+The rail is fine. It is created, delegated to MagicBlock, and live on the
+rollup — for a guest, which run 7 made possible. Reading it directly:
+
+  pendingSlot 255 · opened 0 · earned 0 · all four slots state 0
+
+`earned = 0` is the whole story. `request_chest` is refused with
+`NoChestEarned`, so every chest falls back to the local roll and says so
+(`local seed 72c88ec5e8d9867e…` — honestly labelled, never dressed up as VRF).
+
+`earned` is incremented in exactly one place: the *rollup* program's
+`end_log`, when the winner's rail is passed as `winner_chests`. That runs
+only from `useErMatch.finish`, which no-ops unless `phase === 'live'`, which
+requires `useErMatch.begin`, which is called only from `useErMatch`'s own
+escrow-and-delegate action — and `match.ts` does not use it. It uses
+`useEscrow`, the base-program path that settles matches correctly and that
+run 8 just verified end to end.
+
+So the rollup match-log subsystem — `begin`, `playCardEr`, `checkpointEr`,
+`endLogEr` — is orphaned. It was superseded by the base-program escrow path
+and left unwired, and the chest entitlement is the one thing that still
+depends on it.
+
+Closing it is one of three changes, and every one is feature work rather
+than a fix:
+
+  - wire `useErMatch.begin` into the live flow alongside `useEscrow`, which
+    means two parallel rollup logs per match;
+  - grant `earned` from the base program's `end_match_log`, which is a
+    program change and a redeploy;
+  - grant it from the settled base-layer result after the fact.
+
+All three touch either the deployed program or the money path that now
+demonstrably settles. That is the user's call to make, not a root-cause fix
+to land unannounced at the end of a test run. Recorded as FAIL with the
+diagnosis rather than dressed up as untested.

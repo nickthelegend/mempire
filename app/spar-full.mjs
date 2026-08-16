@@ -22,6 +22,7 @@
  * are all real; only the tactics are bad.
  */
 import WebSocket from 'ws';
+import { createMatch, stepSim, hashState, FORMATS } from './sim-node.mjs';
 import anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
 import { readFileSync } from 'node:fs';
@@ -102,6 +103,14 @@ const relayDeck = deckMints.map((m, i) => ({
 }));
 
 let joined = false;
+/*
+ * The onchain match id, discovered after the sim has already started.
+ *
+ * The relay pairs and the clock starts before either seat's `create_match`
+ * has confirmed, so the simulation has to begin without it. Reporting happens
+ * three minutes later, by which time the join loop has filled this in.
+ */
+let onchainMatchId = null;
 
 /*
  * Queue second, on a trigger.
@@ -143,6 +152,58 @@ ws.on('open', async () => {
  * genuinely does not do is play cards, which is a legal way to play.
  */
 const TICK_MS = 50;
+const HASH_EVERY_TICKS = 40;
+const ER_RPC = 'https://devnet.magicblock.app';
+const MAGIC_PROGRAM = new PublicKey('Magic11111111111111111111111111111111111111');
+const MAGIC_CONTEXT = new PublicKey('MagicContext1111111111111111111111111111111');
+
+/**
+ * The log both seats write into.
+ *
+ * Note the *base* program id, not the rollup one. There are two programs here
+ * with a `log` PDA under the same seeds, and only this one is the match log
+ * that `init_match_log` creates, that gets delegated, and that
+ * `settle_from_log` later reads. Deriving it under the rollup program pointed
+ * at an account that has never existed, and the report failed with "expected
+ * this account to be already initialized".
+ */
+const baseLogPda = (id) => PublicKey.findProgramAddressSync(
+  [Buffer.from('log'), le(id)], PROGRAM,
+)[0];
+
+/**
+ * This seat's own claim on the result.
+ *
+ * `settle_from_log` reads `log.claims[0]` and `log.claims[1]`, refuses to pay
+ * while either is 3 ("has not spoken"), and voids the match when they
+ * disagree. So the pot cannot pay out on the happy path unless both seats run
+ * the simulation and independently reach the same winner. Announcing ticks let
+ * the browser play; this is what lets it get paid.
+ *
+ * Runs against the rollup, because that is where the log is delegated, using
+ * the base program's own `end_match_log` — the same instruction the browser
+ * sends from the other seat.
+ */
+async function reportResult(matchId, winner, finalHash) {
+  const erConn = new Connection(ER_RPC, 'confirmed');
+  const erProgram = new anchor.Program(
+    idl,
+    new anchor.AnchorProvider(erConn, wallet, { commitment: 'confirmed' }),
+  );
+  const log = baseLogPda(matchId);
+  const sig = await erProgram.methods
+    .endMatchLog(winner, new anchor.BN(finalHash.toString()))
+    .accounts({
+      payer: kp.publicKey,
+      matchLog: log,
+      magicContext: MAGIC_CONTEXT,
+      magicProgram: MAGIC_PROGRAM,
+    })
+    .rpc();
+  console.log(`spar-full: REPORTED winner=${winner} hash=${finalHash} — ${sig.slice(0, 20)}…`);
+  return sig;
+}
+
 function announceTicks(startAt, offset) {
   const timer = setInterval(() => {
     const tick = Math.floor((Date.now() + offset - startAt) / TICK_MS);
@@ -152,10 +213,67 @@ function announceTicks(startAt, offset) {
   return timer;
 }
 
+/**
+ * Run this seat's own simulation, in lockstep, to its own conclusion.
+ *
+ * Seat 0's deck is seat 0's deck on both machines, so the arrays go in in
+ * match order regardless of which seat we are. The opponent's plays arrive as
+ * `input` frames keyed by the tick they land on, exactly as the browser queues
+ * them, and this seat plays nothing — so what comes out is the result of their
+ * match, computed here rather than taken on trust.
+ */
+function runSim({ seed, startAt, offset, format, seat0Deck, seat1Deck, seats }) {
+  const sim = createMatch(seed, [seat0Deck, seat1Deck], FORMATS[format] ?? FORMATS.standard);
+  const pending = new Map();
+  let reported = false;
+
+  const onInput = (ev) => {
+    if (!ev || !Number.isInteger(ev.tick)) return;
+    const list = pending.get(ev.tick) ?? [];
+    list.push(ev);
+    pending.set(ev.tick, list);
+  };
+
+  const loop = setInterval(async () => {
+    const wall = Math.floor((Date.now() + offset - startAt) / TICK_MS);
+    let steps = 0;
+    while (sim.tick < wall && sim.phase !== 'ended' && steps < 12) {
+      stepSim(sim, pending.get(sim.tick) ?? []);
+      pending.delete(sim.tick - 1);
+      if (sim.tick % HASH_EVERY_TICKS === 0) {
+        try { ws.send(JSON.stringify({ t: 'hash', tick: sim.tick, hash: hashState(sim) })); } catch { /* closed */ }
+      }
+      steps += 1;
+    }
+    if (sim.phase !== 'ended' || reported) return;
+
+    reported = true;
+    clearInterval(loop);
+    const winner = sim.winner === -2 ? 2 : sim.winner;
+    const finalHash = BigInt(hashState(sim) >>> 0);
+    console.log(`spar-full: sim ended tick ${sim.tick} winner ${winner} hash ${finalHash}`);
+    try { ws.send(JSON.stringify({ t: 'ended' })); } catch { /* closed */ }
+    if (onchainMatchId === null) {
+      console.log('spar-full: no onchain match to report to (nothing was escrowed)');
+      return;
+    }
+    try {
+      await reportResult(onchainMatchId, winner, finalHash);
+    } catch (e) {
+      console.log('spar-full: report failed —', (e.message || String(e)).slice(0, 180));
+    }
+  }, TICK_MS / 2);
+
+  return onInput;
+}
+
+let feedInput = null;
+
 ws.on('message', async (raw) => {
   let m; try { m = JSON.parse(String(raw)); } catch { return; }
+  if (m.t === 'input') { feedInput?.(m.input); return; }
   if (m.t !== 'matched') {
-    if (m.t !== 'input' && m.t !== 'tick') console.log('spar-full: <-', m.t);
+    if (m.t !== 'tick') console.log('spar-full: <-', m.t);
     return;
   }
   console.log('spar-full: matched, role', m.role, 'opponent', m.opponent?.address);
@@ -166,6 +284,25 @@ ws.on('message', async (raw) => {
   console.log('spar-full: announcing ticks (offset', offset, 'ms)');
   if (m.role === 0) { console.log('spar-full: seat 0 — the browser must queue first'); return; }
   if (joined) return;
+
+  /*
+   * Start our own simulation now, from the same seed and the same two decks.
+   *
+   * We are seat 1, so the opponent's relayed deck is seat 0's. Their deck
+   * arrives in sim-ready form and `createMatch` derives each card's trait from
+   * its mint, which is why neither side has to send one for the two states to
+   * agree.
+   */
+  const seats = [m.opponent.address, kp.publicKey.toBase58()];
+  feedInput = runSim({
+    seed: m.seed,
+    startAt: m.startAt,
+    offset,
+    format: m.format,
+    seat0Deck: m.opponent.deck,
+    seat1Deck: relayDeck,
+    seats,
+  });
 
   for (let i = 0; i < 30; i += 1) {
     await new Promise((r) => setTimeout(r, 2000));
@@ -199,6 +336,7 @@ ws.on('message', async (raw) => {
         .remainingAccounts(deckIds.map((id) => ({ pubkey: cardPda(id), isWritable: true, isSigner: false })))
         .rpc();
       joined = true;
+      onchainMatchId = open.id;
       console.log(`spar-full: JOINED match #${open.id} — ${sig}`);
     } catch (e) {
       console.log('spar-full: join failed —', e.message?.slice(0, 160));
