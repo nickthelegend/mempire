@@ -468,3 +468,57 @@ path), 11 untested items, 2 untestable without Circle's faucet. The settlement
 cluster is one story, not three: a match that ends without both players
 reporting leaves the pot escrowed, and the recovery route out of that state
 does not yet work.
+
+
+---
+
+# Run 5 — settlement closed, and a silent auth failure
+
+## Newly PASS
+
+| Item | Evidence |
+|---|---|
+| C5 escrow open | `CreateMatch`, 0.72499 → 0.67279 |
+| C6 recovery | `CancelMatch` returned a stake from an Open match (→ 0.72278); `ClaimTimeout` paid out an Active one (→ 0.76057); `ReleaseCards` freed the opponent's deck |
+| C7 ER round-trip | `InitMatchLog` + `DelegateMatchLog` on chain, result reached "reported" on the rollup |
+| D2 / D3 ER placement | implied and verified by C7 — the router resolved placement and the ER accepted the write |
+| A2.10 shop buy | `$MSTR` for 250 $MEMPIRE, 13,915 → 13,665, row marked Bought |
+| A2.11 insufficient funds | "need 250 $MEMPIRE — you hold 0", no card, no tx |
+| A2.12 free reroll | offers changed, counter moved to the paid price |
+| A2.13 paid reroll | exactly 35 $MEMPIRE charged, 13,950 → 13,915 |
+| A4.2 clan search | `nothing matches "ZZZZZZ"` |
+| A4.5 clan membership | survives reload, server is the source of truth |
+| A5.5 stake recovery | detects a real stranded stake from the chain |
+
+## Fixed this run
+
+**Every guest write was failing auth, silently.** `signAction` signed with the
+stored key but labelled the message with `wallet.address`, which is read once
+at connect. When the two diverge — a cleared store, private mode, a second tab
+— it signs as one identity and claims another, and the relay correctly refuses.
+Observed live: the stored key derived to `3nHXcCdD…` while the app still called
+itself `2cmeus9p…`. Clans, ladder, progress sync and telemetry all 401 and
+nothing surfaces it. Proven against the relay: old behaviour 401, fixed 201.
+
+**The settlement cluster** — `prepareLog` checked the opponent's join once and
+gave up; `recover` resolved the player from a non-existent adapter, handled only
+Active matches, and unlocked only the caller's cards. All four fixed and
+verified on devnet across matches #65, #66 and #67.
+
+## Still untested
+
+A2.9 (max level — needs 4,500 $MEMPIRE of upgrades), A4.4, A4.6, A7.3, C4, C8,
+D5 pricing, E8 full a11y sweep.
+
+## Still untestable
+
+A6.3 and C9 — both need Circle's devnet USDC from a human-gated faucet.
+
+## C5 settlement, precisely
+
+Escrow opens, the log delegates, and this seat reports. `settle_from_log`
+requires **both** seats to have reported the same final hash — by design, and
+stated as such in `actions.ts`. Driving it needs a second client that runs the
+simulation, which is the game client itself; the node sparring partner joins
+escrow but cannot report. Until then the pot returns through `claim_timeout`,
+which is now verified working.

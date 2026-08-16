@@ -95,12 +95,31 @@ export async function signAction(
   walletSign?: (msg: Uint8Array) => Promise<Uint8Array>,
 ): Promise<Signed | null> {
   const ts = Date.now();
-  const bytes = new TextEncoder().encode(authMessage(address, action, ts));
   try {
-    const sig = walletSign
-      ? await walletSign(bytes)
-      : nacl.sign.detached(bytes, guestKeypair().secretKey);
-    return { address, ts, signature: bs58.encode(sig) };
+    if (walletSign) {
+      const bytes = new TextEncoder().encode(authMessage(address, action, ts));
+      return { address, ts, signature: bs58.encode(await walletSign(bytes)) };
+    }
+
+    /*
+     * A guest signs as whoever the stored key actually is.
+     *
+     * The caller passes `wallet.address`, which was read once at connect time,
+     * and the key in localStorage can move underneath it — a cleared store, a
+     * private-mode failure, or a second tab that regenerated one. When they
+     * diverge, this signed as the new key while claiming the old address, and
+     * the server correctly refused every signature. Every guest write failed
+     * at once — clans, ladder, progress sync, telemetry — and the only symptom
+     * was a 401 nothing surfaced. Observed live: the stored key derived to
+     * `3nHXcCdD…` while the app was still calling itself `2cmeus9p…`.
+     *
+     * Deriving the address here means the two can never disagree: whatever
+     * signs is what the message names.
+     */
+    const kp = guestKeypair();
+    const signer = bs58.encode(kp.publicKey);
+    const bytes = new TextEncoder().encode(authMessage(signer, action, ts));
+    return { address: signer, ts, signature: bs58.encode(nacl.sign.detached(bytes, kp.secretKey)) };
   } catch {
     return null;
   }
