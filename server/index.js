@@ -299,9 +299,20 @@ async function fetchPumpCoins() {
         if (prior && prior.liquidityUsd >= liquidityUsd) continue;
         seen.set(mint, {
           mint,
+          /*
+           * Trimmed, because upstream is not.
+           *
+           * DexScreener returns symbols and names with trailing spaces —
+           * `"PNUT "`, `"Peanut the Squirrel "` were both live in the response.
+           * A ticker with a trailing space still renders fine, which is exactly
+           * what makes it dangerous: every lookup keyed on ticker
+           * (`coinByTicker`, art paths, metadata filenames) misses, and it
+           * misses silently. Normalising at the boundary means nothing
+           * downstream has to know upstream is dirty.
+           */
           // some symbols already ship a leading $; the UI adds its own
-          ticker: symbol.replace(/^\$+/, '').toUpperCase().slice(0, 10),
-          name: (p.baseToken?.name || symbol).slice(0, 28),
+          ticker: symbol.trim().replace(/^\$+/, '').trim().toUpperCase().slice(0, 10),
+          name: (p.baseToken?.name || symbol).trim().slice(0, 28),
           priceUsd,
           liquidityUsd,
           ageHours: Math.round(ageHours),

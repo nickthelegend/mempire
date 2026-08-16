@@ -36,12 +36,34 @@ export function authMessage(address: string, action: string, ts: number): string
   return `Mempire\naction: ${action}\nwallet: ${address}\nts: ${ts}`;
 }
 
-/** The guest's keypair, created on first use and reused thereafter. */
-function guestKeypair(): nacl.SignKeyPair {
+/**
+ * The stored guest keypair, or null. Never creates one.
+ *
+ * Everything that merely *reads* must use this. `getProvider(null)` builds a
+ * guest signing wallet so a guest can sign without an extension, and the chain
+ * registry read runs for every visitor whether or not they have connected — so
+ * a creating lookup on that path minted and persisted an ed25519 secret key
+ * for anyone who so much as opened the page, before they had chosen anything.
+ * Generating a wallet for a passer-by is not a thing to do quietly.
+ */
+function storedGuestKeypair(): nacl.SignKeyPair | null {
   try {
     const saved = localStorage.getItem(GUEST_SK);
     if (saved) return nacl.sign.keyPair.fromSecretKey(bs58.decode(saved));
-  } catch { /* private mode, or a corrupt entry — fall through and make one */ }
+  } catch { /* private mode, or a corrupt entry */ }
+  return null;
+}
+
+/**
+ * The guest's keypair, created on first use and reused thereafter.
+ *
+ * Creation is a side effect, so this is called only where establishing an
+ * identity is the point — `connectGuest`, and signing an action as a guest who
+ * already chose to be one.
+ */
+function guestKeypair(): nacl.SignKeyPair {
+  const saved = storedGuestKeypair();
+  if (saved) return saved;
   const kp = nacl.sign.keyPair();
   try { localStorage.setItem(GUEST_SK, bs58.encode(kp.secretKey)); } catch { /* ignore */ }
   return kp;
@@ -113,8 +135,10 @@ export function guestSolanaSigner(cluster: string): {
   secretKey: Uint8Array;
 } | null {
   if (cluster !== 'devnet') return null;
-  const kp = guestKeypair();
-  return { publicKey: kp.publicKey, secretKey: kp.secretKey };
+  // Read-only: this is reached from provider construction, which happens on
+  // every page load whether or not anyone has connected.
+  const kp = storedGuestKeypair();
+  return kp ? { publicKey: kp.publicKey, secretKey: kp.secretKey } : null;
 }
 
 /** Wipe the guest key. The only way to abandon a browser-held identity. */

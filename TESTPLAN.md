@@ -1,0 +1,178 @@
+# Mempire — full verification plan
+
+Every component and flow, with what "correct" means stated up front so a pass
+is a match against a written expectation rather than a judgement call made
+after seeing the result.
+
+Target: `https://play.mempire.fun` (production), devnet, real wallets, real
+transactions. Relay: `https://mempire-relay-production.up.railway.app`.
+
+**Pass rule.** The observed result equals the stated expectation, AND the
+console shows no errors, AND no request in the network tab returns 4xx/5xx
+(except where an error response *is* the expected result, marked ⚠️).
+
+---
+
+## A. Client screens
+
+### A1 — Arena (`/`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A1.1 | Load disconnected | Logo, "Connect Wallet", `DEVNET · NO REAL FUNDS`. No tier/queue controls active. |
+| A1.2 | Connect as guest | Header shows name, crown count, SOL. Stake tiers render. Real keypair written to `mempire_guest_sk`. |
+| A1.3 | Stake tier affordability | Tiers above wallet balance are `disabled`; affordable ones are not. |
+| A1.4 | Queue with insufficient SOL | Hint `need X SOL to enter`; no queue starts; no tx. |
+| A1.5 | Queue with incomplete deck | Hint `deck needs 8 cards`; all three mode buttons inert. |
+| A1.6 | Practice with valid deck | Navigates to `/battle` within 3s; match clock starts. |
+| A1.7 | Ranked solo → bot fallback | Queues, and within ~20s falls back to a bot match. Result screen states no trophies and nothing escrowed. |
+| A1.8 | Recent settlements strip | Shows a real settled address + amount that exists on chain. |
+| A1.9 | Reload mid-queue | Returns to a sane state (not stuck "searching"); no orphaned escrow. |
+
+### A2 — Cards (`/cards`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A2.1 | $MEMPIRE header pill | Exactly one currency pill. Value equals the wallet's real SPL balance. `—` before first read, never `0`. |
+| A2.2 | Starter kit claim | Grants 0.35 SOL + 8 coins + 2000 $MEMPIRE in one flow; all verifiable on chain. |
+| A2.3 | Starter kit second claim | ⚠️ 409 `already claimed`; no tokens move. |
+| A2.4 | Mint a coin held | Real `MintCard` tx; SOL drops ~0.02; card count +1. |
+| A2.5 | Mint a coin NOT held | Same as A2.4 — the holding gate must be gone, on chain and in UI. |
+| A2.6 | Mint an ineligible coin | Row shows the reason (`younger than 48h` / `liquidity below $25k`); no mint button. |
+| A2.7 | Re-mint an owned coin | No live Mint button. Shows `Merge · Lv N` (if dupes) or `minted`. |
+| A2.8 | Merge duplicates | Real `UpgradeCard` tx; level +1; $MEMPIRE drops by 100×level; duplicate account closed. |
+| A2.9 | Merge at level 10 | Button reads `Max level` and is disabled; no tx. |
+| A2.10 | Shop buy with $MEMPIRE | Real transfer to treasury; card granted only after confirm; balance drops. |
+| A2.11 | Shop buy with insufficient $MEMPIRE | Stated shortfall; no tx; no card granted. |
+| A2.12 | Shop reroll (free) | Offers change instantly; free counter decrements. |
+| A2.13 | Shop reroll (paid) | Charges 35 $MEMPIRE on chain before offers change. |
+| A2.14 | Chest rail | 4 slots; `WIN A BATTLE or 100 $M`; earned chest becomes startable. |
+| A2.15 | Chest unlock + skip | Skip charges 25 $MEMPIRE; header balance visibly drops. |
+| A2.16 | Chest open ceremony | Shows card art + ticker, not a text pill; cards land in collection. |
+| A2.17 | Deep scroll (desktop) | Content paints at every scroll position; no blank region; nav stays visible. |
+
+### A3 — Deck (`/deck`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A3.1 | Full deck | `DECK 8/8`, power and average elixir shown. |
+| A3.2 | One-card-per-coin | A coin already in the deck cannot be added twice. |
+| A3.3 | Three deck slots | Deck 1/2/3 switch independently and persist across reload. |
+| A3.4 | Swap a card | Tapping a collection card replaces the selected slot; power recomputes. |
+| A3.5 | Deck after first mint | Never collapses below 8 when the collection can fill it (regression guard). |
+
+### A4 — Clan (`/clan`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A4.1 | Browse clans | Real clans from the relay; empty state is honest, not a fake list. |
+| A4.2 | Search | Filters server-side; no results renders an explicit empty state. |
+| A4.3 | Create clan | Charges 250 $MEMPIRE on chain, then persists to Mongo; appears in browse. |
+| A4.4 | Create with insufficient funds | Stated shortfall; no tx; no clan row created. |
+| A4.5 | Join / leave | Membership persists across reload; server is the source of truth. |
+| A4.6 | Crowns reporting | Match crowns post to the clan and change its total. |
+
+### A5 — Empire (`/empire`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A5.1 | Profile | Address, SOL balance, W/L, cards — all matching chain/relay. |
+| A5.2 | Leaderboard | Real rows; no `0W · 162L` harness accounts. |
+| A5.3 | Battle history | Real past matches, or an honest empty state. |
+| A5.4 | Guest disclosure | States that devnet guest keypairs spend real devnet SOL — not "play money". |
+| A5.5 | Stake recovery | Detects genuinely stuck matches; no false positives. |
+
+### A6 — Swap (`/swap`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A6.1 | Pool state | Reserves read from the real AMM pool account. |
+| A6.2 | Quote | Constant-product maths matches the on-chain formula incl. fee. |
+| A6.3 | Swap SOL → $MEMPIRE | Real tx; both balances move by the quoted amounts. |
+| A6.4 | Swap exceeding balance | Blocked with a stated reason; no tx. |
+| A6.5 | Zero / empty input | No NaN, no crash, action disabled. |
+
+### A7 — Battle (`/battle`)
+
+| # | Flow | Correct means |
+|---|---|---|
+| A7.1 | Arena renders | 3D scene draws; a loading state covers the gap, never a bare dark rectangle. |
+| A7.2 | Deploy a card | Elixir decreases by cost; unit appears; hand refills. |
+| A7.3 | Illegal drop | Drop on enemy half is refused or clamped; elixir not spent on a refusal. |
+| A7.4 | Elixir economy | Regenerates ~1/2.8s; doubles in the last minute. |
+| A7.5 | Combat + towers | Units path, fight, damage towers; crowns increment on a tower fall. |
+| A7.6 | Match end | Result screen with crowns; payout stated correctly for the mode. |
+| A7.7 | Leave mid-match | Exits cleanly; no stuck lock on the deck. |
+
+---
+
+## B. Relay API (28 endpoints)
+
+Correct = documented status, JSON shape as consumed by the client, no 5xx.
+
+| # | Endpoint | Correct means |
+|---|---|---|
+| B1 | `GET /api/health` | 200, healthy payload. |
+| B2 | `GET /api/coins` | 200, 66 coins with mint/ticker/decimals. |
+| B3 | `GET /api/faucet` | 200, advertises `dripSol`, `dripMempire`, 8 coins. |
+| B4 | `POST /api/faucet` | 200 first time; ⚠️ 409 after; ⚠️ 401 unsigned. |
+| B5 | `GET /api/player/:address` | 200 with player row; unknown address returns a usable empty shape. |
+| B6 | `PUT /api/player/:address` | ⚠️ 401 unsigned; 200 signed; persists. |
+| B7 | `GET /api/leaderboard` | 200, real rows sorted by net SOL. |
+| B8 | `GET /api/ladder` + `/:address` | 200, ladder rows. |
+| B9 | `GET /api/clans`, `/clans-top`, `/clans/:tag`, `/clans/mine/:address` | 200; unknown tag ⚠️ 404. |
+| B10 | `POST /api/clans*` (create/join/leave/kick/role/lend/request/crowns) | ⚠️ 401 unsigned; correct behaviour signed. |
+| B11 | `POST /api/events` | 200/204; telemetry accepted. |
+| B12 | `GET /api/analytics/{summary,tvl,ops,insights}` | 200, real aggregates. |
+| B13 | `POST /api/match/:address`, `/api/player/match` | ⚠️ 401 unsigned; records signed. |
+| B14 | Matchmaker WS `/ws` | Connects; pairs two clients at the same tier. |
+
+---
+
+## C. On-chain programs
+
+| # | Instruction | Correct means |
+|---|---|---|
+| C1 | `mint_card` | Creates Card PDA, charges fee, no holdings requirement, rejects ineligible coins. |
+| C2 | `upgrade_card` | +1 level, charges 100×level $MEMPIRE, closes duplicate, refuses locked/max/mismatched. |
+| C3 | `tokenize_card` | Mints supply-1/0-dec NFT + Metaplex metadata; authority burned; second attempt fails. |
+| C4 | `stake` / `request_unstake` / `claim_unstake` | Tokens move to/from vault; cooldown enforced. |
+| C5 | `create_match` / `join_match` / `settle` | Escrow held, winner paid, rake taken. |
+| C6 | `claim_timeout` | Recovers a stranded stake with the correct account set. |
+| C7 | Rollup `delegate_log` → `play_card` → `end_log` → undelegate | Delegation resolves; plays land on ER; settlement commits to base. |
+| C8 | Rollup chests (`init/delegate/request/callback/claim`) | Chest rail delegated; VRF request accepted; entitlement credited. |
+| C9 | AMM `swap` | Constant product with fee; reserves update. |
+
+---
+
+## D. External integrations
+
+| # | Integration | Correct means |
+|---|---|---|
+| D1 | Devnet RPC | Reads succeed; 429s retried with backoff, never surfaced as `0`. |
+| D2 | MagicBlock router | `getDelegationStatus` resolves; placement discovered, never hardcoded. |
+| D3 | MagicBlock ER | Delegated accounts writable on the returned FQDN. |
+| D4 | Metaplex metadata | `/nft/<ticker>.json` 200 for all carded coins; Explorer renders the NFT. |
+| D5 | DexScreener | Used only where a live price is claimed; devnet reference prices labelled as such. |
+| D6 | Mongo | Player/clan/faucet-claim state survives a relay restart. |
+
+---
+
+## E. Cross-cutting
+
+| # | Concern | Correct means |
+|---|---|---|
+| E1 | Console | Zero errors on every screen and every flow. |
+| E2 | Network | Zero unexpected 4xx/5xx. |
+| E3 | Desktop layout | 1440×900: no blank paint region at any scroll depth. |
+| E4 | Mobile layout | 375×812: column fills screen, nav pinned. |
+| E5 | Reload mid-flow | Guest session restored; no lost identity. |
+| E6 | No wallet installed | Guest path fully playable. |
+| E7 | Mocks/stubs | No mock/stub/fake data anywhere in a tested path. |
+| E8 | A11y | Interactive controls have accessible names. |
+
+---
+
+## Status legend
+
+`PASS` verified against the expectation · `FAIL` did not match, root cause fixed and re-verified · `UNTESTABLE` requires a dependency that genuinely does not exist here.

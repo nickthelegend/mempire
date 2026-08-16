@@ -27,8 +27,8 @@ export interface TutorialStep {
 const STEPS: TutorialStep[] = [
   {
     anchor: 'deck',
-    title: 'Your bags are your army',
-    body: 'Every card is a meme coin you actually hold, minted into a fighter. Stake more of the coin to level it up.',
+    title: 'Any coin, your army',
+    body: 'Every card is a meme coin minted into a fighter — you do not have to hold it. Win matches to earn duplicates, and merge them to level it up.',
   },
   {
     anchor: 'tier',

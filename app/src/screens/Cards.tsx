@@ -49,7 +49,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
   const { stake, requestUnstake, claimUnstake, availableUsdFor } = useCollection();
   const chainMode = useChain((s) => s.mode);
   const chainCards = useChain((s) => s.cards);
-  const refresh = useChain((s) => s.refresh);
+  const refreshSettled = useChain((s) => s.refreshSettled);
   const noteSignature = useChain((s) => s.noteSignature);
   const [amount, setAmount] = useState(25);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +81,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
       noteSignature(signature);
       setError(stake(card.id, usd));
       play('reward');
-      void refresh();
+      void refreshSettled();
     } catch (e) {
       setError(readableChainError(e));
       play('error');
@@ -101,7 +101,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
       );
       noteSignature(signature);
       requestUnstake(card.id, usd);
-      void refresh();
+      void refreshSettled();
     } catch (e) {
       setError(readableChainError(e));
       play('error');
@@ -119,7 +119,7 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
       noteSignature(signature);
       claimUnstake(card.id);
       play('reward');
-      void refresh();
+      void refreshSettled();
     } catch (e) {
       // CooldownActive here means the local clock ran ahead of the chain's —
       // the program is the authority, so surface it and leave the claim pending.
@@ -299,7 +299,7 @@ function CoinRow({ coin }: { coin: Coin }) {
   const chainBalances = useChain((s) => s.balances);
   const chainCards = useChain((s) => s.cards);
   const chainSol = useChain((s) => s.solBalance);
-  const refresh = useChain((s) => s.refresh);
+  const refreshSettled = useChain((s) => s.refreshSettled);
   const noteSignature = useChain((s) => s.noteSignature);
   const [minting, setMinting] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -332,7 +332,7 @@ function CoinRow({ coin }: { coin: Coin }) {
       const { signature } = await upgradeCardTx(signer(), keep.id, dupes[0].id);
       noteSignature(signature);
       play('reward');
-      void refresh();
+      void refreshSettled();
     } catch (e) {
       setChainError(readableChainError(e));
       play('error');
@@ -363,7 +363,7 @@ function CoinRow({ coin }: { coin: Coin }) {
       noteSignature(signature);
       mintCard(coin.mint);
       play('reward');
-      void refresh();
+      void refreshSettled();
     } catch (e) {
       setChainError(readableChainError(e));
       play('error');

@@ -46,6 +46,17 @@ interface ChainState {
   loadWallet: (owner: string, adapter: Adapter | null) => Promise<void>;
   /** Re-reads just the wallet-scoped data after a transaction lands. */
   refresh: () => Promise<void>;
+  /**
+   * Re-read until the chain has caught up with a transaction that just landed.
+   *
+   * `refresh` once, straight after a confirmed signature, is not enough:
+   * `getProgramAccounts` indexing runs a slot or two behind confirmation, so
+   * the read returns the pre-transaction state and nothing ever reads again.
+   * A card would mint, the transaction would confirm, and the header would
+   * keep saying "not minted onchain yet" until the page was reloaded — the
+   * write was real and the screen disagreed with it.
+   */
+  refreshSettled: () => Promise<void>;
   clearWallet: () => void;
   noteSignature: (sig: string) => void;
   explorer: (idOrSig: string, kind?: 'tx' | 'address') => string;
@@ -125,6 +136,15 @@ export const useChain = create<ChainState>((set, get) => ({
         mode: 'offline',
         error: e instanceof Error ? e.message : 'Could not read wallet state',
       });
+    }
+  },
+
+  refreshSettled: async () => {
+    // Immediately, then twice more. Cheap, and covers the indexing lag without
+    // making the UI wait on a poll loop before it shows anything at all.
+    for (const delay of [0, 1500, 4000]) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      await get().refresh();
     }
   },
 

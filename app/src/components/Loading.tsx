@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 
 const TIPS = [
-  'Your bags are your army — every card is a coin you actually hold.',
-  'Staking raises a card\'s level. It never lowers your opponent\'s.',
+  'Any meme coin can become a fighter. You do not have to hold it.',
+  'Merge a duplicate card to raise its level. Winning is how you get them.',
   'Drag a card onto your half of the arena to deploy it.',
   'Fell a tower to earn a crown. Three crowns ends it early.',
   'Win a battle, earn a chest. Only four fit at a time.',
-  'Crowns buy time and cosmetics. They never buy stats.',
+  '$MEMPIRE skips chest timers and buys upgrades. It never buys stats.',
   'A coin needs $25k liquidity and 48 hours to become a card.',
   'The house takes 10% of every pot, and says so up front.',
 ];

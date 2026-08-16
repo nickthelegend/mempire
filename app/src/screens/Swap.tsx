@@ -152,6 +152,41 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         </div>
       )}
 
+      {/*
+        A player who cannot pay needs the next step, not a disabled form.
+
+        The quote side of this pool is Circle's *real* devnet USDC, which the
+        game cannot mint and does not hand out — so someone who has just
+        claimed the starter kit (SOL, eight coins, $MEMPIRE) arrives here with
+        a zero balance and no way, anywhere in the product, to get one. The
+        `+` on the $MEMPIRE pill routes straight to this screen, which made
+        "get more $MEMPIRE" a dead end. Saying where the token comes from is
+        the difference between a broken screen and an errand.
+      */}
+      {buying && balances.usdc === 0n && (
+        <p
+          className="fine"
+          style={{
+            ...NARROW, padding: '10px 12px', margin: 0, borderRadius: 12,
+            background: 'var(--recess)', border: '2px solid var(--ink)',
+            color: 'var(--dim)', lineHeight: 1.4,
+          }}
+        >
+          This pool quotes in Circle&apos;s devnet USDC, which Mempire does not
+          issue. Grab some free at{' '}
+          <a
+            href="https://faucet.circle.com"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'var(--teal)' }}
+          >
+            faucet.circle.com
+          </a>{' '}
+          (pick Solana Devnet), then come back. Winning matches and merging
+          duplicates costs no USDC at all — this is only for topping up.
+        </p>
+      )}
+
       {/* ── you pay ────────────────────────────────────────────────────── */}
       <div className="well" style={{ ...NARROW, padding: 12, borderRadius: 12, gap: 6 }}>
         {/* wraps rather than blows out: "balance 1,234.5678 USDC · max" is a

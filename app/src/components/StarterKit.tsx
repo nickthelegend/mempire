@@ -25,6 +25,8 @@ import { useWallet } from '../state/wallet';
 interface FaucetStatus {
   available: boolean;
   dripSol: number;
+  /** Whole $MEMPIRE granted with the kit. The game's only currency. */
+  dripMempire?: number;
   coins: string[];
   balanceSol?: number;
 }
@@ -75,8 +77,11 @@ export function StarterKit() {
       <section className="well" style={{ padding: '10px 12px', display: 'grid', gap: 4 }}>
         <span className="label" style={{ color: 'var(--teal)' }}>Bags delivered</span>
         <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-          {status.dripSol} SOL and eight coins are in your wallet. Mint them into
-          fighters on the Cards tab, then your deck can enter a staked match.
+          {status.dripSol} SOL{status.dripMempire
+            ? `, ${status.dripMempire.toLocaleString()} $MEMPIRE`
+            : ''} and {status.coins.length} coins are in your wallet. Mint any coin
+          into a fighter below — you do not have to hold it — then your deck can
+          enter a staked match.
         </p>
         <button
           type="button"
@@ -94,10 +99,18 @@ export function StarterKit() {
     <section className="well" style={{ padding: '10px 12px', display: 'grid', gap: 6 }}>
       <span className="label">Start with bags</span>
       <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-        Your fighters are coins you hold, and this wallet holds none yet. Claim{' '}
-        {status.dripSol} devnet SOL and {status.coins.length} coins —{' '}
-        {status.coins.slice(0, 4).join(', ')} and more — enough to mint a full deck
-        and enter a staked match. Devnet only, and worth nothing anywhere else.
+        {/* Was "Your fighters are coins you hold, and this wallet holds none
+            yet" — written when `mint_card` required a balance of the coin. It
+            does not any more, so the sentence described a rule the program
+            stopped enforcing, and it told a new player their empty wallet was
+            the thing standing between them and a deck. It is not; the kit is
+            just a head start. */}
+        A wallet needs a little of everything to get going. Claim{' '}
+        {status.dripSol} devnet SOL
+        {status.dripMempire ? <>, {status.dripMempire.toLocaleString()} $MEMPIRE</> : null}
+        {' '}and {status.coins.length} coins — {status.coins.slice(0, 4).join(', ')} and
+        more — enough to mint a full deck, upgrade it, and enter a staked match.
+        Devnet only, and worth nothing anywhere else.
       </p>
       <Pill
         tone="gold"

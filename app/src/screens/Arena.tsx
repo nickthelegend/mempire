@@ -110,11 +110,16 @@ function ConnectHero() {
     }}
     >
       <Logo width={320} />
+      {/* The old line was "Your bags are your army" over "mint cards from the
+          meme coins you hold, stake them for power". Both halves described
+          rules the game no longer has: minting stopped requiring the coin, and
+          levels come from playing rather than staking. This is the first thing
+          anyone reads, so it was also the most-seen wrong sentence in the app. */}
       <p className="display" style={{ fontSize: 21, lineHeight: 1.2 }}>
-        Your bags are your army
+        Any coin. Your army.
       </p>
       <p style={{ color: 'var(--dim)', fontSize: 14, maxWidth: 300, margin: '-8px auto 0' }}>
-        Mint cards from the meme coins you hold, stake them for power, and battle for the pot.
+        Mint any meme coin into a fighter, level it up by winning, and battle for the pot.
       </p>
       <div style={{ padding: '0 12px', marginTop: 6 }}>
         <Pill onClick={openPicker} tone="gold" style={{ fontSize: 19 }}>Connect Wallet</Pill>
