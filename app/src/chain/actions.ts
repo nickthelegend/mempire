@@ -465,6 +465,37 @@ export async function readMatch(matchId: number): Promise<{
  * is otherwise left with a stake in a match that will never start and eight
  * cards locked behind it.
  */
+/**
+ * Free cards still locked to a match that has already settled.
+ *
+ * `unlock_deck` frees exactly the accounts a settlement was handed, so a
+ * settlement driven by one player used to leave the *other* player's eight
+ * cards naming a match that no longer exists in any meaningful sense. Their
+ * deck then could not be fielded and nothing in the app would ever fix it —
+ * observed on a real wallet, eight cards locked to a settled match.
+ *
+ * The program allows anyone to pay for this precisely because a settled match
+ * is the whole authority, so a client can clean up after itself without
+ * needing the other player online.
+ */
+export async function releaseCardsTx(
+  adapter: Adapter | null, matchId: number, cardIds: number[],
+): Promise<TxResult> {
+  const wallet = requireSigner(adapter);
+  const program = getProgram(adapter);
+  const signature = await program.methods
+    .releaseCards()
+    .accounts({
+      matchAccount: matchPda(matchId),
+      payer: wallet.publicKey!,
+    } as any)
+    .remainingAccounts(cardIds.map((id) => ({
+      pubkey: cardPda(id), isWritable: true, isSigner: false,
+    })))
+    .rpc();
+  return { signature };
+}
+
 export async function cancelMatchTx(
   adapter: Adapter | null, matchId: number, deckCardIds: number[],
 ): Promise<TxResult> {

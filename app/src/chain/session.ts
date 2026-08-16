@@ -1,3 +1,4 @@
+import { getProvider } from './provider';
 import { AnchorProvider, BN, Program, type Idl } from '@coral-xyz/anchor';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import { Connection, Keypair, PublicKey } from '@solana/web3.js';
@@ -132,11 +133,15 @@ export async function closeSession(
 ): Promise<void> {
   const had = live;
   live = null;
-  if (!had || !adapter?.publicKey) return;
+  if (!had) return;
+  // A guest signs without an adapter, so `adapter?.publicKey` alone skipped
+  // this for them and left the session key alive on chain until it expired.
+  const player = adapter?.publicKey ?? getProvider(adapter).wallet.publicKey;
+  if (!player) return;
   try {
     await program.methods
       .closeSession()
-      .accounts({ log, player: adapter.publicKey } as never)
+      .accounts({ log, player } as never)
       .rpc();
   } catch { /* it expires on its own; the local key is already gone */ }
 }

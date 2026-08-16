@@ -195,6 +195,17 @@ export async function fetchOpenMatches(): Promise<ChainMatch[]> {
  * Open and Active both count — the pot is escrowed in either, and neither has
  * paid out. Settled is the only state where the money has moved.
  */
+/** One match by its account address, for a card that names it in `locked_by`. */
+export async function fetchMatchByAddress(address: string): Promise<ChainMatch | null> {
+  try {
+    const program = getProgram();
+    const a = await accounts(program).matchAccount.fetch(new PublicKey(address));
+    return toMatch(new PublicKey(address), a);
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchStrandedMatches(owner: string): Promise<ChainMatch[]> {
   const program = getProgram();
   const all = await accounts(program).matchAccount.all();

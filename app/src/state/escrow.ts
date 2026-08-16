@@ -8,6 +8,10 @@ import {
   claimResultEr, delegateBaseLogTx, initBaseLogTx, logIsSettleable,
 } from '../chain/escrow';
 import { fetchCardsFor } from '../chain/read';
+import { getProvider } from '../chain/provider';
+
+/** The default pubkey the program writes into an unfilled player slot. */
+const SYSTEM_PROGRAM_ADDRESS = '11111111111111111111111111111111';
 import { matchPda } from '../chain/pdas';
 import { IS_LOCALNET, LOCALNET_VALIDATOR } from '../chain/magicblock';
 import { readableChainError } from '../chain/actions';
@@ -179,8 +183,26 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
 
   prepareLog: async (adapter, matchId) => {
     try {
-      // Confirm the opponent's stake landed before spending anything on a log.
-      const m = await readMatch(matchId);
+      /*
+       * Wait for the opponent's stake, rather than checking once.
+       *
+       * Seat 0 reaches here the instant its own `create_match` confirms, and
+       * seat 1 has not joined yet — it is still building, signing and
+       * confirming its own transaction. A single read therefore almost always
+       * saw `Open`, gave up, and the rollup log was never delegated. The match
+       * then had no log to settle from, so the pot could only come back the
+       * slow way, through `claim_timeout` after the deadline. The badge said
+       * "match log is not delegated to a rollup" and that was the whole story.
+       *
+       * Forty seconds of polling is longer than a join takes and far shorter
+       * than the match, and a genuinely absent opponent still falls through to
+       * the same timeout path as before — nobody's stake is stuck either way.
+       */
+      let m = await readMatch(matchId);
+      for (let i = 0; i < 20 && (!m || m.state !== 1); i += 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+        m = await readMatch(matchId);
+      }
       if (!m || m.state !== 1) return false;
       set({ phase: 'live', players: [m.players[0], m.players[1]] as [string, string] });
 
@@ -271,7 +293,17 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
     const m = await readMatch(matchId);
     if (!m || m.state === 2) return 'nothing'; // already settled
 
-    const me = adapter?.publicKey?.toBase58();
+    /*
+     * The signing key, not the adapter's.
+     *
+     * A guest has no adapter — it signs through a browser-held keypair — so
+     * `adapter?.publicKey` is undefined for them and this returned 'nothing'
+     * before building any transaction. Every guest, which is every player
+     * without a wallet extension, was silently unable to reclaim a stranded
+     * stake. The same mistake is called out in `actions.ts` and `session.ts`;
+     * this was the last copy of it on a money path.
+     */
+    const me = (adapter?.publicKey ?? getProvider(adapter).wallet.publicKey)?.toBase58();
     if (!me || !m.players.includes(me)) return 'nothing';
 
     /*
@@ -282,8 +314,21 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
      * which is the only time anyone reaches this button. The cards this match
      * locked are a fact on chain: they are the ones naming it in `locked_by`.
      */
+    /*
+     * Both decks, not just ours.
+     *
+     * `unlock_deck` frees exactly the cards handed to it, so passing only the
+     * caller's left the opponent's eight cards locked to a match that had just
+     * settled — they could not field a deck again until they happened to run a
+     * recovery of their own. Observed: claiming match #66 freed A's cards and
+     * left B's eight still naming it.
+     */
     const matchAddress = matchPda(matchId).toBase58();
-    const locked = (await fetchCardsFor(me))
+    const decks = await Promise.all(m.players
+      .filter((p) => p && p !== SYSTEM_PROGRAM_ADDRESS)
+      .map((p) => fetchCardsFor(p).catch(() => [])));
+    const locked = decks
+      .flat()
       .filter((c: { lockedBy: string | null }) => c.lockedBy === matchAddress)
       .map((c: { id: number }) => c.id);
 

@@ -5,6 +5,8 @@ import { useDeck } from './deck';
 import { useLadder } from './ladder';
 import { signer, useWallet } from './wallet';
 import { COINS } from '../lib/coins';
+import { MATCH_STATE_SETTLED, fetchMatchByAddress } from '../chain/read';
+import { releaseCardsTx } from '../chain/actions';
 import { canSign } from '../chain/provider';
 import { ensureChestRail } from '../chain/erActions';
 
@@ -261,5 +263,38 @@ function useChainCollection(): void {
 
     const slots = deck.slots.map(repoint);
     useDeck.setState({ slots, active: repoint(deck.active) });
+
+    /*
+     * Free cards still locked to a match that has already settled.
+     *
+     * Settlement frees exactly the card accounts it was handed, so a match
+     * settled by the other player leaves this wallet's eight cards naming it
+     * forever. The deck then cannot be fielded and nothing in the app fixes
+     * it — a real wallet was found with eight cards locked to a settled match
+     * and no way out short of a script.
+     *
+     * The program lets anyone pay for `release_cards` once a match is settled,
+     * so the client can clean up after itself without the opponent online.
+     * Best-effort and never awaited: it is housekeeping, and a failure leaves
+     * exactly the state that was already there.
+     */
+    const stuck = cards.filter((c) => c.inMatch && c.lockedBy);
+    if (stuck.length) {
+      void (async () => {
+        const byMatch = new Map<string, number[]>();
+        for (const c of stuck) {
+          if (!c.lockedBy) continue;
+          byMatch.set(c.lockedBy, [...(byMatch.get(c.lockedBy) ?? []), c.id]);
+        }
+        for (const [address, ids] of byMatch) {
+          try {
+            const m = await fetchMatchByAddress(address);
+            if (!m || m.state !== MATCH_STATE_SETTLED) continue;
+            await releaseCardsTx(signer(), m.id, ids);
+            await useChain.getState().refresh();
+          } catch { /* housekeeping — the lock simply stays until next time */ }
+        }
+      })();
+    }
   }, [cards, mode]);
 }
