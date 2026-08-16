@@ -7,6 +7,8 @@ import {
 import {
   claimResultEr, delegateBaseLogTx, initBaseLogTx, logIsSettleable,
 } from '../chain/escrow';
+import { fetchCardsFor } from '../chain/read';
+import { matchPda } from '../chain/pdas';
 import { IS_LOCALNET, LOCALNET_VALIDATOR } from '../chain/magicblock';
 import { readableChainError } from '../chain/actions';
 import { pvpSendChain } from '../lib/pvp';
@@ -84,7 +86,15 @@ interface EscrowStore {
    * staked match is a stranded pot, which is the failure this whole path
    * exists to avoid.
    */
-  recover: (adapter: Adapter | null) => Promise<'paid' | 'too-early' | 'nothing'>;
+  /**
+   * Reclaim a stake from a match that never settled.
+   *
+   * Takes the id explicitly. It used to read `matchId` off this store, which
+   * is wiped on reload — so the recovery button did nothing at all for anyone
+   * who had closed the tab, which is everyone who needs it. The caller reads
+   * the stranded match from the chain and passes its id.
+   */
+  recover: (adapter: Adapter | null, matchId?: number) => Promise<'paid' | 'too-early' | 'nothing'>;
 }
 
 export const useEscrow = create<EscrowStore>((set, get) => ({
@@ -255,22 +265,48 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
     }
   },
 
-  recover: async (adapter) => {
-    const { matchId } = get();
-    if (matchId === null) return 'nothing';
+  recover: async (adapter, explicitId) => {
+    const matchId = explicitId ?? get().matchId;
+    if (matchId === null || matchId === undefined) return 'nothing';
     const m = await readMatch(matchId);
-    if (!m || m.state !== 1) return 'nothing';
-    if (Date.now() / 1000 < m.deadline) return 'too-early';
+    if (!m || m.state === 2) return 'nothing'; // already settled
+
+    const me = adapter?.publicKey?.toBase58();
+    if (!me || !m.players.includes(me)) return 'nothing';
+
+    /*
+     * The deck comes from the chain, not from this store.
+     *
+     * Both instructions take the locked deck as remaining accounts so the
+     * cards come free again, and `deckCardIds` here is empty after a reload —
+     * which is the only time anyone reaches this button. The cards this match
+     * locked are a fact on chain: they are the ones naming it in `locked_by`.
+     */
+    const matchAddress = matchPda(matchId).toBase58();
+    const locked = (await fetchCardsFor(me))
+      .filter((c: { lockedBy: string | null }) => c.lockedBy === matchAddress)
+      .map((c: { id: number }) => c.id);
+
     try {
-      // Claims for ourselves. The program refuses to pay anyone else, which is
-      // what makes this safe to expose as a button.
-      const me = adapter?.publicKey?.toBase58();
-      if (!me || !m.players.includes(me)) return 'nothing';
-      // The decks and the log go with it: settling unlocks both seats' cards,
-      // and the program reads the log to tell an abandoned match from a
-      // disputed one — where the honest outcome is a refund, not a payout.
+      if (m.state === 0) {
+        /*
+         * Open — nobody ever joined, so there is no pot to award and no
+         * deadline to wait for. The stake is simply still the player's, and
+         * `cancel_match` gives it back. `claim_timeout` was the only path
+         * offered before, and it refuses anything that is not Active, so a
+         * match that never found an opponent could not be recovered at all.
+         */
+        const { signature } = await cancelMatchTx(adapter, matchId, locked);
+        set({ phase: 'refunded', lastSignature: signature });
+        void useChain.getState().refresh();
+        return 'paid';
+      }
+
+      // Active: an opponent joined and it never settled. The program pays out
+      // only after the deadline, and only to a player of this match.
+      if (Date.now() / 1000 < m.deadline) return 'too-early';
       const { signature } = await claimTimeoutTx(
-        adapter, matchId, me, m.players as [string, string], get().deckCardIds,
+        adapter, matchId, me, m.players as [string, string], locked,
       );
       set({ phase: 'settled', lastSignature: signature });
       void useChain.getState().refresh();

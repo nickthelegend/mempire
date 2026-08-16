@@ -7,6 +7,7 @@ import { loadLeaderboard, type LeaderRow } from '../lib/persist';
 import { useCollection } from '../state/collection';
 import { useMatch } from '../state/match';
 import { signer, useWallet } from '../state/wallet';
+import { fetchStrandedMatches, type ChainMatch } from '../chain/read';
 import { useEscrow } from '../state/escrow';
 
 /**
@@ -222,29 +223,50 @@ export function Empire() {
  * Hidden entirely when there is nothing to recover, so it is never a button
  * inviting people to poke at a match that is working fine.
  */
+/**
+ * A stake sitting in a match that never settled.
+ *
+ * This used to read the escrow store, which lives in memory. Reload the page
+ * and `matchId` is null and `phase` is 'none', so a stranded pot disappeared
+ * from the one screen built to recover it — at exactly the moment its owner
+ * would come looking. Verified against a real one: match #65 held 0.05 SOL in
+ * state Open and Empire offered nothing at all.
+ *
+ * Whether a stake is stranded is a fact about the chain, so it is read from
+ * the chain: any match this wallet is a player in that has not reached
+ * Settled still holds their lamports.
+ */
 function StakeRecovery() {
-  const matchId = useEscrow((s) => s.matchId);
-  const phase = useEscrow((s) => s.phase);
+  const address = useWallet((s) => s.address);
   const recover = useEscrow((s) => s.recover);
+  const [stranded, setStranded] = useState<ChainMatch | null>(null);
   const [state, setState] = useState<'idle' | 'busy' | 'too-early' | 'paid' | 'none'>('idle');
 
-  const stranded = matchId !== null
-    && (phase === 'claimed' || phase === 'claiming' || phase === 'live');
+  useEffect(() => {
+    if (!address) { setStranded(null); return; }
+    let live = true;
+    void fetchStrandedMatches(address)
+      .then((ms) => { if (live) setStranded(ms[0] ?? null); })
+      .catch(() => { /* a failed read must not invent a stranded stake */ });
+    return () => { live = false; };
+  }, [address, state]);
+
   if (!stranded || state === 'paid') return null;
+  const matchId = stranded.id;
 
   return (
     <section className="well" style={{ padding: '10px 12px', display: 'grid', gap: 6 }}>
       <span className="label">Unsettled stake</span>
       <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-        Match #{matchId} escrowed your stake and never settled. After its
-        deadline the program pays it out to you on request.
+        Match #{matchId} escrowed {stranded.stakeSol} SOL and never settled.
+        After its deadline the program pays it back to you on request.
       </p>
       <Pill
         tone="gold"
         disabled={state === 'busy'}
         onClick={() => {
           setState('busy');
-          void recover(signer()).then((r) => setState(
+          void recover(signer(), matchId).then((r) => setState(
             r === 'paid' ? 'paid' : r === 'too-early' ? 'too-early' : 'none',
           ));
         }}

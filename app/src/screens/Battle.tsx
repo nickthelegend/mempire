@@ -56,6 +56,21 @@ function ResultOverlay() {
    */
   const escrowed = ['waiting', 'live', 'claiming', 'claimed', 'settled', 'refunded']
     .includes(escrowPhase);
+  /**
+   * Escrowed, but the chain has not paid yet.
+   *
+   * The figures on this card come from the simulation, and the simulation
+   * finishes the moment the clock does. Settlement is a separate, slower
+   * thing: both sides report, or one claims a timeout. If the opponent walks
+   * away — or the rollup log was never delegated — the pot sits in escrow and
+   * the payout never lands.
+   *
+   * The card used to announce "You take +0.09 SOL" in gold regardless, and the
+   * balance behind it did not move. Claiming money that has not arrived is the
+   * one thing a card about money must never do, so this state says what is
+   * actually true and points at the recovery.
+   */
+  const awaitingPayout = escrowed && !['settled', 'refunded'].includes(escrowPhase);
   const title = result.voided ? 'Voided' : result.draw ? 'Split' : result.won ? 'Pot Secured' : 'Rekt';
   const color = result.draw ? 'var(--dim)' : result.won ? 'var(--gold)' : 'var(--red)';
   return (
@@ -107,7 +122,9 @@ function ResultOverlay() {
         />
         <MoneyRow
           big
-          label={result.won ? 'You take' : result.draw ? 'Returned' : 'You lost'}
+          label={awaitingPayout
+            ? (result.won ? 'You win (unpaid)' : result.draw ? 'Returned (unpaid)' : 'You lost')
+            : result.won ? 'You take' : result.draw ? 'Returned' : 'You lost'}
           value={result.payoutSol > 0 ? `+${fmtSol(result.payoutSol)}` : `−${fmtSol(stakeSol)}`}
           count={result.payoutSol > 0
             ? { to: result.payoutSol, prefix: '+', delayMs: 700 }
@@ -121,6 +138,16 @@ function ResultOverlay() {
             Nothing was escrowed for this match, so no SOL changed hands — the
             figures above are what the pot would have been. This one counted for
             rating only.
+          </p>
+        )}
+        {awaitingPayout && (
+          <p
+            className="fine"
+            style={{ fontSize: 12, color: 'var(--gold)', margin: '8px 0 0', lineHeight: 1.35 }}
+          >
+            Your stake is still escrowed — this pot has not been paid out yet.
+            Settlement needs both players to report, and your opponent has not.
+            If it stays unpaid, reclaim it from Empire once the match times out.
           </p>
         )}
         </>

@@ -183,6 +183,28 @@ export async function fetchOpenMatches(): Promise<ChainMatch[]> {
     .sort((a: ChainMatch, b: ChainMatch) => b.createdAt - a.createdAt);
 }
 
+/**
+ * Matches this wallet is still a player in, that never settled.
+ *
+ * Stake recovery used to read the escrow store, which lives in memory: reload
+ * the page and `matchId` is null and `phase` is 'none', so a stranded pot
+ * became invisible at exactly the moment its owner would come looking for it.
+ * A stake sitting in an open match account is a fact about the chain, so it is
+ * read from the chain.
+ *
+ * Open and Active both count — the pot is escrowed in either, and neither has
+ * paid out. Settled is the only state where the money has moved.
+ */
+export async function fetchStrandedMatches(owner: string): Promise<ChainMatch[]> {
+  const program = getProgram();
+  const all = await accounts(program).matchAccount.all();
+  return all
+    .map((m: any) => toMatch(m.publicKey, m.account))
+    .filter((m: ChainMatch) => m.players.includes(owner)
+      && m.state !== MATCH_STATE_SETTLED)
+    .sort((a: ChainMatch, b: ChainMatch) => b.createdAt - a.createdAt);
+}
+
 export async function fetchSolBalance(owner: string): Promise<number> {
   const lamports = await getConnection().getBalance(new PublicKey(owner));
   return lamports / 1e9;

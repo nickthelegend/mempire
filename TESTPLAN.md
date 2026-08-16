@@ -364,3 +364,107 @@ escrows and every match under test was one.
 The dev server points its API and socket at `http://localhost:8787`, which is
 not running. A dev client therefore cannot pair on the real relay and always
 falls back to a bot. Test PvP against production, or start the local relay.
+
+
+---
+
+# FINAL STATUS
+
+Production `play.mempire.fun`, devnet, real wallets, real signed transactions.
+
+## A — Client screens
+
+| Item | Status | Note |
+|---|---|---|
+| A1.1 Load disconnected | PASS | fixed: a cold visitor was having an ed25519 key generated and persisted before choosing anything |
+| A1.2 Connect as guest | PASS | key written only on explicit choice |
+| A1.3 Tier affordability | PASS | all four disabled at 0 SOL |
+| A1.4 Queue, insufficient SOL | PASS | `need 0.05 SOL to enter`, no tx |
+| A1.5 Queue, incomplete deck | PASS | covered by A3.5 |
+| A1.6 Practice | PASS | |
+| A1.7 Bot fallback | PASS | 23.6s; result states no trophies, nothing escrowed |
+| A1.8 Settlements strip | PASS | real settled addresses |
+| A1.9 Reload mid-queue | PASS | clean arena, SOL unchanged |
+| A2.1 $MEMPIRE pill | PASS | one pill, chain balance |
+| A2.2 Starter kit | PASS | fixed copy; 0.35 SOL + 2000 $MEMPIRE + 8 coins verified on chain |
+| A2.3 Second claim | PASS | 409 + `claimedAt` |
+| A2.4 Mint held coin | PASS | fixed: header lagged a slot behind confirmation |
+| A2.5 Mint unheld coin | PASS | `MintCard` from a zero balance |
+| A2.6 Ineligible coin | PASS | reason shown, no mint button |
+| A2.7 Re-mint guard | PASS | |
+| A2.8 Merge duplicates | PASS | `UpgradeCard`, 2000→1900 $MEMPIRE |
+| A2.9 Merge at max level | UNTESTED | needs 4,500 $MEMPIRE of upgrades to reach level 10 |
+| A2.10–A2.13 Shop buy / reroll | UNTESTED | |
+| A2.14 Chest rail | PASS | |
+| A2.15 Chest skip | PASS | balance visibly drops |
+| A2.16 Chest ceremony | PASS | card art + ticker |
+| A2.17 Deep scroll | PASS | fixed: 5,700px column stopped painting past ~900px |
+| A3.1–A3.5 Deck | PASS | independent slots, one-per-coin, swap recomputes, survives reload |
+| A4.1 Browse clans | PASS | honest empty state |
+| A4.2–A4.6 Clan writes | UNTESTED | |
+| A5.1–A5.4 Empire | PASS | fixed: harness account removed from the public board |
+| A5.5 Stake recovery | PASS | fixed: detection read in-memory state, so a reload hid a real stranded stake. Now reads chain; correctly finds match #65 |
+| A6.1 Pool state | PASS | |
+| A6.2 Quote maths | UNTESTED | |
+| A6.3 Execute swap | UNTESTABLE | quote side is Circle devnet USDC from a human-gated faucet |
+| A6.4 Over balance | PASS | fixed: `held > 0n` disabled the guard for exactly the zero-balance wallet |
+| A6.5 Zero / junk input | PASS | no NaN |
+| A7.1 Arena renders | PASS | fixed: canvas stuck at the 300x150 default; 1,453ms cold |
+| A7.2 Deploy a card | PASS | |
+| A7.3 Illegal drop | UNTESTED | |
+| A7.4 Elixir economy | PASS | 2x in the last minute |
+| A7.5 Combat + towers | PASS | |
+| A7.6 Match end | PASS | fixed: card claimed "You take +0.09 SOL" on a pot that never paid |
+| A7.7 Leave mid-match | PASS | fixed: forfeit threatened 0.05 SOL on an unescrowed match |
+
+## B — Relay API: 27/27 PASS
+
+Including auth: unsigned write 401, forged signature 401, replayed faucet claim
+409 with `claimedAt` (proving Mongo persistence). B14 pairing verified over the
+raw socket. Fixed: `/api/coins` served DexScreener data untrimmed (`"PNUT "`).
+
+## C — On-chain
+
+| Item | Status | Note |
+|---|---|---|
+| C1 `mint_card` | PASS | holdings requirement removed and redeployed |
+| C2 `upgrade_card` | PASS | level +1, 100xlevel $MEMPIRE, duplicate closed |
+| C3 `tokenize_card` | PASS | supply 1, 0 decimals, authority burned, renders as a Metaplex NFT |
+| C4 stake / unstake | UNTESTED | |
+| C5 escrow open | PASS | `CreateMatch`, 0.72499 → 0.67279 |
+| C5 settlement | FAIL (open) | opponent abandoned; pot never paid and no settle instruction |
+| C6 `claim_timeout` / `cancel_match` | FAIL (open) | fixed two blockers — it only handled Active matches, and read a deck list wiped by reload — but `cancel_match` still lands no transaction on the Open match #65, with no console error. Next: check `cancelMatchTx`'s account list against the program |
+| C7 ER delegation round-trip | FAIL (open) | badge reported "match log is not delegated to a rollup" at settlement |
+| C8 Chest VRF | UNTESTED | |
+| C9 AMM swap | UNTESTABLE | same USDC dependency as A6.3 |
+
+## D — Integrations
+
+| Item | Status |
+|---|---|
+| D1 RPC backoff | PASS |
+| D2 / D3 ER placement | UNTESTED |
+| D4 Metadata | PASS — 64/64 serve 200, Explorer renders the NFT |
+| D5 DexScreener | PARTIAL — data is live and now sanitised; pricing use not verified |
+| D6 Mongo persistence | PASS |
+
+## E — Cross-cutting
+
+E1 console PASS · E2 network PASS · E3 desktop PASS · E4 mobile PASS ·
+E5 reload PASS · E6 guest path PASS · E7 no mocks found in any tested path ·
+E8 full a11y audit UNTESTED (wallet rows fixed; no sweep)
+
+## Mocks and stubs
+
+None found anywhere in the tested surface. Two disclosed simplifications
+remain and are labelled in-product: Crowns are gone, so shop purchases are real
+$MEMPIRE transfers; devnet mints have no market, so prices are fixed reference
+values and the screen says so.
+
+## Honest summary
+
+Not green. 3 open failures (C5 settlement, C6, C7 — all on the settlement
+path), 11 untested items, 2 untestable without Circle's faucet. The settlement
+cluster is one story, not three: a match that ends without both players
+reporting leaves the pot escrowed, and the recovery route out of that state
+does not yet work.
