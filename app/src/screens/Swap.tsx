@@ -55,6 +55,17 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   const [input, setInput] = useState('');
   const [slippage, setSlippage] = useState<bigint>(50n);
   const [balances, setBalances] = useState({ usdc: 0n, mempire: 0n });
+  /**
+   * Whether the balances above are an answer or just their initial value.
+   *
+   * They start at zero, which is indistinguishable from a genuinely empty
+   * wallet — so "is this more than you hold?" cannot be asked until a read has
+   * actually landed. The old guard dodged that by only firing when the balance
+   * was above zero, which disabled it for precisely the wallet that needed it:
+   * hold nothing, type any number, and the button stayed live to submit a
+   * transfer the chain would reject with a raw SPL error.
+   */
+  const [balancesRead, setBalancesRead] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -70,7 +81,11 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
           usdc: await tokenBalance(owner, USDC_MINT),
           mempire: await tokenBalance(owner, MEMPIRE_MINT),
         });
-      } catch { /* no token account yet — zero is the right answer */ }
+        setBalancesRead(true);
+      } catch {
+        // No token account yet — zero is the right answer, and it is an answer.
+        setBalancesRead(true);
+      }
     }
   }, [address]);
 
@@ -85,7 +100,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   }, [pool, amountIn, buying, slippage]);
 
   const held = buying ? balances.usdc : balances.mempire;
-  const overBalance = amountIn > held && held > 0n;
+  const overBalance = balancesRead && amountIn > held;
   const canSwap = !!q && !busy && amountIn > 0n && !overBalance && canSign(signer());
 
   async function onSwap() {
@@ -221,7 +236,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         </div>
         {overBalance && (
           <span className="fine" style={{ color: 'var(--red)' }}>
-            More than you hold.
+            More than you hold — you have {fmt(held, 4)} {inLabel}.
           </span>
         )}
       </div>

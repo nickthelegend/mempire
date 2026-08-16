@@ -354,6 +354,15 @@ export function Battle() {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [confirmQuit, setConfirmQuit] = useState(false);
+  /**
+   * Whether a lamport is genuinely at risk in this match.
+   *
+   * Same test the result card uses. A bot-fallback Ranked match never escrows,
+   * so the forfeit warning must not price it as though it had.
+   */
+  const quitEscrowPhase = useEscrow((s) => s.phase);
+  const quitEscrowed = ['waiting', 'live', 'claiming', 'claimed', 'settled', 'refunded']
+    .includes(quitEscrowPhase);
   const [, setMuteTick] = useState(0); // re-render the mute glyph
   const sceneEl = useRef<HTMLDivElement>(null);
   const shakeEl = useRef<HTMLDivElement>(null);
@@ -673,13 +682,27 @@ export function Battle() {
             display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: 28, gap: 12,
           }}
         >
+          {/*
+            Three cases, because there are three. The dialog used to have two
+            and told a bot-fallback player "your opponent takes the 0.1 SOL
+            pot" over a button reading "Forfeit — lose 0.05 SOL" — for a match
+            where nothing had been escrowed and the balance could not move. The
+            result screen then said "nothing was escrowed, so no SOL changed
+            hands", contradicting the warning that had just been used to talk
+            them out of leaving. A confirmation that overstates the cost is the
+            same defect as one that understates it.
+          */}
           <p style={{ textAlign: 'center', fontSize: 15 }}>
             {match.practice
               ? 'Leave practice? Nothing is staked.'
-              : `Forfeit the match? Your opponent takes the ${fmtSol(match.stakeSol * 2)} pot.`}
+              : quitEscrowed
+                ? `Forfeit the match? Your opponent takes the ${fmtSol(match.stakeSol * 2)} pot.`
+                : 'Leave the match? Nothing was escrowed, so no SOL changes hands — it counts as a loss for rating only.'}
           </p>
           <Pill danger onClick={() => { setConfirmQuit(false); match.forfeit(); }}>
-            {match.practice ? 'Leave practice' : `Forfeit — lose ${fmtSol(match.stakeSol)}`}
+            {match.practice
+              ? 'Leave practice'
+              : quitEscrowed ? `Forfeit — lose ${fmtSol(match.stakeSol)}` : 'Leave the match'}
           </Pill>
           <Pill ghost onClick={() => setConfirmQuit(false)}>Keep fighting</Pill>
         </div>

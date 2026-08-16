@@ -88,7 +88,7 @@ console shows no errors, AND no request in the network tab returns 4xx/5xx
 |---|---|---|
 | A6.1 | Pool state | Reserves read from the real AMM pool account. |
 | A6.2 | Quote | Constant-product maths matches the on-chain formula incl. fee. |
-| A6.3 | Swap SOL → $MEMPIRE | Real tx; both balances move by the quoted amounts. |
+| A6.3 | Swap USDC ↔ $MEMPIRE | Real tx; both balances move by the quoted amounts. (Quote side is Circle devnet USDC.) |
 | A6.4 | Swap exceeding balance | Blocked with a stated reason; no tx. |
 | A6.5 | Zero / empty input | No NaN, no crash, action disabled. |
 
@@ -96,7 +96,7 @@ console shows no errors, AND no request in the network tab returns 4xx/5xx
 
 | # | Flow | Correct means |
 |---|---|---|
-| A7.1 | Arena renders | 3D scene draws; a loading state covers the gap, never a bare dark rectangle. |
+| A7.1 | Arena renders | Canvas is sized to its container (not the 300x150 HTML default) and the scene is drawn within ~2s of the match starting. No loading overlay — the cause it covered is fixed. |
 | A7.2 | Deploy a card | Elixir decreases by cost; unit appears; hand refills. |
 | A7.3 | Illegal drop | Drop on enemy half is refused or clamped; elixir not spent on a refusal. |
 | A7.4 | Elixir economy | Regenerates ~1/2.8s; doubles in the last minute. |
@@ -222,3 +222,43 @@ E8 full a11y audit.
 
 - The arena takes ~15–25 seconds of match clock to build on a cold load. The loading state is honest, but that is a sixth of a match.
 - The AMM pool holds 19 USDC. Any real trade moves the price hard.
+
+
+---
+
+# Results — run 2 (continuation)
+
+## Failures found and fixed (2)
+
+| Item | Failure | Root cause | Fix |
+|---|---|---|---|
+| A6.4 | With a **zero** balance, any amount left SWAP enabled and quoted 1.7M $MEMPIRE — a tx the chain would reject with a raw SPL error | `const overBalance = amountIn > held && held > 0n` — the `held > 0n` clause disabled the guard for exactly the wallet that needed it. It existed to suppress a spurious warning before balances load. | Track `balancesRead` and gate on that instead; warning now names the balance |
+| A7.6 | Forfeit dialog on a bot-fallback match threatened "Your opponent takes the 0.1 SOL pot / Forfeit — lose 0.05 SOL", then the result screen said nothing was escrowed | The dialog assumed any non-practice match had a live stake; `ResultOverlay` already had an `escrowed` test it did not share | Dialog branches three ways and uses the same escrow phase test |
+
+## Verified PASS this run
+
+- **A1.7** bot fallback at 23.6s; header reads `0.1 SOL NO STAKE`; result screen states no trophies and nothing escrowed onchain
+- **A1.9** reload mid-queue returns a clean Arena, not stuck searching, SOL unchanged (no orphaned escrow)
+- **A2.6** `$BBWHALE` "younger than 48h" and `$RUGPROOF` "liquidity below $25k", both with no mint button; eligible coins keep theirs
+- **A3.2** collection offers only coins not already in the deck
+- **A3.3** three slots independent, and the edit survives a reload (verified against the persisted row: `slot0` contains `chain_128`)
+- **A3.4** removing a card drops to 7/8 and recomputes power; adding restores 8/8
+- **A6.5** empty / zero / junk input all disable the action, no NaN
+- **A7.7** forfeit dialog is honest, exit is clean, deck stays 8/8, all modes usable — no stuck lock
+
+## Note on a false alarm
+
+A second match appeared to regress the canvas to 300x150 with the whole
+ancestor chain at 0x0. That was the automation pane being hidden — `100dvh`
+resolves to zero with no viewport — not an app fault. Confirmed by fronting the
+pane. Worth recording so the next run does not chase it.
+
+## Still untested — not passed
+
+A2.9 max-level guard, A2.10–A2.13 shop purchase/reroll, A4.2–A4.6 clan write
+flows, A5.5 stake recovery, A7.3 illegal drop, C4–C9 (stake/unstake, match
+escrow + settle, timeout recovery, ER delegation round-trip, chest VRF, AMM
+swap execution), D2/D3 ER placement, D5 DexScreener pricing, E8 full a11y audit.
+
+C5 (escrow + settle) needs two funded clients in parallel; it is the highest
+-value remaining item and the one with real money attached.
