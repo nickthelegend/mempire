@@ -204,7 +204,28 @@ let humanInputDelayTicks = 0;
  * already simulated, and the match voids. Padding the delay only moves the
  * threshold; refusing to outrun the opponent removes the cause.
  */
+/**
+ * How long an opponent may say nothing before the match resolves without them.
+ *
+ * Comfortably longer than any hiccup the gate is meant to absorb — a stutter
+ * is milliseconds, a dropped frame is one tick — and short enough that nobody
+ * sits staring at a frozen arena wondering whether to forfeit.
+ */
+const OPPONENT_STALL_MS = 12_000;
+
 let opponentTick = 0;
+/**
+ * When the opponent's tick last moved.
+ *
+ * Lockstep holds this client to `opponentTick + delay`, so an opponent who
+ * stops announcing freezes the match outright — the comment on that gate says
+ * as much. `opponent_left` covers a *disconnect*, but a client that stays
+ * connected and goes silent (a suspended laptop, a wedged tab, a modified
+ * client that simply stops) hit nothing at all: the clock stuck, the hand
+ * stopped responding, and forfeiting was the only way out of a game that had
+ * not been lost. Observed frozen at 3:00 indefinitely against a real seat.
+ */
+let lastOpponentAdvanceAt = 0;
 
 /** The last tick we told the opponent about, so we announce at a fixed rate. */
 let lastAnnouncedTick = 0;
@@ -544,7 +565,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
       onUnavailable: fallBack,
       onTick: (t) => {
         // Monotonic: an out-of-order relay must never drag the gate backwards.
-        if (t > opponentTick) opponentTick = t;
+        if (t > opponentTick) { opponentTick = t; lastOpponentAdvanceAt = Date.now(); }
       },
       onChain: (msg) => {
         if (msg.stage === 'failed') {
@@ -594,25 +615,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
            * left early and there are not enough inputs to resolve it — the
            * forfeit stands, which is the right answer for an abandoned match.
            */
-          const target = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
-          const limit = s.sim.format.regulationTicks + s.sim.format.overtimeTicks;
-          let guard = 0;
-          while (
-            (s.sim.phase as SimState['phase']) !== 'ended'
-            && s.sim.tick < Math.max(target, limit)
-            && guard < limit + 100
-          ) {
-            stepOne(s.sim);
-            guard += 1;
-          }
-
-          if ((s.sim.phase as SimState['phase']) !== 'ended') {
-            // Genuinely abandoned: not enough of the match happened to resolve
-            // it, so the player still here takes it.
-            s.sim.phase = 'ended';
-            s.sim.winner = s.perspective;
-          }
-          settle();
+          finishAloneAndSettle(s.sim, s.perspective);
         } else if (s.status !== 'settled') {
           // Vanished between matched and the start: the stake was already
           // escrowed at matched, and the bot flow escrows again — refund
@@ -818,6 +821,37 @@ function stepOne(sim: SimState): void {
  * within a tick of each other without any "are you ready" chatter. The catch-up
  * bound keeps a tab that was throttled in the background from spiralling.
  */
+/**
+ * Run out a match whose opponent has stopped participating, then settle.
+ *
+ * Shared by the two ways that happens — a closed socket and a socket that
+ * stays open while going silent — because the correct response to both is the
+ * same, and it is not "I win". Lockstep means this client holds every input
+ * the opponent ever sent, so it can step the remaining ticks alone and reach
+ * the result they would have reached. Only when the match genuinely cannot be
+ * resolved does the player still present take it.
+ */
+function finishAloneAndSettle(sim: SimState, perspective: 0 | 1): void {
+  const target = Math.floor((sharedNow() - humanStartAt) / TICK_MS);
+  const limit = sim.format.regulationTicks + sim.format.overtimeTicks;
+  let guard = 0;
+  while (
+    (sim.phase as SimState['phase']) !== 'ended'
+    && sim.tick < Math.max(target, limit)
+    && guard < limit + 100
+  ) {
+    stepOne(sim);
+    guard += 1;
+  }
+  if ((sim.phase as SimState['phase']) !== 'ended') {
+    // Genuinely abandoned: not enough of the match happened to resolve it, so
+    // the player still here takes it.
+    sim.phase = 'ended';
+    sim.winner = perspective;
+  }
+  settle();
+}
+
 function tickHuman(): void {
   const sim = useMatch.getState().sim;
   if (!sim || sim.phase === 'ended') return;
@@ -845,6 +879,28 @@ function tickHuman(): void {
    * stamped. The cost is 100ms of extra buffer, which nobody can feel.
    */
   const target = Math.min(wallTarget, opponentTick + delay - 2);
+
+  /*
+   * A silent opponent must not hold the match open forever.
+   *
+   * The gate above is what makes lockstep correct, and it is also what makes a
+   * stall total: `opponentTick` stops moving, `target` stops moving, and the
+   * clock sits still until someone forfeits a game they had not lost. Only a
+   * *disconnect* was handled, and staying connected while saying nothing is
+   * the cheaper thing to do, deliberately or not.
+   *
+   * The test is "we are being held back, and they have not moved for a while"
+   * — never the wall clock alone, or a match that is merely waiting out its
+   * own input delay would end itself. Resolution is the same as a disconnect:
+   * run the remaining ticks and take the real result, not a claimed win.
+   */
+  if (target < wallTarget && Date.now() - lastOpponentAdvanceAt > OPPONENT_STALL_MS) {
+    clearTimers();
+    console.warn('opponent stopped announcing ticks — finishing the match alone');
+    finishAloneAndSettle(sim, useMatch.getState().perspective);
+    return;
+  }
+
   let steps = 0;
   while (sim.tick < target && steps < 6) {
     stepOne(sim);
@@ -1074,6 +1130,7 @@ function beginHumanBattle(
   clockSkew = typeof m.serverNow === 'number' ? m.serverNow - Date.now() : 0;
   opponentTick = 0;
   lastAnnouncedTick = 0;
+  lastOpponentAdvanceAt = Date.now();
   // Sized by the server to the worse of the two connections; both clients get
   // the same number in the same message.
   humanInputDelayTicks = typeof m.inputDelayTicks === 'number'

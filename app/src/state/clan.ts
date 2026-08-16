@@ -115,7 +115,7 @@ interface ClanState {
   kick: (address: string, target: string) => Promise<string | null>;
   requestCard: (address: string, archetype: number, note?: string) => Promise<string | null>;
   lend: (address: string, requestId: string) => Promise<string | null>;
-  reportCrowns: (address: string, crowns: number, power: number) => void;
+  reportCrowns: (address: string, crowns: number, power: number) => Promise<void>;
   clear: () => void;
   myRole: (address: string) => ClanRole | null;
 }
@@ -319,13 +319,38 @@ export const useClan = create<ClanState>((set, get) => ({
    * Fire-and-forget: a settled match must never wait on, or fail because of,
    * the clan service. The crown total reconciles on the next clan load.
    */
-  reportCrowns: (address, crowns, power) => {
-    const tag = get().mine?.tag;
-    if (!tag || !address || crowns <= 0) return;
+  reportCrowns: async (address, crowns, power) => {
+    if (!address || crowns <= 0) return;
+
+    /*
+     * Resolve the clan here rather than trusting that something else loaded it.
+     *
+     * `mine` is populated by the Clan screen's effect and nothing else, so a
+     * player who won a match without opening that tab this session reported
+     * nothing at all — `tag` was undefined and the crowns were dropped on the
+     * floor. Winning is not a thing you do on the clan page, so this was most
+     * of the crowns anyone ever earned. Verified: a real 2-crown win left the
+     * clan total unchanged at 2.
+     */
+    let tag = get().mine?.tag;
+    if (!tag) {
+      await get().loadMine(address);
+      tag = get().mine?.tag;
+    }
+    if (!tag) return;
+
+    /*
+     * Signed, because the route demands it.
+     *
+     * This posted with no `action`, and `call` only attaches a signature when
+     * it is given one — so every crown report went unsigned into a
+     * `requireWallet` route and came back 401. Fire-and-forget meant nothing
+     * surfaced. Two independent faults, either one of which lost the crowns.
+     */
     void call(`/api/clans/${tag}/crowns`, {
       method: 'POST',
       body: JSON.stringify({ address, crowns, power }),
-    });
+    }, 'clan.crowns');
   },
 
   clear: () => set({ mine: null, results: [], preview: null, error: null }),

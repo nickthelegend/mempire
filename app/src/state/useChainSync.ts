@@ -80,13 +80,27 @@ export function useChainSync(): void {
 function useChestRail(): void {
   const connected = useWallet((s) => s.connected);
   const address = useWallet((s) => s.address);
-  const isGuest = useWallet((s) => s.isGuest);
   const mode = useChain((s) => s.mode);
 
   useEffect(() => {
-    // Guests sign locally and never reach the rollup; offline mode has no
-    // chain to prepare anything on.
-    if (!connected || !address || isGuest || mode !== 'onchain') return;
+    /*
+     * Guests get chests too.
+     *
+     * This skipped `isGuest` on the grounds that a guest "signs locally and
+     * never reaches the rollup" — but a guest holds a real ed25519 keypair and
+     * `getProvider(null)` builds a signing wallet from it, which is how a guest
+     * signs `create_match` and escrows a real stake. Nothing in
+     * `ensureChestRail` wants a wallet extension; it is the same
+     * `requireSigner`/`baseProgram` path.
+     *
+     * The cost of the gate was that guests — the default way into this game,
+     * and so most players who will ever open it — could never be credited a
+     * VRF chest. `end_log` only pays an entitlement into a delegated rail, so
+     * the 🎲 badge was unreachable for them no matter how many matches they won.
+     *
+     * Offline still returns early: there is no chain there to prepare on.
+     */
+    if (!connected || !address || mode !== 'onchain') return;
     let live = true;
     void (async () => {
       try {
@@ -101,7 +115,7 @@ function useChestRail(): void {
       }
     })();
     return () => { live = false; };
-  }, [connected, address, isGuest, mode]);
+  }, [connected, address, mode]);
 }
 
 /** A pending unstake in dollars, using the same catalogue the stake used. */

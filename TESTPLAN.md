@@ -626,3 +626,108 @@ Deck editing and power: 8/8 POWER 8 → remove → 7/8 POWER 7 → add the
 level-10 BTC → 8/8 POWER 17. Power is the sum of levels, and the level-10
 card contributes exactly its level, so the climb has a real mechanical
 effect rather than a cosmetic one.
+
+# Run 7 — a real second seat, and the three bugs it exposed
+
+Run 6 left A4.6 partial and C8 untested because I could not win a match.
+The reason turned out to be structural: `buildDecks` gives the bot
+`level: levels[(i * 3) % levels.length]` — "bot mirrors the player's power
+so brackets feel honest" — so the level-10 card I built for A2.9 handed the
+bot one too. No amount of levelling changes that, and scripted deploys lost
+five straight on `easy`.
+
+So I built the opponent instead: `app/spar-full.mjs`, a second real client
+on wallet B. Real deck of B's own unlocked on-chain cards, real `join_match`
+with the same deck hash and card locks the browser commits, real relay seat
+held past regulation and overtime. It plays no cards, which is a legal way
+to play and is what makes the match winnable.
+
+Standing it up exposed three defects in the product.
+
+## 1. A silent opponent froze the match forever — FIXED
+
+The first run left the browser stuck at 3:00. Not a stall — a permanent
+freeze. `tickHuman` gates on `Math.min(wallTarget, opponentTick + delay - 2)`
+and the comment beside it already predicted this: "if neither client
+announces its tick, both sit at `0 + delay` and the match freezes almost
+immediately." Only a *disconnect* was handled. A client that stays connected
+and goes quiet — a suspended laptop, a wedged tab — hit nothing at all, and
+forfeiting a game you had not lost was the only way out.
+
+Fixed by resolving the same way a disconnect does, which is deliberately not
+"I win": `finishAloneAndSettle` steps the remaining ticks from the inputs
+this client already holds and takes the real result. Extracted so both paths
+share it. Triggers after 12s of no movement, and only when the gate is
+actually holding us back, so a match merely waiting out its input delay
+never ends itself.
+
+## 2. Crowns never reached the clan — FIXED, and A4.6 now PASSES
+
+Two independent faults, either of which alone lost them:
+
+  - `reportCrowns` read `get().mine?.tag`, and `mine` is loaded by the Clan
+    screen's effect and nothing else. Winning is not something you do on the
+    clan page, so a player who had not opened that tab reported nothing.
+  - The POST passed no `action`, and `call` attaches a signature only when
+    given one — so it went unsigned into a `requireWallet('clan.crowns')`
+    route and came back 401. Fire-and-forget meant nothing surfaced.
+
+Now it resolves the clan itself and signs. Verified end to end, twice, on
+real PvP wins with no manual posting:
+
+  1-crown win → clan 2 → 3
+  2-crown win → clan 3 → 5
+
+The first PvP win (2 crowns) predates the fix and moved nothing, which is
+how the bug was caught: the clan sat at 2 while the match screen showed a
+two-crown victory.
+
+## 3. Guests could never get a VRF chest — FIXED
+
+`useChestRail` returned early on `isGuest`, reasoning that guests "sign
+locally and never reach the rollup". They do: a guest holds a real keypair,
+`getProvider(null)` builds a signing wallet from it, and in this very run a
+guest signed `create_match` and escrowed a live pot. Nothing in
+`ensureChestRail` wants an extension.
+
+Guest is the default way into this game, so the gate meant most players who
+will ever open it could never be credited a VRF chest. Removed. Confirmed
+live as a guest: `chest rail ready — wins can be rolled by VRF`, the rail
+owned on base layer by the MagicBlock delegation program
+(`DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh`) and present on the rollup
+at `devnet.magicblock.app`, 240 bytes.
+
+## C5 — escrow and payout PASS; `settle_from_log` still untested
+
+Match #69's whole life on chain, both seats staking for real:
+
+  CreateMatch    5FY1JQP6gFjTa2mR…   A escrows
+  JoinMatch      2imLSgo5fZeAN18j…   B escrows
+  InitMatchLog   31JEbpqLHtkqe6xk…   rollup log
+  ClaimTimeout   4uX5vu5bYLJPToEq…   settled and paid
+
+A went 0.575 → 0.616 SOL across the two matches, consistent with one pot
+returning +0.09 against a 0.05 stake. The result screen never claimed
+otherwise while it was pending: "YOU WIN (UNPAID) — settlement needs both
+players to report, and your opponent has not. If it stays unpaid, reclaim it
+from Empire once the match times out." Which is exactly what happened.
+
+The branch still untested is `settle_from_log`, the happy path where both
+seats report. It needs a second client that runs the deterministic
+simulation and reports its own result — spar-full holds the seat and the
+escrow but does not simulate.
+
+## C8 — rail delegated PASS; VRF roll still untested
+
+The rail is delegated and live on the rollup for a guest, which it could not
+be before this run. The roll itself still falls back: a chest opened to a
+real SILVER CHEST with `$DOT` minted to the collection, labelled
+`local seed 32307e7ae0b0aa32…` — honest about what it is. The entitlement
+that would make it a VRF roll is credited by `end_log`, which needs both
+seats to report, which is the same blocker as `settle_from_log`.
+
+## The draw path, incidentally — PASS
+
+A match where neither side played a card ran to overtime 0-0 and settled on
+equal tower HP: SPLIT POT, HOUSE RAKE (5%) — half the 10% a win is charged —
+RETURNED +0.048 SOL, and the disclosure that nothing had been escrowed.
