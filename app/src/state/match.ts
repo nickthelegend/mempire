@@ -152,8 +152,27 @@ async function rollChestOnchain(): Promise<void> {
   if (!canSign(adapter) || useChain.getState().mode !== 'onchain') return;
   try {
     await ensureChestRail(adapter);
-    const rail = await readChestRail(adapter);
-    if (!rail) return;
+
+    /*
+     * Wait for the entitlement this win earned before asking to spend it.
+     *
+     * `end_log` grants it on the rollup, and it is fired unawaited a few lines
+     * above this — a rollup transaction plus a commit, which is seconds. This
+     * ran immediately, so `earned` was still 0, `request_chest` was refused
+     * with `NoChestEarned`, the bare catch below swallowed it and the local
+     * roll stood. Every chest in the game took that path; the rail read
+     * `earned = 0` after a dozen wins even once the grant was wired up.
+     *
+     * Bounded, because a session that genuinely cannot be granted one must
+     * still end up with its honestly-labelled local chest rather than hanging.
+     */
+    let rail = await readChestRail(adapter);
+    for (let i = 0; i < 20 && rail && rail.earned <= rail.opened; i += 1) {
+      await new Promise((r) => setTimeout(r, 1500));
+      rail = await readChestRail(adapter);
+    }
+    if (!rail || rail.earned <= rail.opened) return;
+
     const slot = rail.slots.findIndex((s) => s.state === 0);
     if (slot < 0 || rail.pendingSlot !== 255) return; // rail full or busy
 
@@ -173,6 +192,28 @@ async function rollChestOnchain(): Promise<void> {
       }
     }
   } catch { /* the local roll stands, labelled as local */ }
+}
+
+/**
+ * Prepare the rollup match log, once the escrow's own log is delegated.
+ *
+ * This is what grants a VRF chest, and nothing was calling it. `useErMatch`
+ * has its own escrow-and-delegate action that ends in `begin`, but `match.ts`
+ * settles through `useEscrow` instead, so `begin` never ran, `phase` stayed
+ * 'off', and `play`/`mark`/`finish` all returned at their first line. The
+ * visible symptom was three steps away: `end_log` never credited an
+ * entitlement, `request_chest` was refused with `NoChestEarned`, and every
+ * chest quietly fell back to a local roll. Read straight off the rail:
+ * `earned = 0` after a dozen wins.
+ *
+ * Deliberately non-fatal and not awaited. The pot settles through the base
+ * log whatever happens here, and a rollup that will not take the log must
+ * cost a chest, never a stake.
+ */
+function beginRollupLog(matchId: number): void {
+  const players = useEscrow.getState().players;
+  if (!players) return;
+  void useErMatch.getState().begin(signer(), matchId, players);
 }
 
 /** Human matches step against the wall clock so two clients stay in lockstep. */
@@ -588,7 +629,8 @@ export const useMatch = create<MatchStore>((set, get) => ({
         if (msg.stage === 'joined' && msg.onchainMatchId !== null) {
           // Seat 0 learns its stake was matched, and only now spends a
           // transaction on the log.
-          void useEscrow.getState().prepareLog(signer(), msg.onchainMatchId);
+          void useEscrow.getState().prepareLog(signer(), msg.onchainMatchId)
+            .then((ok) => { if (ok) beginRollupLog(msg.onchainMatchId!); });
         }
       },
       onInput: (ev) => queueRemoteInput(ev),
@@ -1074,7 +1116,10 @@ function beginHumanBattle(
     const hash = deckHashBytes(myDeck);
     if (m.role === 0) {
       void escrow.open(signer(), tierIdx, stakeSol, chainDeck, hash)
-        .then((id) => (id === null ? null : escrow.prepareLog(signer(), id)));
+        .then(async (id) => {
+          if (id === null) return;
+          if (await escrow.prepareLog(signer(), id)) beginRollupLog(id);
+        });
     } else {
       pendingJoin = {
         stakeSol, opponent: m.opponent.address, deck: chainDeck, hash,

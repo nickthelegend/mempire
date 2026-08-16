@@ -414,7 +414,9 @@ export interface ChestSlotChain {
 /** Reads the rail from wherever it currently lives. */
 export async function readChestRail(
   adapter: Adapter | null,
-): Promise<{ slots: ChestSlotChain[]; pendingSlot: number } | null> {
+): Promise<{
+  slots: ChestSlotChain[]; pendingSlot: number; earned: number; opened: number;
+} | null> {
   const wallet = requireSigner(adapter);
   const rail = chestsPda(wallet.publicKey!);
   const er = await resolveEr(rail);
@@ -430,6 +432,11 @@ export async function readChestRail(
         randomness: Uint8Array.from(s.randomness),
       })),
       pendingSlot: Number(acc.pendingSlot),
+      // The entitlement counters. `request_chest` is refused with
+      // `NoChestEarned` unless `earned > opened`, so a caller that cannot see
+      // these cannot tell "not yet" from "never".
+      earned: Number(acc.earned),
+      opened: Number(acc.opened),
     };
   } catch {
     return null;
