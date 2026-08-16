@@ -522,3 +522,107 @@ stated as such in `actions.ts`. Driving it needs a second client that runs the
 simulation, which is the game client itself; the node sparring partner joins
 escrow but cannot report. Until then the pot returns through `claim_timeout`,
 which is now verified working.
+
+# Run 6 — the money paths, and what a guest can never reach
+
+## C4 stake / unstake — PASS (two real bugs found and fixed)
+
+The assertion is "tokens move to/from vault; cooldown enforced". Testing it
+found the client lying about money in two directions.
+
+Staking a card that was never minted fell through to the local store: the
+sheet read "Staked $75", the level went up, and no token moved. Deck power
+is what matchmaking brackets on, so the fiction had consequences. Onchain
+sessions now stake onchain or say why they cannot — the button reads
+`MINT THIS CARD FIRST` and is disabled.
+
+Worse, the chain-to-collection mapping hardcoded `pendingUnstakeUsd: 0`
+while carrying the cooldown faithfully on the very next line. `claimable`
+needs both, so the first refresh after `RequestUnstake` removed the Claim
+button permanently. 20 BTC sat in the vault, past its cooldown, with
+nothing in the UI able to ask for it.
+
+Round trip on devnet, card #106:
+
+| ix | signature | effect |
+|---|---|---|
+| `Stake` | `5G9qUx3v5FNibgJTnNC6…` | 50 → 30 BTC, level 1→2, `stakedMicroUsd=10000000` |
+| `RequestUnstake` | `4ABWnaaw3qt5HBkzexuR…` | pending 20000000, tokens held back, level 2→1 |
+| `ClaimUnstake` | `42VUxfzTvPWQUzDTH1Mv…` | pending 0, balance 49.6 |
+
+49.6 = 30 + 20 − 0.4, and 0.4 is exactly the 2% fee the button advertises.
+That button also read "72h cooldown" on a devnet enforcing 60s, one line
+under the disclosure saying which is which. It now states the real number.
+
+## A2.9 max level — PASS, both layers
+
+Built the fixture for real rather than reading the guard: five `MintCard`s
+and nine `UpgradeCard`s took BTC card #106 to level 10. $MEMPIRE went
+13,665 → 9,165 — exactly the documented 100+200+…+900 = 4,500.
+
+  UI      `Max level`, `disabled: true`, aria "$BTC is at maximum level",
+          while another coin still offered an enabled `Merge · Lv 2`
+  Program an 11th merge refused with `MaxLevel`, level still 10, and
+          $MEMPIRE 9,165 → 9,165 — no fee taken on the rejected upgrade
+
+## A4.4 clan with insufficient funds — PASS
+
+Ran as a genuinely broke identity (a fresh guest holding nothing) rather
+than simulating one. The sheet stated the shortfall exactly:
+
+  "You hold 0 $MEMPIRE and this costs 250 — 250 short."
+
+No clan row was created: the relay still lists only the two pre-existing
+test clans, and "Broke Founders" is absent.
+
+## A4.6 crowns — PARTIAL, and the honest reason
+
+The reporting half is verified against the live relay with a real signed
+request: clan total 0 → 2, member 0 → 2, `{"ok":true,"added":2}`. Unsigned
+writes are refused, so that path is genuinely authenticated.
+
+The automatic half is *not* exercised. `reportCrowns` fires only when
+`crowns[0] > 0` on a non-practice match (match.ts:1342), and across five
+ranked and rush matches I never felled a tower — three ended 0-0 through
+overtime and were decided on total tower HP. Reading the tiebreak
+confirmed that is correct behaviour, not a bug: overtime ends on the first
+tower to fall, then compares tower HP, and equal HP is a real draw (`-2`).
+So this is my play losing, not the game misreporting. It stays PARTIAL
+because the end-to-end trigger was never observed firing.
+
+## C8 chest VRF — UNTESTED, with a reason worth recording
+
+Two things block it. A chest is earned by winning, and I did not win. But
+more structurally, `useChestRail` returns early on `isGuest`, so a guest
+session never prepares a rail and can never be credited a VRF chest. Guest
+is the default way into this game, which means the VRF chest path is
+invisible to most players who will ever open it. Deliberate and commented
+— worth deciding on before mainnet, not a defect.
+
+## Console — clean
+
+The long-lived session tab showed three 401s, a 404, a module-script MIME
+error and a WebSocket failure. All were artifacts of that tab: the
+deliberate guest-identity swap in A4.4, and mid-session redeploys
+invalidating chunks the open tab still referenced.
+
+A fresh tab touring every surface (`#/`, `#/cards`, `#/deck`, `#/clan`,
+`#/swap`, `#/empire`) logs exactly one line, at info level:
+`[sync] dropped 1 card(s) from retired mints` — the documented migration
+for cards saved before the registry swap. Zero errors, zero warnings.
+
+Instrumenting `fetch` across the same tour recorded no failed request.
+Auth was confirmed directly: signed `player.save` → 200, unsigned → 401
+"unauthorised: missing address, action or signature".
+
+`THREE.WebGLRenderer: Context Lost` appears once per match. It is r3f
+disposing the renderer on unmount, logged by three.js at log level — no
+canvas leaks (0 in the DOM after five matches) and a fresh context still
+allocates.
+
+## Incidental
+
+Deck editing and power: 8/8 POWER 8 → remove → 7/8 POWER 7 → add the
+level-10 BTC → 8/8 POWER 17. Power is the sum of levels, and the level-10
+card contributes exactly its level, so the climb has a real mechanical
+effect rather than a cosmetic one.
