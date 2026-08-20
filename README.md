@@ -151,6 +151,54 @@ settlement feed in the mock build are simulated and labeled as such in-app.
 | Fusion (post-MVP) | 0.05 SOL |
 | NFT royalties (post-MVP) | 5% |
 
+## Go-to-market
+
+**Positioning: Clash Royale where the cards are your bags.** Every memecoin is
+a fighter; holding a community's coin is how you field it. That one rule turns
+every coin community on Solana into a recruitable faction — and factions, not
+ads, are the growth engine.
+
+### The funnel is already built and verified
+
+Play in ten seconds, no install, no wallet — guest mode is fully playable.
+Wins earn chests; chests mint cards; minting nudges the wallet connect; a
+wallet unlocks staking, ranked pots, and real NFTs in Explorer. Every step is
+a live, tested flow (see `VERIFICATION-REPORT.pdf`), so the funnel's job is
+volume, not fixes.
+
+### Wedge and channels
+
+| Channel | Why it compounds |
+|---|---|
+| **Coin-community factions** | 36 verified coins at launch (BONK, WIF, POPCAT…). Per-coin leaderboards + "faction war" seasons hand every community a reason to send their people. Registry curation is the BD lever: communities pitch to get *in*. |
+| **Solana ecosystem** | The game is a flagship MagicBlock integration — rollup-speed plays, VRF chests, PER-sealed matches — which earns showcase slots, co-marketing, and ecosystem-page listings without spend. |
+| **Creators & clips** | Three-minute matches with real pots are natively clippable; SHARE 𝕏 is already in the result screen. Seed a small creator bounty pool in $MEMPIRE. |
+| **Onchain receipts** | Every settlement, NFT, and pot is a public transaction. The Explorer link *is* the ad. |
+
+### Phased launch (tied to MAINNET.md)
+
+1. **Now — devnet open beta.** Free, faucet-funded, weekly leaderboard
+   resets. Goal: repeatable fun + a Discord of regulars before money moves.
+2. **Mainnet soft launch (~12 SOL, runbook ready).** Small tiers only
+   (0.05 SOL cap), 36-coin registry, three coin-community partnerships,
+   one weekly season. Goal: prove rake revenue and retention with capped risk.
+3. **Faction wars.** Coin-vs-coin seasons, clan tournaments with rake-funded
+   prize pools, deeper $MEMPIRE/USDC liquidity, creator program.
+4. **Expansion.** xStocks registry additions, the Android wrapper (release
+   keystore already cut), third-party audit, then higher stake tiers.
+
+### Revenue is live, not roadmap
+
+Rake (10% pots / 5% draws), card mints (0.02 SOL), unstake fee (2%), chest
+timer skips (25 $MEMPIRE), extra chest slots (100), shop purchases and paid
+rerolls, clan charters (250) — all shipping and tested today. $MEMPIRE has
+sinks before it has emissions, which is the right order.
+
+### KPIs that decide the next phase
+
+Guest→wallet conversion · D1/D7 retention · matches per DAU · staked TVL ·
+weekly rake · coin communities activated · % of matches that settle onchain.
+
 ## Design
 
 **Royale Arcade** — Clash Royale's chrome carrying Mempire's content: a quilted
