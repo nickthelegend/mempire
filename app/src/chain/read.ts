@@ -82,11 +82,7 @@ export interface ChainCard {
   owner: string;
   mint: string;
   archetype: number;
-  stakedTokens: number;
-  stakedUsd: number;
   level: number;
-  pendingUnstakeTokens: number;
-  unstakeReadyAt: number;
   /** True while the card is locked into a match. */
   inMatch: boolean;
   /** The match holding the lock, or null when free. */
@@ -100,11 +96,7 @@ function toCard(address: PublicKey, a: any): ChainCard {
     owner: a.owner.toBase58(),
     mint: a.coinMint.toBase58(),
     archetype: num(a.archetype),
-    stakedTokens: num(a.stakedTokens),
-    stakedUsd: num(a.stakedMicroUsd) / 1e6,
     level: num(a.level),
-    pendingUnstakeTokens: num(a.pendingUnstakeTokens),
-    unstakeReadyAt: num(a.unstakeReadyAt),
     // The chain replaced the `in_match` flag with the key of the match that
     // holds the lock, so settlement can refuse to free a card belonging to
     // some other, still-running match. `inMatch` stays in this shape because

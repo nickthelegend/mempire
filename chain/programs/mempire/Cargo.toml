@@ -9,7 +9,19 @@ crate-type = ["cdylib", "lib"]
 name = "mempire"
 
 [features]
-default = []
+# Both heavy subsystems are ON by default and switched OFF for the lean first
+# deploy with `--no-default-features`. They are real cargo features rather than
+# `cfg(not(launch))` because the saving is in the *dependencies*: a feature that
+# only skips call sites still links mpl-token-metadata and the rollup SDK, and
+# the linker keeps enough of them to erase most of the win. Measured: 704 KB
+# with both, 464 KB with neither.
+default = ["nft", "rollup"]
+# Metaplex 1-of-1s, so a card renders in a wallet or explorer.
+nft = ["anchor-spl/metadata"]
+# MagicBlock delegation: plays land on a rollup mid-match and the sealed log
+# commits home. Settlement does not depend on it — without it the log simply
+# stays on base layer the whole time.
+rollup = ["dep:ephemeral-rollups-sdk"]
 # Bakes the mainnet $MEMPIRE mint into the binary. The devnet and mainnet
 # builds differ by exactly this one pubkey; everything else that varies by
 # cluster (cooldown, timeout, fees) is a Config field set at initialize.
@@ -32,11 +44,11 @@ solana-sha256-hasher = "2.3.0"
 # `metadata` pulls in mpl-token-metadata so a card can be a real NFT rather
 # than a bare program account. Without it, an explorer has nothing to render:
 # no name, no image, no attributes — just a PDA full of bytes.
-anchor-spl = { version = "0.32.1", features = ["metadata"] }
+anchor-spl = { version = "0.32.1" }
 # MagicBlock Ephemeral Rollups. `anchor-compat` is the correct feature for
 # Anchor >=0.28,<1.0 — the plain `anchor` feature targets Anchor 1.x and will
 # not compile against 0.32.1.
-ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat"] }
+ephemeral-rollups-sdk = { version = "0.16.2", features = ["anchor-compat"], optional = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

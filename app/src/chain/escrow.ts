@@ -97,7 +97,28 @@ export async function claimResultEr(
 ): Promise<{ signature: string; committed: boolean }> {
   const log = baseLogPda(matchId);
   const er = await resolveEr(log);
-  if (!er) throw new Error('match log is not delegated to a rollup');
+
+  /*
+   * Settle wherever the log actually is.
+   *
+   * This used to throw when the log was not delegated, which made a rollup a
+   * hard requirement for getting paid — so a lean deploy without the rollup
+   * feature, or simply a rollup that was unreachable when the log was being
+   * prepared, turned every finished match into an unpayable one that could
+   * only time out. The claims are the same bytes either way; the only
+   * difference is which cluster writes them and whether there is a commit to
+   * schedule afterwards. Base layer needs no magic accounts, and the log is
+   * already home, so there is nothing to wait for.
+   */
+  if (!er) {
+    const program = programOn(adapter, getConnection());
+    const wallet = (program.provider as AnchorProvider).wallet;
+    const signature = await program.methods
+      .endMatchLog(winner, new BN(finalHash.toString()))
+      .accounts({ payer: wallet.publicKey, matchLog: log } as never)
+      .rpc();
+    return { signature, committed: true };
+  }
 
   const program = programOn(adapter, er.conn);
   const wallet = (program.provider as AnchorProvider).wallet;

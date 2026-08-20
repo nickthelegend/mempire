@@ -6,27 +6,21 @@ import { CardFrame } from '../components/CardFrame';
 import { ChainBadge } from '../components/ChainBadge';
 import { ChestRail } from '../components/Chests';
 import { Shop } from '../components/Shop';
-import { CoinBadge, LevelPips, Pill, Spinner } from '../components/ui';
-import {
-  claimUnstakeTx, mintCardTx, readableChainError, requestUnstakeTx, stakeTx, upgradeCardTx,
-} from '../chain/actions';
+import { CoinBadge, Pill, Spinner } from '../components/ui';
+import { mintCardTx, readableChainError, upgradeCardTx } from '../chain/actions';
 import { click, play } from '../lib/audio';
 import { useChain } from '../state/chain';
-import { IS_MAINNET } from '../chain/provider';
 import {
-  ASSET_KINDS, COINS, ineligibleReason, tickerOf, toRawAmount,
+  ASSET_KINDS, COINS, ineligibleReason, tickerOf,
   type AssetKind, type Coin,
 } from '../lib/coins';
 import { fmtSol, fmtTokens, fmtUsd } from '../lib/format';
-import { levelForUsd, nextLevelAt } from '../lib/leveling';
 import { EASE_SNAP, usePulse } from '../lib/motion';
 import { revealSection } from '../lib/scroll';
-import { FEES, UNSTAKE_COOLDOWN_MS, useCollection, type MintedCard } from '../state/collection';
+import { FEES, useCollection } from '../state/collection';
 import { signer, useWallet } from '../state/wallet';
 import { Token } from '../components/Token';
 import { useMempire } from '../state/mempire';
-
-const STAKE_CHIPS = [10, 25, 50, 100, 500];
 
 /** "All" first, then the three asset classes from the shared catalogue. */
 const FILTERS: { id: AssetKind | 'all'; label: string }[] = [
@@ -34,289 +28,6 @@ const FILTERS: { id: AssetKind | 'all'; label: string }[] = [
   ...ASSET_KINDS,
 ];
 const TAP = { minHeight: 44 } as const;
-
-/** Live seconds remaining; re-renders once a second only while counting. */
-function useCountdown(until: number): number {
-  const [, tick] = useState(0);
-  useEffect(() => {
-    if (until <= Date.now()) return;
-    const t = setInterval(() => tick((n) => n + 1), 1000);
-    return () => clearInterval(t);
-  }, [until]);
-  return Math.max(0, Math.ceil((until - Date.now()) / 1000));
-}
-
-function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }) {
-  const { stake, requestUnstake, claimUnstake, availableUsdFor } = useCollection();
-  const chainMode = useChain((s) => s.mode);
-  const chainCards = useChain((s) => s.cards);
-  const refreshSettled = useChain((s) => s.refreshSettled);
-  const noteSignature = useChain((s) => s.noteSignature);
-  const [amount, setAmount] = useState(25);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const sheet = useRef<HTMLDivElement>(null);
-  const remaining = useCountdown(card.cooldownUntil);
-  const coin = COINS.find((c) => c.mint === card.mint);
-
-  // The onchain twin of this local card, when one exists. Local cards carry a
-  // string id; chain cards a numeric PDA id — matched by mint, oldest first.
-  const chainCard = chainMode === 'onchain'
-    ? chainCards.find((c) => c.mint === card.mint)
-    : undefined;
-
-  /**
-   * Onchain staking moves real SPL tokens into the card's vault. The local
-   * store still updates afterwards so the rest of the app (deck power, level)
-   * follows immediately; the next refresh reconciles from the chain.
-   */
-  const stakeOnchain = async (usd: number) => {
-    if (!chainCard || !coin) return;
-    setPending(true);
-    setError(null);
-    try {
-      const tokens = usd / coin.priceUsd;
-      const { signature } = await stakeTx(
-        signer(), chainCard.id, coin.mint, toRawAmount(coin, tokens),
-      );
-      noteSignature(signature);
-      setError(stake(card.id, usd));
-      play('reward');
-      void refreshSettled();
-    } catch (e) {
-      setError(readableChainError(e));
-      play('error');
-    } finally {
-      setPending(false);
-    }
-  };
-
-  /** Both unstake steps run against the program when the card lives onchain. */
-  const unstakeOnchain = async (usd: number) => {
-    if (!chainCard || !coin) return;
-    setPending(true);
-    setError(null);
-    try {
-      const { signature } = await requestUnstakeTx(
-        signer(), chainCard.id, toRawAmount(coin, usd / coin.priceUsd),
-      );
-      noteSignature(signature);
-      requestUnstake(card.id, usd);
-      void refreshSettled();
-    } catch (e) {
-      setError(readableChainError(e));
-      play('error');
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const claimOnchain = async () => {
-    if (!chainCard || !coin) return;
-    setPending(true);
-    setError(null);
-    try {
-      const { signature } = await claimUnstakeTx(signer(), chainCard.id, coin.mint);
-      noteSignature(signature);
-      claimUnstake(card.id);
-      play('reward');
-      void refreshSettled();
-    } catch (e) {
-      // CooldownActive here means the local clock ran ahead of the chain's —
-      // the program is the authority, so surface it and leave the claim pending.
-      setError(readableChainError(e));
-      play('error');
-    } finally {
-      setPending(false);
-    }
-  };
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    sheet.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
-  if (!coin) return null;
-  const next = nextLevelAt(card.stakedUsd);
-  const afterLevel = levelForUsd(card.stakedUsd + amount);
-  const available = availableUsdFor(card.mint);
-  const cooling = remaining > 0;
-  /**
-   * Onchain, but this card is not. Staking would only write a local fiction.
-   */
-  const needsMint = chainMode === 'onchain' && !chainCard;
-  const claimable = card.pendingUnstakeUsd > 0 && remaining === 0;
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 40, display: 'flex', justifyContent: 'center' }}>
-      <div
-        aria-hidden
-        onClick={onClose}
-        style={{ position: 'absolute', inset: 0, background: 'var(--scrim)' }}
-      />
-      <div
-        ref={sheet}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Stake into ${tickerOf(coin)}`}
-        className="panel sheet"
-        style={{ gap: 12 }}
-      >
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-          <CoinBadge mint={card.mint} size={44} />
-          <div>
-            <div className="display" style={{ fontSize: 19 }}>{tickerOf(coin)}</div>
-            <LevelPips level={card.level} />
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="icon-btn"
-            style={{ marginLeft: 'auto', color: 'var(--dim-on-wood)', fontSize: 26, width: 44, height: 44 }}
-          >
-            ×
-          </button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 13 }}>
-          <div className="well" style={{ padding: '9px 11px' }}>
-            <div className="label" style={{ fontSize: 12 }}>Staked</div>
-            <div className="money">{fmtUsd(card.stakedUsd)}</div>
-            <div style={{ color: 'var(--dim)', fontSize: 12 }}>
-              {fmtTokens(card.stakedTokens)} {tickerOf(coin)}
-            </div>
-          </div>
-          <div className="well" style={{ padding: '9px 11px' }}>
-            <div className="label" style={{ fontSize: 12 }}>Next level</div>
-            <div style={{ fontWeight: 700 }}>
-              {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <div className="label" style={{ marginBottom: 6 }}>
-            Stake more · <span className="money">{fmtUsd(available)}</span> of {tickerOf(coin)} free
-          </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {STAKE_CHIPS.map((v) => {
-              const affordable = v <= available;
-              return (
-                <button
-                  key={v}
-                  onClick={() => { setAmount(v); setError(null); }}
-                  aria-pressed={amount === v}
-                  disabled={!affordable}
-                  className="btn-3d"
-                  style={{
-                    flex: 1, minWidth: 0, ...TAP, borderRadius: 9,
-                    fontFamily: 'var(--font-display)', fontSize: 14,
-                    background: amount === v
-                      ? 'linear-gradient(180deg, var(--btn-blue-hi), var(--btn-blue))'
-                      : 'var(--recess)',
-                    border: '2px solid var(--ink)',
-                    boxShadow: amount === v
-                      ? 'inset 0 2px 0 rgba(255,255,255,.4), 0 3px 0 var(--btn-blue-dark)'
-                      : 'var(--bevel-in)',
-                    color: 'var(--text)',
-                    WebkitTextStroke: '1.8px var(--ink)', paintOrder: 'stroke fill',
-                    filter: affordable ? 'none' : 'saturate(.3)',
-                    opacity: affordable ? 1 : 0.55,
-                    transition: 'background 160ms var(--ease-snap), box-shadow 120ms var(--ease-snap)',
-                  }}
-                >
-                  ${v}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {claimable ? (
-          <Pill
-            disabled={pending}
-            onClick={() => {
-              if (chainCard) { void claimOnchain(); return; }
-              claimUnstake(card.id);
-            }}
-          >
-            {pending ? 'Confirm in wallet…' : `Claim ${fmtUsd(card.pendingUnstakeUsd * (1 - FEES.unstakePct / 100))}`}
-          </Pill>
-        ) : (
-          <Pill
-            disabled={cooling || pending || amount > available || needsMint}
-            onClick={() => {
-              /*
-               * Onchain sessions stake onchain or not at all.
-               *
-               * This used to fall through to the local store whenever the card
-               * had no chain twin, which is every card that has not been
-               * minted. The sheet then read "Staked $75" and the level went up
-               * while not one token had moved — a stake that existed only in
-               * the client, inflating deck power, which is what matchmaking
-               * brackets on. Refusing is the honest answer, and the card can
-               * be minted first.
-               */
-              if (chainCard) { void stakeOnchain(amount); return; }
-              if (needsMint) return;
-              setError(stake(card.id, amount));
-            }}
-          >
-            {pending ? 'Confirm in wallet…'
-              : cooling ? 'Unstake pending'
-                : needsMint ? 'Mint this card first'
-                  : `Stake $${amount} → Lv ${afterLevel}`}
-          </Pill>
-        )}
-
-        {chainCard && (
-          <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center', fontSize: 12, marginTop: -4 }}>
-            Onchain card #{chainCard.id} — staking moves real tokens into its vault.
-          </p>
-        )}
-
-        {error && (
-          <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>{error}</p>
-        )}
-
-        {cooling ? (
-          <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
-            {fmtUsd(card.pendingUnstakeUsd)} unstaking — claimable in {remaining}s
-            {/* The demo disclosure only makes sense where the demo is. On
-                mainnet the countdown above already states the real number. */}
-            {!IS_MAINNET && <>{' '}(72h on mainnet, {UNSTAKE_COOLDOWN_MS / 1000}s on this devnet demo)</>}
-          </p>
-        ) : !claimable && (
-          <button
-            onClick={() => {
-              const usd = Math.min(amount, card.stakedUsd);
-              if (chainCard) { void unstakeOnchain(usd); return; }
-              requestUnstake(card.id, usd);
-              setError(null);
-            }}
-            disabled={card.stakedUsd === 0 || pending}
-            style={{
-              ...TAP, fontSize: 13, fontWeight: 700, textDecoration: 'underline',
-              color: card.stakedUsd === 0 ? 'var(--dim-on-wood)' : 'var(--text)',
-              opacity: card.stakedUsd === 0 ? 0.5 : 1,
-            }}
-          >
-            {/* The real number, not the mainnet one — the line above already
-                says which is which, and a button that states a cooldown it
-                does not enforce is just a false label. */}
-            Unstake ${Math.min(amount, card.stakedUsd)} · {FEES.unstakePct}% fee,{' '}
-            {UNSTAKE_COOLDOWN_MS >= 3600_000
-              ? `${Math.round(UNSTAKE_COOLDOWN_MS / 3600_000)}h`
-              : `${UNSTAKE_COOLDOWN_MS / 1000}s`} cooldown
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function CoinRow({ coin }: { coin: Coin }) {
   const wallet = useWallet();
@@ -613,7 +324,6 @@ export function Cards() {
   /** What actually exists on chain, so the header can stop guessing. */
   const chainCards = useChain((s) => s.cards);
   const [openCard, setOpenCard] = useState<string | null>(null);
-  const [stakeCard, setStakeCard] = useState<string | null>(null);
   const bagsRef = useRef<HTMLElement>(null);
   const [kind, setKind] = useState<AssetKind | 'all'>('all');
   const shownCoins = useMemo(
@@ -621,11 +331,8 @@ export function Cards() {
     [kind],
   );
   const detail = useMemo(() => cards.find((c) => c.id === openCard), [cards, openCard]);
-  const selected = useMemo(() => cards.find((c) => c.id === stakeCard), [cards, stakeCard]);
-  // Real stake only. Starter cards carry a level for show, and letting them into
-  // this total put "$387 staked" next to "11 minted onchain" for a wallet whose
-  // chain stake was zero — the one number on the screen that must match the chain.
-  const totalStaked = cards.reduce((s, c) => s + (c.seeded ? 0 : c.stakedUsd), 0);
+  // Cards at level 2 or better — the ones that have actually been won up.
+  const levelled = cards.filter((c) => !c.seeded && c.level > 1).length;
 
   if (!connected) {
     return (
@@ -654,7 +361,7 @@ export function Cards() {
               count says onchain only when `chainCards` backs it. */}
           <p className="fine">
             {chainCards.length > 0
-              ? <>{chainCards.length} minted onchain · <span className="money" style={{ fontSize: 14 }}>{fmtUsd(totalStaked)}</span> staked</>
+              ? <>{chainCards.length} minted onchain{levelled > 0 && <> · <span className="money" style={{ fontSize: 14 }}>{levelled}</span> levelled up</>}</>
               : <>{cards.length} cards · not minted onchain yet</>}
           </p>
         </div>
@@ -769,10 +476,8 @@ export function Cards() {
         <CardDetail
           card={detail}
           onClose={() => setOpenCard(null)}
-          onStake={() => { setStakeCard(detail.id); setOpenCard(null); }}
         />
       )}
-      {selected && <StakeSheet card={selected} onClose={() => setStakeCard(null)} />}
     </div>
   );
 }

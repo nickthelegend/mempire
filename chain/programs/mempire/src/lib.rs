@@ -2,30 +2,20 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
+#[cfg(feature = "nft")]
 use anchor_spl::metadata::{
     create_metadata_accounts_v3, CreateMetadataAccountsV3, Metadata,
     mpl_token_metadata::types::DataV2,
 };
+#[cfg(feature = "rollup")]
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
+#[cfg(feature = "rollup")]
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
+#[cfg(feature = "rollup")]
 use ephemeral_rollups_sdk::ephem::MagicIntentBundleBuilder;
 
 declare_id!("BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP");
 
-// USD amounts are micro-USD (1e-6). Levels 1–10 on the same thresholds the
-// client sim uses; the two tables must never drift.
-const LEVEL_THRESHOLDS_MICRO_USD: [u64; 10] = [
-    0,
-    10_000_000,
-    25_000_000,
-    50_000_000,
-    100_000_000,
-    200_000_000,
-    400_000_000,
-    800_000_000,
-    1_600_000_000,
-    3_200_000_000,
-];
 
 const MIN_LIQUIDITY_USD: u64 = 25_000;
 
@@ -49,15 +39,6 @@ const UPGRADE_BASE_FEE: u64 = 100_000_000;
 const METADATA_BASE_URI: &str = "https://play.mempire.fun/nft/";
 const DECK_SIZE: usize = 8;
 
-fn level_for_micro_usd(usd: u64) -> u8 {
-    let mut lvl: u8 = 1;
-    for (i, t) in LEVEL_THRESHOLDS_MICRO_USD.iter().enumerate() {
-        if usd >= *t {
-            lvl = (i + 1) as u8;
-        }
-    }
-    lvl.min(10)
-}
 
 /// FNV-1a over the base58 string of the mint — byte-identical to the
 /// TypeScript `archetypeForMint`, so client and chain always agree.
@@ -75,7 +56,7 @@ fn archetype_for_mint(mint: &Pubkey) -> u8 {
 /// when returning a delegated account, plus the commit/undelegate intent
 /// builders. Required on any program that delegates — without it a `MatchLog`
 /// could be delegated and never come back.
-#[ephemeral]
+#[cfg_attr(feature = "rollup", ephemeral)]
 #[program]
 pub mod mempire {
     use super::*;
@@ -334,6 +315,7 @@ pub mod mempire {
     /// every time a duplicate is merged, and metadata that lies within a minute
     /// of being written is worse than metadata that stays quiet — the card
     /// account is the authority on level, and the URI points at art, not stats.
+    #[cfg(feature = "nft")]
     pub fn tokenize_card(ctx: Context<TokenizeCard>, ticker: String) -> Result<()> {
         require!(ticker.len() <= 12 && !ticker.is_empty(), MempireError::TickerTooLong);
         /*
@@ -478,120 +460,8 @@ pub mod mempire {
         Ok(())
     }
 
-    /// Stake coin tokens into the card's vault. USD value snapshots at the
-    /// current oracle price — levels never flicker with the market.
-    pub fn stake(ctx: Context<StakeTokens>, amount_tokens: u64) -> Result<()> {
-        require!(amount_tokens > 0, MempireError::ZeroAmount);
-        require!(!ctx.accounts.card.is_locked(), MempireError::CardLocked);
 
-        token::transfer(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.owner_tokens.to_account_info(),
-                    to: ctx.accounts.vault.to_account_info(),
-                    authority: ctx.accounts.owner.to_account_info(),
-                },
-            ),
-            amount_tokens,
-        )?;
 
-        let info = &ctx.accounts.coin_info;
-        let card = &mut ctx.accounts.card;
-        let usd_added = (amount_tokens as u128)
-            .checked_mul(info.price_micro_usd as u128)
-            .unwrap()
-            / 10u128.pow(info.decimals as u32);
-        card.staked_tokens = card.staked_tokens.checked_add(amount_tokens).unwrap();
-        card.staked_micro_usd = card
-            .staked_micro_usd
-            .checked_add(usd_added as u64)
-            .unwrap();
-        card.level = level_for_micro_usd(card.staked_micro_usd);
-
-        emit!(Staked {
-            card: card.key(),
-            amount_tokens,
-            staked_micro_usd: card.staked_micro_usd,
-            level: card.level,
-        });
-        Ok(())
-    }
-
-    /// Two-step unstake, step 1: lock the amount and start the cooldown.
-    /// Level drops immediately — no battling on power you're withdrawing.
-    pub fn request_unstake(ctx: Context<RequestUnstake>, amount_tokens: u64) -> Result<()> {
-        let card = &mut ctx.accounts.card;
-        require!(!card.is_locked(), MempireError::CardLocked);
-        require!(card.pending_unstake_tokens == 0, MempireError::UnstakePending);
-        require!(
-            amount_tokens > 0 && amount_tokens <= card.staked_tokens,
-            MempireError::ZeroAmount
-        );
-
-        let usd_removed = (card.staked_micro_usd as u128)
-            .checked_mul(amount_tokens as u128)
-            .unwrap()
-            / (card.staked_tokens as u128);
-        card.staked_tokens -= amount_tokens;
-        card.staked_micro_usd = card.staked_micro_usd.saturating_sub(usd_removed as u64);
-        card.level = level_for_micro_usd(card.staked_micro_usd);
-        card.pending_unstake_tokens = amount_tokens;
-        card.unstake_ready_at =
-            Clock::get()?.unix_timestamp + ctx.accounts.config.unstake_cooldown_secs;
-        Ok(())
-    }
-
-    /// Two-step unstake, step 2: after the cooldown, tokens return to the
-    /// owner minus the unstake fee (fee tokens go to the treasury's ATA).
-    pub fn claim_unstake(ctx: Context<ClaimUnstake>) -> Result<()> {
-        let card = &ctx.accounts.card;
-        let amount = card.pending_unstake_tokens;
-        require!(amount > 0, MempireError::NothingToClaim);
-        require!(
-            Clock::get()?.unix_timestamp >= card.unstake_ready_at,
-            MempireError::CooldownActive
-        );
-
-        let fee = (amount as u128 * ctx.accounts.config.unstake_fee_bps as u128 / 10_000) as u64;
-        let card_id = card.id;
-        let vault_bump = ctx.bumps.vault_authority;
-        let id_bytes = card_id.to_le_bytes();
-        let seeds: &[&[u8]] = &[b"vault", id_bytes.as_ref(), &[vault_bump]];
-        let signer = &[seeds];
-
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.vault.to_account_info(),
-                    to: ctx.accounts.owner_tokens.to_account_info(),
-                    authority: ctx.accounts.vault_authority.to_account_info(),
-                },
-                signer,
-            ),
-            amount - fee,
-        )?;
-        if fee > 0 {
-            token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
-                    Transfer {
-                        from: ctx.accounts.vault.to_account_info(),
-                        to: ctx.accounts.treasury_tokens.to_account_info(),
-                        authority: ctx.accounts.vault_authority.to_account_info(),
-                    },
-                    signer,
-                ),
-                fee,
-            )?;
-        }
-
-        let card = &mut ctx.accounts.card;
-        card.pending_unstake_tokens = 0;
-        card.unstake_ready_at = 0;
-        Ok(())
-    }
 
     /// Player 0 opens a match at a tier, escrowing the stake in the match PDA.
     /// The 8 deck cards ride in `remaining_accounts` and are validated and
@@ -1058,6 +928,7 @@ pub mod mempire {
     }
 
     /// Hands the log to the ephemeral rollup. Base layer.
+    #[cfg(feature = "rollup")]
     pub fn delegate_match_log(ctx: Context<DelegateMatchLog>, match_id: u64) -> Result<()> {
         // Only a player in this match may delegate its log.
         //
@@ -1220,13 +1091,25 @@ pub mod mempire {
         // not read the log at all.
         if both_in {
             ctx.accounts.match_log.exit(&crate::ID)?;
-            MagicIntentBundleBuilder::new(
-                ctx.accounts.payer.to_account_info(),
-                ctx.accounts.magic_context.to_account_info(),
-                ctx.accounts.magic_program.to_account_info(),
-            )
-            .commit_and_undelegate(&[ctx.accounts.match_log.to_account_info()])
-            .build_and_invoke()?;
+            /*
+             * Hand the sealed log back to base layer — when it ever left.
+             *
+             * A build without the `rollup` feature never delegates it, so there
+             * is nothing to commit and undelegate: the claims were written on
+             * base layer and `settle_from_log` reads them from there anyway.
+             * The rollup trip speeds up the plays during a match; it is not
+             * what makes settling one possible.
+             */
+            #[cfg(feature = "rollup")]
+            {
+                MagicIntentBundleBuilder::new(
+                    ctx.accounts.payer.to_account_info(),
+                    ctx.accounts.magic_context.to_account_info(),
+                    ctx.accounts.magic_program.to_account_info(),
+                )
+                .commit_and_undelegate(&[ctx.accounts.match_log.to_account_info()])
+                .build_and_invoke()?;
+            }
         }
         Ok(())
     }
@@ -1628,6 +1511,7 @@ pub struct MintCard<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[cfg(feature = "nft")]
 #[derive(Accounts)]
 pub struct TokenizeCard<'info> {
     #[account(
@@ -1720,87 +1604,8 @@ pub struct UpgradeCard<'info> {
     pub token_program: Program<'info, Token>,
 }
 
-#[derive(Accounts)]
-pub struct StakeTokens<'info> {
-    #[account(seeds = [b"coin", coin_info.mint.as_ref()], bump = coin_info.bump)]
-    pub coin_info: Account<'info, CoinInfo>,
-    #[account(
-        mut,
-        seeds = [b"card", card.id.to_le_bytes().as_ref()],
-        bump = card.bump,
-        has_one = owner,
-        constraint = card.coin_mint == coin_info.mint,
-    )]
-    pub card: Account<'info, Card>,
-    /// CHECK: PDA authority over the vault
-    #[account(seeds = [b"vault", card.id.to_le_bytes().as_ref()], bump)]
-    pub vault_authority: UncheckedAccount<'info>,
-    #[account(
-        init_if_needed,
-        payer = owner,
-        associated_token::mint = mint,
-        associated_token::authority = vault_authority,
-    )]
-    pub vault: Account<'info, TokenAccount>,
-    #[account(address = coin_info.mint)]
-    pub mint: Account<'info, Mint>,
-    #[account(mut, constraint = owner_tokens.mint == coin_info.mint)]
-    pub owner_tokens: Account<'info, TokenAccount>,
-    #[account(mut)]
-    pub owner: Signer<'info>,
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-}
 
-#[derive(Accounts)]
-pub struct RequestUnstake<'info> {
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut,
-        seeds = [b"card", card.id.to_le_bytes().as_ref()],
-        bump = card.bump,
-        has_one = owner,
-    )]
-    pub card: Account<'info, Card>,
-    pub owner: Signer<'info>,
-}
 
-#[derive(Accounts)]
-pub struct ClaimUnstake<'info> {
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut,
-        seeds = [b"card", card.id.to_le_bytes().as_ref()],
-        bump = card.bump,
-        has_one = owner,
-    )]
-    pub card: Account<'info, Card>,
-    /// CHECK: PDA authority over the vault
-    #[account(seeds = [b"vault", card.id.to_le_bytes().as_ref()], bump)]
-    pub vault_authority: UncheckedAccount<'info>,
-    #[account(mut, constraint = vault.mint == card.coin_mint)]
-    pub vault: Account<'info, TokenAccount>,
-    #[account(mut, constraint = owner_tokens.mint == card.coin_mint)]
-    pub owner_tokens: Account<'info, TokenAccount>,
-    /// The unstake fee's destination.
-    ///
-    /// `owner` is constrained as well as `mint`. With only the mint checked,
-    /// the unstaker could pass one of their own token accounts and the fee
-    /// would be paid straight back to them — a 0% unstake fee for anyone who
-    /// read the IDL.
-    #[account(
-        mut,
-        constraint = treasury_tokens.mint == card.coin_mint @ MempireError::WrongTreasury,
-        constraint = treasury_tokens.owner == config.treasury @ MempireError::WrongTreasury,
-    )]
-    pub treasury_tokens: Account<'info, TokenAccount>,
-    #[account(mut)]
-    pub owner: Signer<'info>,
-    pub token_program: Program<'info, Token>,
-}
 
 #[derive(Accounts)]
 pub struct CreateMatch<'info> {
@@ -1948,6 +1753,7 @@ pub struct InitMatchLog<'info> {
 /// `#[delegate]` injects the delegation accounts. The target must be a raw
 /// `AccountInfo` with the `del` constraint — an `Account<>` here fails because
 /// delegation hands ownership to the delegation program.
+#[cfg(feature = "rollup")]
 #[delegate]
 #[derive(Accounts)]
 #[instruction(match_id: u64)]
@@ -1973,7 +1779,27 @@ pub struct PlayCard<'info> {
 }
 
 /// `#[commit]` injects `magic_context` and `magic_program`.
+#[cfg(feature = "rollup")]
 #[commit]
+#[derive(Accounts)]
+pub struct EndMatchLog<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"log", match_log.match_id.to_le_bytes().as_ref()],
+        bump = match_log.bump,
+    )]
+    pub match_log: Account<'info, MatchLog>,
+}
+
+/// The same instruction without a rollup to hand the log back to.
+///
+/// A lean build never delegates the log, so there is no commit to schedule and
+/// the two magic accounts `#[commit]` injects would be dead required accounts
+/// a caller has to invent. The seats' claims are written here on base layer,
+/// which is where `settle_from_log` reads them from anyway.
+#[cfg(not(feature = "rollup"))]
 #[derive(Accounts)]
 pub struct EndMatchLog<'info> {
     #[account(mut)]

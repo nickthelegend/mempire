@@ -6,7 +6,7 @@ import {
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { canSign, getProgram, getProvider, getConnection } from './provider';
 import {
-  PROGRAM_ID, cardPda, coinPda, configPda, matchPda, vaultAuthorityPda,
+  PROGRAM_ID, cardPda, coinPda, configPda, matchPda,
 } from './pdas';
 import { fetchConfig } from './read';
 import { MEMPIRE_MINT } from './amm';
@@ -216,81 +216,8 @@ export async function tokenizeCardTx(
 /** What merging the next level costs, in whole $MEMPIRE. Mirrors the program. */
 export const upgradeCost = (level: number): number => 100 * level;
 
-/** Stake raw token units into a card's vault. Level snapshots at the oracle price. */
-export async function stakeTx(
-  adapter: Adapter | null, cardId: number, mint: string, rawAmount: bigint,
-): Promise<TxResult> {
-  const wallet = requireSigner(adapter);
-  const program = getProgram(adapter);
-  const owner = wallet.publicKey!;
-  const mintKey = new PublicKey(mint);
-  const vaultAuthority = vaultAuthorityPda(cardId);
 
-  const signature = await program.methods
-    .stake(new BN(rawAmount.toString()))
-    .accounts({
-      coinInfo: coinPda(mintKey),
-      card: cardPda(cardId),
-      vaultAuthority,
-      // owned by the PDA, created on first stake by init_if_needed
-      vault: getAssociatedTokenAddressSync(mintKey, vaultAuthority, true),
-      mint: mintKey,
-      ownerTokens: getAssociatedTokenAddressSync(mintKey, owner),
-      owner,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-    } as any)
-    .rpc();
 
-  return { signature };
-}
-
-/** Step one of two. Starts the cooldown; nothing moves yet. */
-export async function requestUnstakeTx(
-  adapter: Adapter | null, cardId: number, rawAmount: bigint,
-): Promise<TxResult> {
-  const wallet = requireSigner(adapter);
-  const program = getProgram(adapter);
-  const signature = await program.methods
-    .requestUnstake(new BN(rawAmount.toString()))
-    .accounts({
-      config: configPda(),
-      card: cardPda(cardId),
-      owner: wallet.publicKey!,
-    } as any)
-    .rpc();
-  return { signature };
-}
-
-/** Step two. Only lands once the cooldown has elapsed; the fee goes to treasury. */
-export async function claimUnstakeTx(
-  adapter: Adapter | null, cardId: number, mint: string,
-): Promise<TxResult> {
-  const wallet = requireSigner(adapter);
-  const program = getProgram(adapter);
-  const owner = wallet.publicKey!;
-  const mintKey = new PublicKey(mint);
-  const vaultAuthority = vaultAuthorityPda(cardId);
-
-  const cfg = await fetchConfig();
-  if (!cfg) throw new Error('Program config not found on this cluster');
-
-  const signature = await program.methods
-    .claimUnstake()
-    .accounts({
-      config: configPda(),
-      card: cardPda(cardId),
-      vaultAuthority,
-      vault: getAssociatedTokenAddressSync(mintKey, vaultAuthority, true),
-      ownerTokens: getAssociatedTokenAddressSync(mintKey, owner),
-      treasuryTokens: getAssociatedTokenAddressSync(mintKey, new PublicKey(cfg.treasury)),
-      owner,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    } as any)
-    .rpc();
-  return { signature };
-}
 
 /**
  * Open a match and escrow the stake.

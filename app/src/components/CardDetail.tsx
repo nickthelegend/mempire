@@ -6,8 +6,7 @@ import { signer } from '../state/wallet';
 import { play } from '../lib/audio';
 import { Spinner } from './ui';
 import { coinByMint, tickerOf } from '../lib/coins';
-import { fmtTokens, fmtUsd } from '../lib/format';
-import { nextLevelAt } from '../lib/leveling';
+import { fmtUsd } from '../lib/format';
 import { ARCHETYPES, scaleByLevel } from '../sim/archetypes';
 import { TRAITS, effectiveDef, traitForMint } from '../sim/traits';
 import { loreFor } from '../data/lore';
@@ -55,8 +54,8 @@ function Stat({ icon, label, value, delta }: {
  * a stake.
  */
 export function CardDetail({
-  card, onClose, onStake,
-}: { card: MintedCard; onClose: () => void; onStake?: () => void }) {
+  card, onClose,
+}: { card: MintedCard; onClose: () => void }) {
   const sheet = useRef<HTMLDivElement>(null);
   const coin = coinByMint(card.mint);
   const chainCards = useChain((s) => s.cards);
@@ -103,7 +102,6 @@ export function CardDetail({
   // Showing the archetype baseline beside an "Ironclad" chip would be the sheet
   // describing a fighter the player is not going to get.
   const def = effectiveDef(ARCHETYPES[card.archetype], traitId, card.archetype);
-  const next = nextLevelAt(card.stakedUsd);
   const hp = scaleByLevel(def.hp, card.level);
   const dmg = scaleByLevel(def.damage, card.level);
   const dps = def.hitTicks > 0 ? Math.round((dmg * 20) / def.hitTicks) : dmg;
@@ -260,19 +258,26 @@ export function CardDetail({
           </div>
         </div>
 
-        {/* your position */}
+        {/*
+          Progress, which is now a count of duplicates rather than a balance.
+          This panel used to read "You have staked $X" against a next-level
+          price in dollars — the old economy, where a level was bought by
+          locking coins. Levels come from winning: chests drop duplicates, and
+          merging a duplicate is what promotes a card. So the honest thing to
+          show is the level it is and the one it is playing toward.
+        */}
         <div className="well" style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ minWidth: 0 }}>
-            <span className="label" style={{ fontSize: 12, display: 'block' }}>You have staked</span>
-            <span className="money" style={{ fontSize: 19 }}>{fmtUsd(card.stakedUsd)}</span>
+            <span className="label" style={{ fontSize: 12, display: 'block' }}>Level</span>
+            <span className="money" style={{ fontSize: 19 }}>{card.level} of 10</span>
             <span className="fine" style={{ display: 'block', fontSize: 12 }}>
-              {fmtTokens(card.stakedTokens)} {tickerOf(coin)}
+              {tickerOf(coin)} · won, not bought
             </span>
           </span>
           <span style={{ marginLeft: 'auto', textAlign: 'right' }}>
             <span className="label" style={{ fontSize: 12, display: 'block' }}>Next level</span>
             <span className="display display--sm" style={{ fontSize: 15 }}>
-              {next ? `${fmtUsd(next.usd)} → Lv ${next.level}` : 'MAX'}
+              {card.level >= 10 ? 'MAX' : `Merge a duplicate → Lv ${card.level + 1}`}
             </span>
           </span>
         </div>
@@ -329,23 +334,6 @@ export function CardDetail({
           <p role="alert" className="fine" style={{ color: 'var(--red-on-wood)', textAlign: 'center' }}>
             {err}
           </p>
-        )}
-
-        {onStake && (
-          <button
-            onClick={onStake}
-            className="btn-3d"
-            style={{
-              minHeight: 50, borderRadius: 'var(--r-pill)',
-              background: 'linear-gradient(180deg, var(--btn-gold-hi), var(--btn-gold) 50%)',
-              border: '3px solid var(--ink)',
-              fontFamily: 'var(--font-display)', fontSize: 18, color: '#fff',
-              WebkitTextStroke: '2.5px var(--ink)', paintOrder: 'stroke fill',
-              boxShadow: 'inset 0 2px 0 rgba(255,255,255,.5), 0 5px 0 var(--btn-gold-dark)',
-            }}
-          >
-            Stake to level up
-          </button>
         )}
 
         {coin.url && (
