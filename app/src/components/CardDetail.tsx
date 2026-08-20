@@ -1,4 +1,4 @@
-import { explorerUrl } from '../chain/provider';
+import { explorerUrl, NFT_ENABLED } from '../chain/provider';
 import { useEffect, useRef, useState } from 'react';
 import { readableChainError, tokenizeCardTx } from '../chain/actions';
 import { useChain } from '../state/chain';
@@ -290,7 +290,7 @@ export function CardDetail({
           dropped afterwards. Optional on purpose, so minting a card stays cheap
           for anyone who does not want the NFT.
         */}
-        {onChain && (
+        {onChain && (NFT_ENABLED || nft) && (
           nft ? (
             <a
               href={explorerUrl(nft, 'address')}

@@ -50,6 +50,25 @@ if ((IS_MAINNET && RPC_LOOKS_DEVNET) || (!IS_MAINNET && RPC_LOOKS_MAINNET)) {
   );
 }
 
+/**
+ * Whether the deployed program carries the `nft` cargo feature.
+ *
+ * `nft` and `rollup` are compile-time features, so the launch build genuinely
+ * has fewer instructions than this bundle's IDL describes — deploy rent scales
+ * with program bytes, and Metaplex is the most expensive thing we link. This
+ * client cannot ask the chain which build is deployed: the on-chain IDL is a
+ * separate artifact that only changes when someone runs `anchor idl upgrade`,
+ * so trusting it would trade one drift for another.
+ *
+ * So it is declared at build time, alongside the cluster it must agree with.
+ * Getting it wrong is not dangerous — `readableChainError` still turns the
+ * program's refusal into a sentence a player can read — it just means offering
+ * a button that cannot work.
+ *
+ * Defaults on, because devnet runs the full build.
+ */
+export const NFT_ENABLED = String(import.meta.env.VITE_FEATURE_NFT ?? '1') !== '0';
+
 /*
  * The default RPC follows the cluster. MagicBlock's base-layer endpoint is the
  * mainnet default because the game already depends on their infrastructure for

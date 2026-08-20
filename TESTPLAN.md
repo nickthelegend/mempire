@@ -1139,3 +1139,130 @@ from a local seed on mainnet and the UI withholds the 🎲 to say so.
 Bags is verified in its *unconfigured* state only, because $MEMPIRE has not been
 launched. The quote and swap paths against a live market are unexercised, and
 claiming creator fees is not wired at all — there is nothing to claim yet.
+
+# Run 13 — running the binary we plan to launch, and finding what only running finds
+
+Run 12 closed with an admission: the 4.17 SOL `mainnet,rollup` build was
+*measured* but had never been *run*. It is the binary that will hold real money,
+and "it compiles" is not verification. So this run deployed that exact feature
+set to devnet and played a real match through it.
+
+Only the mint constant differs from the mainnet binary — `mainnet` swaps
+`AhF5trvR…` for `EzN1R1qb…` and nothing else — and both were already
+byte-verified to carry their own. So `--features rollup` on devnet exercises the
+same code paths mainnet v2 will run.
+
+## The build is what it claims to be
+
+    mainnet,rollup            599,040 bytes
+    IDL after gating          tokenize_card  absent   ← no `nft` feature
+                              delegate_match_log  PRESENT
+                              stake  absent (retired in run 11)
+
+A note for anyone repeating this: `strings mempire.so | grep tokenize_card`
+finds nothing in *any* build. Anchor stores 8-byte discriminators, not
+instruction names. The generated IDL is the thing to check.
+
+## Upgrading a deployed program costs almost nothing
+
+    deploy signature   55hP6hNMbEEVEcRr…
+    deployer           7.880630829 → 7.877655829 SOL   (−0.003)
+    program account    739,216 bytes, unchanged
+
+Two facts worth having in writing before mainnet. An upgrade into an
+already-allocated program account costs **0.003 SOL**, not the 4.17 the first
+deploy costs — the rent is already paid. And the account **does not shrink** to
+fit a smaller binary, so downgrading a feature never refunds rent.
+
+## Match #79 — the money path, on the v2 binary
+
+    CreateMatch / JoinMatch   2bhkUWkWdLnpmXmg…      escrow held
+    badge during play         ROLLUP LIVE · 5 🔒     ER delegation live
+    sim ended                 tick 4801 winner 0 hash 3793641868
+    both seats agreed         3bUr8SPhRF2cBkTA… (harness) + browser
+    settled                   COMMITTED · PAID · 120 state hashes
+
+Paid, verified against the chain rather than the screen:
+
+    pot to winner    +0.089995 SOL   in g9xbXtRi4H3wbZG4bo…
+    reward vault     1,950 → 1,900   (−50 $MEMPIRE)
+    winner's balance 6,215 → 6,265   (+50 $MEMPIRE)
+
+The winner's *net* SOL only moved +0.0084, which looks wrong until traced: the
+0.09 payout is offset by the 0.05 stake and ~0.03 of rent for the match log,
+rollup log and permission — the `+0.002651` entries in the same trace are those
+rents coming back as the accounts close. The payout instruction itself is exact.
+
+## The defect: a button that lies, then explains itself in Anchor
+
+`nft` is compiled out of v2, but the app's bundled IDL still describes
+`tokenize_card`. Clicking **Mint as NFT** therefore built a real transaction for
+an instruction the deployed program does not have, and the program answered:
+
+    Fallback functions are not supported
+
+Which reached the player verbatim. It is Anchor's phrase for "no instruction
+matches that discriminator", and it is meaningless to anyone who is not holding
+the source. Worse, at first glance the click looked like it did *nothing at
+all* — the alert renders below the fold on a phone-width sheet, so the honest
+description of the bug is: on mainnet v2, minting an NFT appears to silently
+fail, and the explanation, when found, is jargon.
+
+Two fixes, because either alone is insufficient:
+
+- **`readableChainError` translates it** → *"That is not available on this
+  network yet."* This had to go **above** the Anchor passthrough, not below it:
+  the first attempt added the check after `fromAnchor` was returned, and Anchor
+  reports this as a structured `errorMessage`, so the passthrough returned the
+  jargon before the new branch was ever reached. Deployed, clicked, confirmed.
+- **`NFT_ENABLED` hides the button** when the deployed build has no `nft`.
+  Declared at build time next to the cluster it must agree with, because the
+  on-chain IDL is a separate artifact that only changes when someone runs
+  `anchor idl upgrade` — trusting it would trade one drift for another. The gate
+  is `onChain && (NFT_ENABLED || nft)`: a card that *already* has an NFT keeps
+  its explorer link, since hiding an asset someone owns is worse than the bug.
+
+Set `VITE_FEATURE_NFT=0` for the v2 build. Getting it wrong is not dangerous —
+the translated error still catches it — it just offers a button that cannot work.
+
+## A pre-flight that would have caught a wasted 4.17 SOL
+
+While verifying, `scripts/bake-mainnet-mint.mjs` was written to script the one
+launch-day step that was still hand-editing Rust: `MEMPIRE_MINT` is a
+compile-time constant, so a Bags-created mint has to be pasted into `lib.rs`
+between two irreversible money-spending steps.
+
+Pointing its `--check` at the current source found something:
+
+    mainnet MEMPIRE_MINT is currently: EzN1R1qbU4Vx1XC8FJFKuLJxN8hjxvMNipHi3uLBPAcU
+      ✗ NOT SAFE TO DEPLOY: does not exist on mainnet — is it launched yet?
+
+The baked mainnet mint is a keypair generated offline and never used to create a
+mint. Deploying with it today produces a program where every $MEMPIRE
+constraint refuses — after the 4.17 SOL is spent. The script now refuses any
+address that is not a live mint owned by a token program, warns when decimals
+are not 6 (every amount constant in `lib.rs` assumes 6), and reads the file back
+after writing. It also caught its own bug in testing: with no `--rpc` flag,
+`rpcAt + 1` evaluates to 0 and silently ate the first argument.
+
+## Devnet restored, and proven restored
+
+Rebuilt with default features, byte-checked that the binary carries the *devnet*
+mint and not the mainnet one, redeployed (`3j28Rs6xea5V6QTD…`), and minted a
+real NFT through the UI to prove it: `AtyitPNZRW1wLg5U…`, owned by the token
+program, **supply 1, decimals 0**.
+
+One false alarm worth recording. A buffer holding 4.94 SOL appeared in
+`solana program show --buffers` immediately after the deploy, which looks
+exactly like the stranded-buffer failure mode. It was not — the listing caught a
+buffer still in flight, it cleared on its own, and the deployer balance was
+7.874130829 before and after. The lesson is the one this log keeps relearning:
+check the balance before believing the symptom.
+
+## Honest limits, carried forward
+
+The mainnet binary itself still has not been run — only its devnet twin, which
+differs by one constant. That gap closes when mainnet is funded and not before.
+
+Bags remains verified only in its unconfigured state. Creator-fee claiming is
+still unwired, because there is nothing to claim until the token trades.

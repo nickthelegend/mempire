@@ -55,6 +55,22 @@ export function readableChainError(e: unknown): string {
   const fromAnchor = anyErr?.error?.errorMessage
     ?? anyErr?.error?.errorCode?.code
     ?? anyErr?.errorMessage;
+
+  /*
+   * "Fallback functions are not supported" is what the program answers when it
+   * has no instruction matching the discriminator it was sent — which happens
+   * whenever this bundle knows about an instruction the deployed build
+   * compiled out. `nft` and `rollup` are cargo features, so the launch build
+   * genuinely has fewer instructions than this IDL describes.
+   *
+   * Checked before the Anchor passthrough below, because Anchor reports it as
+   * a structured `errorMessage` and the passthrough would return it verbatim —
+   * leaving the player reading jargon about fallback functions. The honest
+   * reading is that the feature is not deployed on this network.
+   */
+  if (/fallback function/i.test(`${fromAnchor ?? ''} ${anyErr?.message ?? ''}`)) {
+    return 'That is not available on this network yet';
+  }
   if (typeof fromAnchor === 'string' && fromAnchor) return fromAnchor;
 
   const msg = String(anyErr?.message ?? e ?? 'transaction failed');

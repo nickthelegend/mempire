@@ -165,9 +165,11 @@ normally and skips the bonus. Verified on devnet, match #78: winner
    against mainnet. Decide the upgrade authority (same multisig recommended);
    today one hot wallet holds upgrade authority, config admin and mint
    authority, which is a single point of total failure.
-2. **Build and deploy the program.**
+2. **Bake the mint, then build and deploy.**
    ```
    cd chain
+   node scripts/bake-mainnet-mint.mjs --check      # refuses if not a live mint
+   node scripts/bake-mainnet-mint.mjs <mint Bags returned>
    anchor build -- --no-default-features --features mainnet,rollup
    solana program deploy target/deploy/mempire.so \
      --program-id target/deploy/mempire-keypair.json --url <mainnet rpc>
@@ -175,6 +177,17 @@ normally and skips the bonus. Verified on devnet, match #78: winner
    Budget the full 4.17 in the deployer *before* starting: a failed attempt
    strands a buffer, and `solana program close --buffers` reclaims it. Drop
    `,rollup` for the 3.27 lean build, having read *Where MagicBlock sits*.
+
+   `--check` is not optional politeness. The mint currently baked into the
+   source (`EzN1R1qb…`) was generated offline and **never used to create a
+   mint**, so it does not exist on mainnet — deploy with it and every $MEMPIRE
+   constraint refuses, after the 4.17 is spent. The script refuses any address
+   that is not a live mint, and warns if decimals are not 6.
+
+   Measured on devnet: the *first* deploy costs the full rent, but an upgrade
+   into an already-allocated program account costs about **0.003 SOL**. The
+   account does not shrink for a smaller binary, so removing a feature later
+   never refunds rent.
 3. **$MEMPIRE already exists** — it was launched on Bags in v1, which is why
    v1 comes first. See the sequencing note below: its mint address has to be
    known before the program is built.
@@ -188,8 +201,11 @@ normally and skips the bonus. Verified on devnet, match #78: winner
    points chain verification at mainnet. Set
    `CORS_ORIGIN=https://play.mempire.fun`, rotate the Mongo credentials, and do
    **not** set `FAUCET_SECRET`.
-7. **App build:** `VITE_CLUSTER=mainnet-beta` and `VITE_RPC_URL=<mainnet rpc>`
-   — they must agree or the app refuses to boot. Build *after* step 5 writes
+7. **App build:** `VITE_CLUSTER=mainnet-beta`, `VITE_RPC_URL=<mainnet rpc>`
+   — they must agree or the app refuses to boot — and **`VITE_FEATURE_NFT=0`**,
+   because v2 compiles `nft` out. Without it the card sheet offers *Mint as NFT*
+   and the program answers with a refusal; the error is translated to a readable
+   sentence either way, but there is no reason to offer the button at all. Build *after* step 5 writes
    the registry. Deploy to Vercel.
 8. **Smoke test** with two funded wallets at the smallest tier: mint a card,
    merge a duplicate, and settle one staked PvP match end to end.
