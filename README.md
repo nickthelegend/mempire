@@ -20,7 +20,7 @@ no wallet required to start.
    browser, so the whole game works with no wallet installed; connect Phantom,
    Solflare, Coinbase, Trust or Nightly whenever you want to own things properly.
 2. **Collect fighters** — 36 verified assets at launch: majors (BTC, ETH, SOL),
-   memecoins (BONK, WIF, POPCAT, MEW, PEPE), and tokenised stocks (NVDA, META,
+   memecoins (BONK, POPCAT, MEW, PEPE, BRETT), and tokenised stocks (NVDA, META,
    MSTR, V). Coin → archetype is deterministic: `fnv1a(mint) % 6` → Tank / Swarm
    / Ranged / Splash / Support / Spell, so a card's identity is fixed by its mint
    and nobody can reroll into a better one.
@@ -165,16 +165,21 @@ reads NO STAKE and escrows nothing, because a bot has no key to escrow with.
 | Extra chest slot | 100 $MEMPIRE | yes |
 | Shop purchase / paid reroll | 250 / 35 $MEMPIRE | yes |
 | Clan charter | 250 $MEMPIRE | yes |
+| Merge fee | 100 × level $MEMPIRE | yes |
 | NFT royalties | 5% | on tokenised cards |
 
-Every line above is shipping today, not roadmap. Note what is *not* on the
-list: nothing charges for power. There is no way to buy a level, and no fee is
-taken on anyone's own tokens, because the game never holds them.
+Every line above is shipping today, not roadmap. Two honest notes on the merge
+fee, because "you can't buy power" would be too strong a claim: levelling needs
+a **duplicate**, and duplicates come from chests you earn by winning — but the
+daily shop mints real cards, so a paid path to a duplicate does exist. It is
+four rotating offers, not a targeted upgrade, and the merge itself still
+charges 100 × level. What is genuinely absent is any fee on a player's own
+tokens, because the game never holds them.
 
 ## Go-to-market
 
 **Positioning: the market is the roster.** Clash Royale, except every fighter is
-a real asset — BONK, WIF, NVDA, BTC — with art and stats of its own. That reads
+a real asset — BONK, POPCAT, NVDA, BTC — with art and stats of its own. That reads
 instantly to two audiences who never share a game: crypto people who know the
 tickers, and mobile gamers who just want a good three-minute match. Critically,
 nobody has to own anything to play, so the top of the funnel is the entire
@@ -193,7 +198,7 @@ problem, not a fixing problem.
 
 | Channel | Why it compounds |
 |---|---|
-| **Asset communities** | 36 verified fighters at launch, each with a community that wants *their* ticker to top the board. Per-asset leaderboards and season wars give BONK vs WIF a scoreboard. Getting added to the roster is the BD ask — and it costs them nothing, because we never touch their token. |
+| **Asset communities** | 36 verified fighters at launch, each with a community that wants *their* ticker to top the board. Per-asset leaderboards and season wars give BONK vs POPCAT a scoreboard. Getting added to the roster is the BD ask — and it costs them nothing, because we never touch their token. |
 | **Solana ecosystem** | A real-time onchain game with escrowed pots and settlement is a showcase integration, which earns listings and co-marketing without ad spend. |
 | **Creators & clips** | Three-minute matches with real pots are natively clippable, and SHARE 𝕏 is already on the result screen. Seed a small creator pool in $MEMPIRE. |
 | **Onchain receipts** | Every pot and NFT is a public transaction. The Explorer link is the ad. |
