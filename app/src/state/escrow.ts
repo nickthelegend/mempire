@@ -278,6 +278,9 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
       const { deckCardIds } = get();
       const { signature: settleSig } = await settleFromLogTx(
         adapter, matchId, [m.players[0], m.players[1]] as [string, string], deckCardIds,
+        // Named so the winner's $MEMPIRE reward can be routed; the program
+        // still decides who won from the log's claims, never from this.
+        winnerSeat,
       );
       set({ phase: 'settled', lastSignature: settleSig });
       track('match.settled', { matchId, winnerSeat: winnerSeat });

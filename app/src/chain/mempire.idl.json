@@ -1631,6 +1631,48 @@
         {
           "name": "treasury",
           "writable": true
+        },
+        {
+          "name": "reward_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "reward_vault",
+          "docs": [
+            "The $MEMPIRE the program can pay out. Optional so a settlement never",
+            "depends on a reward account existing — see the payout in the handler."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "winner_tokens",
+          "docs": [
+            "The winner's $MEMPIRE account. Owner and mint are checked in the",
+            "handler against the seat the log actually says won."
+          ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -2188,6 +2230,19 @@
         205,
         227,
         47
+      ]
+    },
+    {
+      "name": "WinRewardPaid",
+      "discriminator": [
+        26,
+        233,
+        202,
+        143,
+        140,
+        223,
+        123,
+        134
       ]
     }
   ],
@@ -2894,6 +2949,22 @@
           {
             "name": "next",
             "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "WinRewardPaid",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "to",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }

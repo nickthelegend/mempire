@@ -35,6 +35,20 @@ const MEMPIRE_MINT: Pubkey = pubkey!("EzN1R1qbU4Vx1XC8FJFKuLJxN8hjxvMNipHi3uLBPA
 /// 900, and the climb is a decision rather than an afternoon.
 const UPGRADE_BASE_FEE: u64 = 100_000_000;
 
+/// $MEMPIRE paid to the winner of a settled match, in base units (50 whole
+/// tokens).
+///
+/// The onboarding problem this solves: chests pay cards, so a player arrives
+/// holding no $MEMPIRE at all — while merging, chest skips, the shop and clan
+/// charters all price in it. Winning is the one thing every player already
+/// does, so it is what pays. Two wins covers a first merge.
+///
+/// A constant rather than a `Config` field on purpose: widening `Config` would
+/// orphan an already-initialised config account, and `Config::SIZE` is exact.
+/// Retuning this is a program upgrade, which is the same bar `UPGRADE_BASE_FEE`
+/// already sits behind.
+const WIN_REWARD: u64 = 50_000_000;
+
 /// Where a card's metadata JSON lives. The ticker is appended, lower-cased.
 const METADATA_BASE_URI: &str = "https://play.mempire.fun/nft/";
 const DECK_SIZE: usize = 8;
@@ -1189,6 +1203,48 @@ pub mod mempire {
             **to.try_borrow_mut_lamports()? += payout;
         }
 
+        /*
+         * The winner's $MEMPIRE, paid from a vault the program controls.
+         *
+         * Optional on purpose, and for the same reason the chest rail is: a
+         * reward account that is missing must never be able to strand a pot.
+         * An empty vault, a winner with no token account, a client that does
+         * not know about the reward yet — each of those skips the payout and
+         * settles the SOL exactly as before.
+         *
+         * Un-farmable by construction. It pays only on a settled match, which
+         * means two seats escrowed real SOL, played, and agreed on the result.
+         * Nobody can mint themselves an income here without first risking the
+         * pot against a real opponent.
+         */
+        if !tie && WIN_REWARD > 0 {
+            if let (Some(vault), Some(dest), Some(token_program)) = (
+                ctx.accounts.reward_vault.as_ref(),
+                ctx.accounts.winner_tokens.as_ref(),
+                ctx.accounts.token_program.as_ref(),
+            ) {
+                let expected = ctx.accounts.match_account.players[winner as usize];
+                let amount = WIN_REWARD.min(vault.amount);
+                if amount > 0 && dest.owner == expected && dest.mint == MEMPIRE_MINT {
+                    let bump = ctx.bumps.reward_authority;
+                    let seeds: &[&[u8]] = &[b"rewards", &[bump]];
+                    token::transfer(
+                        CpiContext::new_with_signer(
+                            token_program.to_account_info(),
+                            Transfer {
+                                from: vault.to_account_info(),
+                                to: dest.to_account_info(),
+                                authority: ctx.accounts.reward_authority.to_account_info(),
+                            },
+                            &[seeds],
+                        ),
+                        amount,
+                    )?;
+                    emit!(WinRewardPaid { to: expected, amount });
+                }
+            }
+        }
+
         unlock_deck(ctx.remaining_accounts, &ctx.accounts.match_account.key())?;
 
         let m = &mut ctx.accounts.match_account;
@@ -1841,6 +1897,18 @@ pub struct SettleFromLog<'info> {
     /// CHECK: validated against config.treasury
     #[account(mut, address = config.treasury)]
     pub treasury: UncheckedAccount<'info>,
+    /// CHECK: PDA that owns the reward vault; signs the transfer out of it.
+    #[account(seeds = [b"rewards"], bump)]
+    pub reward_authority: UncheckedAccount<'info>,
+    /// The $MEMPIRE the program can pay out. Optional so a settlement never
+    /// depends on a reward account existing — see the payout in the handler.
+    #[account(mut, constraint = reward_vault.mint == MEMPIRE_MINT)]
+    pub reward_vault: Option<Account<'info, TokenAccount>>,
+    /// The winner's $MEMPIRE account. Owner and mint are checked in the
+    /// handler against the seat the log actually says won.
+    #[account(mut)]
+    pub winner_tokens: Option<Account<'info, TokenAccount>>,
+    pub token_program: Option<Program<'info, Token>>,
 }
 
 // ── Events & errors ──────────────────────────────────────────────────────────
@@ -1885,6 +1953,12 @@ pub struct MatchCreated {
     pub match_id: u64,
     pub tier: u8,
     pub stake_lamports: u64,
+}
+
+#[event]
+pub struct WinRewardPaid {
+    pub to: Pubkey,
+    pub amount: u64,
 }
 
 #[event]

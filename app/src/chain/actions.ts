@@ -456,11 +456,17 @@ export async function cancelMatchTx(
  * The eight-plus-eight deck accounts ride along so settlement releases both
  * decks in the same transaction that moves the money.
  */
+/** PDA that owns the $MEMPIRE the program pays winners from. */
+export const rewardAuthorityPda = (): PublicKey => PublicKey.findProgramAddressSync(
+  [Buffer.from('rewards')], PROGRAM_ID,
+)[0];
+
 export async function settleFromLogTx(
   adapter: Adapter | null,
   matchId: number,
   players: [string, string],
   deckCardIds: number[],
+  winner?: number,
 ): Promise<TxResult> {
   const wallet = requireSigner(adapter);
   const program = getProgram(adapter);
@@ -481,6 +487,29 @@ export async function settleFromLogTx(
   const locked = await cardsLockedTo(matchPda(matchId)).catch(() => [] as PublicKey[]);
   const deckAccounts = locked.length ? locked : deckCardIds.map((id) => cardPda(id));
 
+  /*
+   * The winner's $MEMPIRE reward, when there is a vault to pay it from.
+   *
+   * All three accounts are optional in the program, and null is a legal value
+   * — a settlement must never fail because a *reward* account is missing.
+   * They are only named when the vault actually exists and the winner already
+   * has somewhere to receive tokens; anything less and the pot still settles,
+   * the reward simply is not paid.
+   */
+  const rewardAuthority = rewardAuthorityPda();
+  const vault = getAssociatedTokenAddressSync(MEMPIRE_MINT, rewardAuthority, true);
+  let rewardVault: PublicKey | null = null;
+  let winnerTokens: PublicKey | null = null;
+  if (winner === 0 || winner === 1) {
+    const conn = getConnection();
+    const dest = getAssociatedTokenAddressSync(MEMPIRE_MINT, new PublicKey(players[winner]));
+    const [vaultInfo, destInfo] = await Promise.all([
+      conn.getAccountInfo(vault).catch(() => null),
+      conn.getAccountInfo(dest).catch(() => null),
+    ]);
+    if (vaultInfo && destInfo) { rewardVault = vault; winnerTokens = dest; }
+  }
+
   const signature = await program.methods
     .settleFromLog()
     .accounts({
@@ -491,6 +520,10 @@ export async function settleFromLogTx(
       playerA: new PublicKey(players[0]),
       playerB: new PublicKey(players[1]),
       treasury: new PublicKey(cfg.treasury),
+      rewardAuthority,
+      rewardVault,
+      winnerTokens,
+      tokenProgram: rewardVault ? TOKEN_PROGRAM_ID : null,
     } as any)
     .remainingAccounts(deckAccounts.map((pubkey) => ({
       pubkey, isWritable: true, isSigner: false,
