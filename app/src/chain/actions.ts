@@ -2,8 +2,11 @@ import { AnchorProvider, BN } from '@coral-xyz/anchor';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from '@solana/spl-token';
-import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import {
+  PublicKey, SystemProgram, Transaction, type TransactionInstruction,
+} from '@solana/web3.js';
 import { canSign, getProgram, getProvider, getConnection } from './provider';
 import {
   PROGRAM_ID, cardPda, coinPda, configPda, matchPda,
@@ -152,6 +155,19 @@ export async function upgradeCardTx(
   const cfg = await fetchConfig();
   if (!cfg) throw new Error('Program config not found on this cluster');
 
+  /*
+   * The merge fee lands in the treasury's $MEMPIRE account, which on a fresh
+   * mainnet has never been created — the treasury is a brand new multisig that
+   * has never held the mint. Naming it unconditionally would fail account
+   * resolution, so the *first* player to merge on mainnet would simply be told
+   * the merge failed, and merging would stay broken until somebody happened to
+   * make a shop purchase (which does create it). Idempotent, so that first
+   * player pays the rent once and nobody after them does.
+   */
+  const treasuryMempire = getAssociatedTokenAddressSync(
+    MEMPIRE_MINT, new PublicKey(cfg.treasury), true,
+  );
+
   const signature = await program.methods
     .upgradeCard()
     .accounts({
@@ -159,12 +175,13 @@ export async function upgradeCardTx(
       card: cardPda(keepCardId),
       duplicate: cardPda(duplicateCardId),
       ownerMempire: getAssociatedTokenAddressSync(MEMPIRE_MINT, owner),
-      treasuryMempire: getAssociatedTokenAddressSync(
-        MEMPIRE_MINT, new PublicKey(cfg.treasury), true,
-      ),
+      treasuryMempire,
       owner,
       tokenProgram: TOKEN_PROGRAM_ID,
     } as any)
+    .preInstructions([createAssociatedTokenAccountIdempotentInstruction(
+      owner, treasuryMempire, new PublicKey(cfg.treasury), MEMPIRE_MINT,
+    )])
     .rpc();
 
   track('card.upgrade', { keep: keepCardId, burned: duplicateCardId });
@@ -516,6 +533,7 @@ export async function settleFromLogTx(
   const vault = getAssociatedTokenAddressSync(MEMPIRE_MINT, rewardAuthority, true);
   let rewardVault: PublicKey | null = null;
   let winnerTokens: PublicKey | null = null;
+  const pre: TransactionInstruction[] = [];
   if (winner === 0 || winner === 1) {
     const conn = getConnection();
     const dest = getAssociatedTokenAddressSync(MEMPIRE_MINT, new PublicKey(players[winner]));
@@ -523,7 +541,38 @@ export async function settleFromLogTx(
       conn.getAccountInfo(vault).catch(() => null),
       conn.getAccountInfo(dest).catch(() => null),
     ]);
-    if (vaultInfo && destInfo) { rewardVault = vault; winnerTokens = dest; }
+    /*
+     * Only worth naming when the vault can actually pay: an ATA costs rent to
+     * open, and opening one to receive nothing is a fee for no reward.
+     * The balance is a u64 at offset 64 of a token account.
+     */
+    const vaultHasTokens = vaultInfo != null
+      && vaultInfo.data.length >= 72
+      && vaultInfo.data.readBigUInt64LE(64) > 0n;
+
+    if (vaultHasTokens) {
+      rewardVault = vault;
+      winnerTokens = dest;
+      /*
+       * The winner may never have held $MEMPIRE, and on mainnet that is the
+       * *normal* case rather than the edge one — there is no faucet, and this
+       * reward is precisely how a new player gets their first. They therefore
+       * have no associated token account, and the old code read that as "no
+       * reward" and skipped it. The bootstrap failed for exactly the people it
+       * was built for, invisibly, because every devnet wallet already holds
+       * $MEMPIRE from the faucet.
+       *
+       * So open it here. Idempotent because the check above races anyone else
+       * settling the same match — a plain create would throw on the loser.
+       * The settler pays the rent; that is a few thousand lamports against a
+       * pot they are already paying to settle.
+       */
+      if (!destInfo) {
+        pre.push(createAssociatedTokenAccountIdempotentInstruction(
+          wallet.publicKey!, dest, new PublicKey(players[winner]), MEMPIRE_MINT,
+        ));
+      }
+    }
   }
 
   const signature = await program.methods
@@ -541,6 +590,7 @@ export async function settleFromLogTx(
       winnerTokens,
       tokenProgram: rewardVault ? TOKEN_PROGRAM_ID : null,
     } as any)
+    .preInstructions(pre)
     .remainingAccounts(deckAccounts.map((pubkey) => ({
       pubkey, isWritable: true, isSigner: false,
     })))
@@ -589,15 +639,24 @@ export async function mintDeckTx(
     const cfg = await fetchConfig();
     if (!cfg) throw new Error('Program config not found on this cluster');
 
-    const ixs = await Promise.all(chunk.map((m, k) => {
+    const ixs = await Promise.all(chunk.map(async (m, k) => {
       const mintKey = new PublicKey(m);
+      /*
+       * Same rule as the single mint above, and it was missed here: naming a
+       * token account that has never been created fails account resolution
+       * before the program is reached. Holding the coin stopped being a
+       * requirement at the pivot, so *not* holding it is now the common case
+       * — which made this the common case too.
+       */
+      const ata = getAssociatedTokenAddressSync(mintKey, owner);
+      const holdsIt = await getConnection().getAccountInfo(ata).catch(() => null);
       return program.methods
         .mintCard()
         .accounts({
           config: configPda(),
           coinInfo: coinPda(mintKey),
           card: cardPda(cfg.nextCardId + k),
-          ownerTokens: getAssociatedTokenAddressSync(mintKey, owner),
+          ownerTokens: holdsIt ? ata : null,
           owner,
           treasury: new PublicKey(cfg.treasury),
           systemProgram: SystemProgram.programId,

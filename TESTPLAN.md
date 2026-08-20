@@ -1266,3 +1266,100 @@ differs by one constant. That gap closes when mainnet is funded and not before.
 
 Bags remains verified only in its unconfigured state. Creator-fee claiming is
 still unwired, because there is nothing to claim until the token trades.
+
+# Run 14 — the reward that could never reach a new player
+
+The win reward exists for one reason: mainnet has no faucet, so the only way a
+new player gets their first $MEMPIRE is by winning. Run 12 called that question
+"settled". This run tried to prove it and found the opposite.
+
+## The bug: the bootstrap excluded the people it was built for
+
+`settleFromLogTx` named the reward accounts only when both already existed:
+
+    if (vaultInfo && destInfo) { rewardVault = vault; winnerTokens = dest; }
+
+`destInfo` is the winner's $MEMPIRE associated token account. A player who has
+never held $MEMPIRE does not have one — and on mainnet that is not the edge
+case, it is the *first* case. So the client read "no token account" as "no
+reward", and skipped it. A new player would win, be paid the pot, and still
+have zero $MEMPIRE, with no faucet and no other emission to get any.
+
+Proven before writing a line of the fix:
+
+    fresh wallet      5fwmHPSXGAtZVZyV85fgKJjkhFbjarzy7NdmfhzVBpSV
+    its $MEMPIRE ATA  8fVpVZr2YhsRpNnCs1aK6zxGSU39RqGBywLPPuj9WEGg
+    account exists?   false
+
+Devnet hid it completely. Every demo wallet already holds $MEMPIRE from the
+faucet, so `destInfo` was never null here, and match #78 "verified" a payout on
+a path no new mainnet player would ever take.
+
+The fix opens the account in the same transaction, idempotently — the existence
+check races anyone else settling the same match, and a plain create would throw
+on the loser. The settler pays a few thousand lamports of rent against a pot
+they are already paying to settle. It is only attempted when the vault holds a
+non-zero balance, because opening an account to receive nothing is a fee for no
+reward.
+
+## Proving it, on a wallet that genuinely had nothing
+
+Wallet A's 8,265 $MEMPIRE were transferred out and its token account **closed**,
+making it indistinguishable from a new mainnet player. Then it played and won:
+
+    before        A holds no $MEMPIRE account at all
+    match #82     won 1–0 · 12 plays on the rollup · COMMITTED · PAID
+    after         A  0 → 50 $MEMPIRE   (in an account settlement created)
+                  vault  1,900 → 1,850
+
+## Two more of the same species
+
+The bug was a class, not an instance: *devnet state masking mainnet reality*.
+Sweeping every `getAssociatedTokenAddressSync` call site found two more.
+
+**Batch minting was broken for coins you do not hold.** `mintCardTx` documents
+this exact hazard and handles it; `mintDeckTx`, 500 lines below, passed
+`ownerTokens` unconditionally. Holding the coin stopped being a requirement at
+the pivot, so *not* holding it is now the common case — which made this the
+common case too. Now null when the account does not exist, matching its sibling.
+
+**The first merge on mainnet would have failed.** `upgrade_card` takes
+`treasury_mempire` as a non-optional `Account<TokenAccount>`, and a fresh
+mainnet treasury is a new multisig that has never held the mint. The first
+player to merge would simply be told it failed, and merging would stay broken
+until somebody happened to make a shop purchase — `spend.ts` creates the account
+idempotently, `upgradeCardTx` did not. Now it does.
+
+`amm.ts` already got this right and needed no change.
+
+While there, the `UpgradeCard` constraints were re-read for a fee-redirect:
+`treasury_mempire.owner == config.treasury` and `owner_mempire.owner ==
+owner.key()` are both enforced. No issue.
+
+## Timeout recovery, exercised rather than assumed
+
+Match #81 stranded 0.05 SOL and both decks — my own doing: a Bash `sleep`
+backgrounded the browser tab, its WebSocket was reaped, and the client voided
+honestly (`match voided: the connection dropped mid-match`). That is the
+recorded gotcha, not a product defect.
+
+It made a useful accident. The Empire screen found the stranded match on its own
+— *"Match #81 escrowed 0.05 SOL and never settled"* — and the first CLAIM MY
+STAKE answered **"The deadline has not passed yet."** That was true: the
+deadline was still 43 seconds out. Clicking after it passed settled #81 to
+winner 0 and paid +0.09 SOL, releasing both decks. An opponent who vanishes
+forfeits; the player who stayed is made whole without help.
+
+Worth recording that the recovery reads the stranded match **from the chain**
+rather than from the store, so it survives the reload that anyone needing it
+will have done.
+
+## Honest limits, carried forward
+
+`claim_timeout` pays the pot but **not** the win reward. That asymmetry is
+deliberate — a walkover is not a played win — but it means a new player whose
+first win arrives by timeout still ends with no $MEMPIRE.
+
+The mainnet binary remains unrun; only its devnet twin, differing by one
+constant. Bags is still verified only unconfigured, and creator-fee claiming is
+still unwired.

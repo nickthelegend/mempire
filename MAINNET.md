@@ -154,8 +154,21 @@ normally and skips the bonus. Verified on devnet, match #78: winner
       `configured: false` until the token exists. Nothing to build at launch —
       set `BAGS_API_KEY` and `MEMPIRE_MINT` on the relay and it goes live.
 - [x] A win pays `WIN_REWARD` (50 $MEMPIRE) from a `[b"rewards"]` PDA vault.
-      **Fund that vault at launch** — the accounts are optional, so an unfunded
-      vault settles the pot normally and simply pays no bonus.
+      **Create and fund that vault at launch.** It is the associated token
+      account of the `[b"rewards"]` PDA, so it does not exist until someone
+      makes it:
+      ```
+      REWARDS=$(node -e "const{PublicKey}=require('@solana/web3.js');\
+        console.log(PublicKey.findProgramAddressSync([Buffer.from('rewards')],\
+        new PublicKey('BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP'))[0].toBase58())")
+      spl-token create-account <MEMPIRE_MINT> --owner $REWARDS --fee-payer <you>
+      spl-token transfer <MEMPIRE_MINT> <amount> $REWARDS --fund-recipient
+      ```
+      An unfunded or absent vault is safe — the reward accounts are optional and
+      the client only names them when the vault holds a non-zero balance, so the
+      pot settles normally and the bonus is simply skipped. But until it is
+      funded, **new players cannot obtain their first $MEMPIRE at all**, because
+      mainnet has no faucet and this is the only emission.
 
 ## Launch sequence
 
