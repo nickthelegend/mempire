@@ -22,6 +22,8 @@
  * are all real; only the tactics are bad.
  */
 import WebSocket from 'ws';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { createMatch, stepSim, hashState, FORMATS } from './sim-node.mjs';
 import anchor from '@coral-xyz/anchor';
 import { Connection, Keypair, PublicKey, SystemProgram } from '@solana/web3.js';
@@ -133,9 +135,20 @@ async function waitForTrigger() {
 const ws = new WebSocket(WS);
 ws.on('open', async () => {
   await waitForTrigger();
-  console.log('spar-full: queueing tier 0 ranked');
+  /*
+   * Signed, because ranked now requires a proven address — an unsigned queue
+   * is demoted to casual and pairs with nobody who queued ranked. Same
+   * message format as every other write: `Mempire\naction: queue\n…`.
+   */
+  const address = kp.publicKey.toBase58();
+  const ts = Date.now();
+  const msg = `Mempire\naction: queue\nwallet: ${address}\nts: ${ts}`;
+  const signature = bs58.encode(
+    nacl.sign.detached(new TextEncoder().encode(msg), kp.secretKey),
+  );
+  console.log('spar-full: queueing tier 0 ranked (signed)');
   ws.send(JSON.stringify({
-    t: 'queue', tier: 0, address: kp.publicKey.toBase58(), deck: relayDeck,
+    t: 'queue', tier: 0, address, ts, signature, deck: relayDeck,
     format: 'standard', ranked: true, trophies: 60, name: 'Sparring Partner',
   }));
 });

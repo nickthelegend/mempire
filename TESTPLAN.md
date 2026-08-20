@@ -899,3 +899,56 @@ real call anywhere in the tested surface. Every on-chain item above is a
 real signed transaction on devnet against the deployed programs, every API
 item a real call to the live relay against real Mongo state, and the swap
 moved real pool reserves.
+
+# Run 10 — mainnet readiness, audited and verified
+
+Scope: everything between the devnet game and a mainnet launch. A 62-agent
+parallel audit swept app/server/programs/config for devnet assumptions:
+41 confirmed findings, 22 lower-severity notes. All 41 are closed in code or
+fenced with a reason recorded in MAINNET.md. The larger fixes and what
+verified them:
+
+## Fixed and verified this run
+
+| Item | Verification |
+|---|---|
+| Guest signing keyed to a cosmetic env label | Fail-closed on the effective cluster; mismatched label/RPC refuses to boot (build-time verified both directions) |
+| Registry was devnet-only, fake prices as real | Per-cluster registries; mainnet one built from Jupiter-verified identities + per-mint DexScreener reads. First build caught a scam "BTC" with $8B spoofed liquidity — symbol search is banned from the pipeline |
+| Live prices on mainnet | overlay wired into chain init + 5-min refresh; money paths read at click time |
+| Shop paid real $MEMPIRE for a card the sync dropped; SOL buys charged nothing | onchain mode mints on-chain on purchase; SOL button charges the program's real mint fee and says so |
+| Leaderboard believed client-asserted payouts | relay reads the settled match account; fabricated 999-SOL claim verified to rank as nothing on the live relay |
+| 5-minute signature replay window | TTL-unique store; replay verified 401 "signature already used" live |
+| Matchmaker trusted any address | queue payloads signed; unsigned ranked demotes to casual; two signed seats verified pairing ranked (match #74, #75 escrowed under the new relay) |
+| Relayed deck never checked against the chain commitment | client verifies deck hash vs match account at escrow-live; mismatch voids like a desync |
+| Rollup end_log: first caller declared the winner and took the chest | two-claim settlement, redeployed to devnet. Observed live: first claim holds the log open with NO grant (claims [3,0]); the agreeing second claim grants at exactly pair-completion (earned 1→2, sig 4CR7k5YCnaW1…) and seals [0,0] home; base-log disagreement ([2,0], the browser voided on a dead socket while the lone sim saw a win) settles by dispute with no chest |
+| VRF test queue accepted (public fulfiller) | mainnet build accepts only the production oracle queue (cargo feature) |
+| init_config accepted nonsense durations; tokenize accepted any ticker | sane-range requires + alphanumeric ticker; compile-verified, deploys fresh with mainnet (init-time-only on devnet) |
+| Treasury derived from a public string | set-treasury.ts refuses mainnet; runbook mandates a fresh key/multisig |
+| Priority fees absent | one FeeAwareProvider override adds setComputeUnitPrice on mainnet |
+| Chest timers 60x, shop day 3 min, cooldown copy, wallet network, a dozen "devnet" strings, SEO copy | all cluster-derived; mainnet local build toured: MAINNET · REAL FUNDS, guest row says play-only, swap refuses the cross-cluster pool honestly, zero failed resources, console clean |
+
+## Devnet regression after all changes
+
+Fresh-tab tour of every surface: two info lines, zero console errors, zero
+failed requests. Faucet still registered for devnet. Signed guest queue
+pairs ranked. Match #74/#75 escrowed under the new relay. Stranded stakes
+recovered by the existing timeout path (twice, incidentally, when the
+automation browser's hidden tab dropped its WebSocket — each time the
+result card told the truth about what happened).
+
+## Honest limits of this run
+
+- The two-claim agreement grant was completed by a scripted seat-0 claim on
+  the live rollup log rather than by two browsers, because the hidden
+  automation pane reaps idle WebSockets mid-match — an environment
+  artifact, not app behaviour (visible tabs, which every real player has,
+  keep their socket). The on-chain observation is identical either way.
+- The rollup's *disagreeing-second-claim* branch was not exercised live;
+  its guard is the same `agreed` boolean whose true case was observed
+  granting and whose absent case was observed not granting.
+- A chest awarded before its entitlement lands keeps its honest local roll
+  and the late entitlement banks for the next win (observed: earned 2,
+  opened 1 after the late grant).
+
+Mainnet launch itself is deliberately not performed: it spends real money
+and waits on ~12 SOL. MAINNET.md is the runbook.

@@ -149,7 +149,9 @@ export function WalletPicker() {
           onClick={connectGuest}
           mark={<GuestMark />}
           title="Play as Guest"
-          sub="A real keypair in this browser — plays and stakes onchain"
+          sub={IS_MAINNET
+            ? 'Play-only on mainnet — connect a wallet to mint or stake'
+            : 'A real keypair in this browser — plays and stakes onchain'}
         />
 
         {error && (
