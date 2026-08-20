@@ -6,6 +6,7 @@ import {
   quote, readPool, swap, tokenBalance, type PoolState,
 } from '../chain/amm';
 import { IS_MAINNET, canSign, explorerUrl } from '../chain/provider';
+import { describe as describeMarket, type MarketInfo } from '../chain/market';
 import { useWallet } from '../state/wallet';
 import { signer } from '../state/wallet';
 
@@ -49,19 +50,31 @@ function parseAmount(text: string): bigint {
  */
 export function SwapPanel({ compact = false }: { compact?: boolean }) {
   /*
-   * The one state where quoting at all would be a lie: this build's cluster
-   * and the pool baked into amm.json disagree — a mainnet bundle cut before
-   * the mainnet pool was opened (or vice versa). Refuse with the reason
-   * rather than showing prices from the other cluster's market.
+   * Where $MEMPIRE actually trades.
+   *
+   * Two venues, and the difference matters to a player only in that one of
+   * them exists: the local `mempire_amm` pool, and the Bags market. Bags is
+   * preferred where it is configured, because it means no second program was
+   * deployed and no liquidity had to be seeded. Asked once, cached.
    */
-  if (!AMM_CONFIG_MATCHES_CLUSTER) {
+  const [market, setMarket] = useState<MarketInfo | null>(null);
+  useEffect(() => { void describeMarket().then(setMarket); }, []);
+  const onBags = market?.configured === true;
+
+  /*
+   * The one state where quoting at all would be a lie: no venue can fill an
+   * order. Either Bags has no market yet (before $MEMPIRE is launched) or
+   * this build's cluster disagrees with the pool baked into amm.json — a
+   * mainnet bundle cut before the mainnet pool existed, or the reverse.
+   * Refuse with the reason rather than show a price nobody can trade at.
+   */
+  if (market !== null && !onBags && !AMM_CONFIG_MATCHES_CLUSTER) {
     return (
       <div className="panel" style={{ padding: 16 }}>
         <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
-          The swap pool for this cluster has not been opened yet — this build
-          carries a pool from a different cluster, and quoting it here would
-          show prices from a market you cannot trade. Everything else works;
-          swaps arrive with the pool.
+          {market.note} There is no market for $MEMPIRE on this cluster yet, and
+          quoting one you cannot trade against would be worse than saying so.
+          Everything else in the game works; swaps arrive with the market.
         </p>
       </div>
     );

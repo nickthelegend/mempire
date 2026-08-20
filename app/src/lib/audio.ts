@@ -129,13 +129,31 @@ export function stopMusic(): void {
 }
 
 /**
+ * Has this document seen a real user gesture yet?
+ *
+ * Browsers refuse `navigator.vibrate` until the user has tapped, and refusing
+ * it is not an exception — it is a console *intervention*, which a try/catch
+ * cannot suppress. So a buzz fired by anything other than a tap (a match
+ * starting, a chest landing, a card being dealt) printed an error nobody could
+ * act on, once per call. Asking permission of the document is the fix; the
+ * listeners retire themselves the first time they fire.
+ */
+let gestured = false;
+if (typeof window !== 'undefined') {
+  const seen = () => { gestured = true; };
+  window.addEventListener('pointerdown', seen, { once: true, passive: true });
+  window.addEventListener('keydown', seen, { once: true });
+  window.addEventListener('touchend', seen, { once: true, passive: true });
+}
+
+/**
  * Short haptic tap on supported mobile browsers. Paired with click() at the
  * call sites that matter (deploy, collect, buy) rather than every button, so it
  * stays a signal instead of noise.
  */
 export function buzz(ms = 12): void {
-  if (muted) return;
+  if (muted || !gestured) return;
   try {
     navigator.vibrate?.(ms);
-  } catch { /* unsupported or blocked */ }
+  } catch { /* unsupported */ }
 }

@@ -10,6 +10,7 @@ import cors from 'cors';
 import express from 'express';
 import { requireWallet, setReplayStore, setWalletLimiter } from './auth.js';
 import { verifySettledMatch } from './chain-verify.js';
+import { registerBagsRoutes, bagsConfigured } from './bags.js';
 import { MongoClient } from 'mongodb';
 import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
@@ -513,6 +514,11 @@ const server = await (async () => {
   ).coins;
   registerFaucetRoutes(app, db, registryCoins);
   registerPlayerRoutes(app, db);
+  // The $MEMPIRE market. Registers either way — the routes report
+  // `configured: false` until BAGS_API_KEY and MEMPIRE_MINT are both set,
+  // which is a state the swap screen already knows how to render honestly.
+  registerBagsRoutes(app, limit);
+  console.log(`bags market: ${bagsConfigured() ? 'configured' : 'not configured (no key or mint yet)'}`);
   registerTelemetryRoutes(app, db, requireWallet);
   // Value locked, read straight from chain — the one set of numbers on the
   // dashboard that no client reports and nothing here can inflate.
