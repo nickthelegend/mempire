@@ -207,14 +207,17 @@ problem, not a fixing problem.
 
 1. **Now — devnet open beta.** Free, weekly leaderboard seasons, zero spend.
    Goal: a Discord of regulars and proof the loop is fun before money moves.
-2. **Mainnet launch — ~3.2 SOL.** The lean build (see `MAINNET.md`): the whole
-   game, real escrowed pots, the full 36-asset roster. Small tiers only
-   (0.05 SOL cap). Goal: prove rake revenue with capped risk. Almost all of that
-   3.2 is *recoverable rent*, not spend — closing the program returns it.
-3. **+1.6 SOL — cards as NFTs.** `solana program extend` and upgrade; cards
-   start rendering in wallets and explorers.
-4. **+3.1 SOL — the rollup.** MagicBlock ER: plays land on a rollup mid-match,
-   VRF-rolled chests, on-chain play log. Funded out of rake, not out of pocket.
+2. **v1 — the token, ~0.1 SOL.** Launch $MEMPIRE on [bags.fm](https://bags.fm),
+   which runs on Meteora's Dynamic Bonding Curve: the market makes itself, the
+   token gets a Dexscreener listing, and the creator earns **1% of all trading
+   volume forever, in SOL**. This replaces deploying our own AMM (1.96 SOL plus
+   liquidity to seed) with something that pays instead of costs.
+3. **v2 — real pots, +3.2 SOL.** The lean build: the whole game, escrowed PvP,
+   the 36-asset roster. Small tiers only (0.05 SOL cap). Nearly all of that 3.2
+   is *recoverable rent* — closing the program returns it.
+4. **v3 — everything, +4.8 SOL.** NFT cards and the MagicBlock rollup (VRF
+   chests, on-chain play log), added in place with `solana program extend` and
+   funded out of rake rather than out of pocket.
 5. **Then** — clan tournaments with rake-funded prizes, the Android wrapper
    (keystore already cut), a third-party audit, higher tiers.
 

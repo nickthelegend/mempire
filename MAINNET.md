@@ -5,49 +5,93 @@ sequence below, and each step names what it costs. Programs deploy with the
 **same IDs** as devnet (the deploy keypairs in `chain/target/deploy/` *are* the
 IDs), so nothing in the client changes per cluster except env vars.
 
-## The number: ~3.2 SOL
+## Three versions, three price points
 
-Almost all of it is **recoverable rent, not spend**. Solana charges a
-rent-exemption deposit sized to the program's bytes; `solana program close`
-returns it to the authority. Actual consumed cost at launch is about 0.05 SOL
-in transaction fees.
+You asked for 1 SOL and I could not get there honestly — 1 SOL buys ~144 KB of
+program, and the simplest program in this repo (the AMM: init_pool, swap,
+liquidity) is already 282 KB. Anchor's own runtime plus any real logic lands
+past that floor. So instead: three versions, each a real thing you can ship.
 
-| Item | Size | SOL |
+| | What ships | SOL |
 |---|---|---|
-| `mempire` — lean build (`--no-default-features`) | 463,456 B | **3.23** |
-| $MEMPIRE mint + config + treasury ATA | | 0.02 |
-| 36 asset registrations | | 0.06 |
-| Deploy fees + priority | | 0.05 |
-| **Total to be live on mainnet** | | **≈ 3.36** |
+| **v1** | $MEMPIRE launched on Bags + the game free-to-play | **≈0.1** |
+| **v2** | v1 + escrowed real-money PvP on mainnet | **≈3.4** |
+| **v3** | v2 + NFT cards + MagicBlock rollup | **≈8.2** |
 
-Rent scales linearly with bytes at 6,960 lamports each, so the whole budget is
-a size decision. Measured, from this repo's own builds:
+Each version is a superset of the one before, and nothing is thrown away
+between them — `solana program extend` grows the deployed program in place.
 
-| Build | Bytes | SOL | What it adds |
+### v1 — the token and a free game · ≈0.1 SOL
+
+Launch **$MEMPIRE on [bags.fm](https://bags.fm)** instead of deploying our own
+AMM. Bags runs on Meteora's Dynamic Bonding Curve: trading happens against a
+virtual pool immediately and graduates into a real DAMM pool at a threshold, so
+the market makes itself. Launch costs about 0.02 SOL in fees and a Jito tip
+(keep 0.1 SOL in the wallet); an initial dev buy is optional.
+
+This *deletes* a line item rather than deferring one. The old plan had a 1.96
+SOL AMM deploy plus discretionary USDC to seed the pool. Bags replaces both,
+and pays: the creator earns **1% of all trading volume, forever, in SOL**, plus
+a Dexscreener listing for discoverability.
+
+The game itself needs no deploy to be playable — it already runs free at
+play.mempire.fun with the full roster, decks, chests, clans, ladder and bot and
+PvP matches. What a mainnet program buys is real-money pots, and nothing else.
+
+### v2 — real pots · +3.23 SOL
+
+The lean program (`--no-default-features`), 463,456 bytes. Escrowed PvP,
+cards on chain, merge-to-level, timeouts and settlement. Cards are program
+accounts rather than NFTs, and chests roll from a local seed that the UI
+labels as such.
+
+### v3 — everything · +4.8 SOL
+
+`nft` adds Metaplex 1-of-1 cards (+0.91 of program rent). `rollup` adds
+MagicBlock ER — plays landing on a rollup mid-match, VRF-rolled chests, an
+on-chain play log (+0.77 in the core program, plus 3.07 to deploy
+`mempire_rollup`). Fund it from rake, not from pocket.
+
+### The rent is a deposit, not a spend
+
+Solana charges deploy rent as a rent-exemption deposit sized to the program's
+bytes; `solana program close` returns it to the authority. Actual consumed cost
+is about 0.05 SOL in transaction fees. Measured build sizes, from this repo:
+
+| Build | Bytes | SOL | Adds |
 |---|---|---|---|
-| lean (`--no-default-features`) | 463,456 | 3.23 | the whole game: roster, decks, chests, escrowed PvP, settlement, timeouts |
-| `--features nft` | 594,224 | 4.14 | cards mint as Metaplex 1-of-1s, visible in wallets and explorers |
-| `--features rollup` | 574,624 | 4.00 | MagicBlock ER: plays land on a rollup mid-match, VRF chests, on-chain play log |
-| default (both) | 704,432 | 4.90 | everything — this is what devnet runs and what the 92-item plan verified |
+| lean (`--no-default-features`) | 463,456 | 3.23 | the whole game |
+| `--features nft` | 594,224 | 4.14 | Metaplex cards |
+| `--features rollup` | 574,624 | 4.00 | rollup + VRF |
+| default (both) | 704,432 | 4.90 | everything |
+| `mempire_rollup` (separate program) | 441,544 | 3.07 | needed only by v3 |
 
-**Deploy lean, grow into the rest.** `solana program extend` plus an upgrade
-adds bytes later, so the deferred features cost their difference when revenue
-pays for them — not upfront. Nothing about the money path changes: matches
-escrow and settle identically in every build, because settlement reads the two
-seats' claims off the log whether that log ever visited a rollup or not.
+Settlement is byte-identical in every build — the two seats' claims are the
+same bytes whether the log visits a rollup or stays on base layer — so moving
+up a version never migrates data or changes the money path.
 
-Two more programs stay undeployed at launch and are genuinely optional:
+### Open decision before v2: how a new player gets their first $MEMPIRE
 
-| Program | SOL | Why it can wait |
-|---|---|---|
-| `mempire_rollup` | 3.07 | VRF chest rolls + the play-by-play log. Without it chests roll from a local seed and the UI says so. |
-| `mempire_amm` | 1.96 | The $MEMPIRE/USDC pool. The swap screen refuses honestly when no pool exists on the current cluster. |
+Chests pay cards, not $MEMPIRE, and on devnet the faucet drips 2,000. There is
+no faucet on mainnet, so a new player arrives with none — and merging
+(100 × level), chest skips, the shop and clan charters all price in $MEMPIRE.
+Three ways out, and this is a product call rather than a technical one:
+
+1. **Earn it by winning** — add $MEMPIRE to chest payouts. Fits the pivot best:
+   everything else in the game is earned by playing.
+2. **Buy it on Bags** — honest and zero work, but it puts a purchase between a
+   new player and their second card level.
+3. **Treasury airdrop** — needs a stash, which means an initial dev buy at
+   launch and a sybil rule.
 
 ## Pre-funding — already done, cost nothing
 
-- [x] Mainnet $MEMPIRE mint keypair → `chain/.mempire-mint-mainnet.json`
-      (gitignored), address `EzN1R1qbU4Vx1XC8FJFKuLJxN8hjxvMNipHi3uLBPAcU`,
-      baked into the binary by the `mainnet` cargo feature.
+- [x] A mainnet $MEMPIRE mint keypair exists at
+      `chain/.mempire-mint-mainnet.json` (gitignored), address
+      `EzN1R1qbU4Vx1XC8FJFKuLJxN8hjxvMNipHi3uLBPAcU`, currently baked in by the
+      `mainnet` cargo feature. **If $MEMPIRE launches on Bags instead, Bags
+      creates the mint and this keypair is unused** — replace the constant with
+      the address Bags returns (see the sequencing note in v1).
 - [x] Mainnet roster: 36 assets built from Jupiter's **verified** token list
       with per-mint market data → `app/src/lib/mainnet-coins.json`,
       `server/mainnet-coins.json`. Rebuild with
@@ -73,9 +117,9 @@ Two more programs stay undeployed at launch and are genuinely optional:
    ```
    Budget the full 3.23 in the deployer *before* starting: a failed attempt
    strands a buffer, and `solana program close --buffers` reclaims it.
-3. **Mint $MEMPIRE** with `chain/.mempire-mint-mainnet.json` (6 decimals), set
-   its metadata, mint the initial supply to the treasury, then decide the mint
-   authority — null for a fixed supply, or the multisig.
+3. **$MEMPIRE already exists** — it was launched on Bags in v1, which is why
+   v1 comes first. See the sequencing note below: its mint address has to be
+   known before the program is built.
 4. **init_config** with mainnet economics. The program now enforces sane
    ranges: `match_timeout_secs = 86400`, `rake_bps = 1000`,
    `tie_rake_bps = 500`, `mint_fee_lamports` = launch price, treasury = the
@@ -91,6 +135,35 @@ Two more programs stay undeployed at launch and are genuinely optional:
    the registry. Deploy to Vercel.
 8. **Smoke test** with two funded wallets at the smallest tier: mint a card,
    merge a duplicate, and settle one staked PvP match end to end.
+
+## Wiring Bags into the swap screen
+
+The Bags TypeScript SDK (`@bagsfm/bags-sdk`, needs a key from dev.bags.fm and
+an RPC) exposes exactly what the swap screen already does against the local
+AMM:
+
+```ts
+const quote = await sdk.trade.getQuote({
+  inputMint: 'So11111111111111111111111111111111111111112', // wSOL
+  outputMint: MEMPIRE_MINT,
+  amount: 1_000_000_000,
+  slippageMode: 'dynamic',
+});
+```
+
+`app/src/chain/amm.ts` is already the single place quotes and swaps are built,
+and `AMM_CONFIG_MATCHES_CLUSTER` already makes the screen refuse honestly when
+no pool exists for the current cluster — so this is a swap of one module's
+internals, not a UI change. The SDK also covers claiming the creator fees
+(`sdk.fee.getAllClaimablePositions`), which is how the 1% royalty is collected.
+
+**Sequencing constraint, and it is load-bearing.** The program bakes
+`MEMPIRE_MINT` in at compile time, so the token has to exist *before* the
+program is built. Launching on Bags in v1 gives you that address; bake it,
+then build and deploy in v2. Doing it the other way round means a second
+deploy. (If that ordering ever becomes inconvenient, move the mint from a
+constant to a `Config` field set at `init_config` — safe on a fresh mainnet
+deploy, though it would orphan the existing devnet config account.)
 
 ## When revenue arrives
 
