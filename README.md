@@ -1,38 +1,43 @@
 # Mempire
 
-**Any meme coin becomes a fighter.** A 3D real-time Clash Royale-style card
-battler on Solana: mint a card from an SPL token, stake tokens into it for
-power, build an 8-card deck, and fight 1v1 for a staked SOL pot. Winner takes
-90%.
+**Every coin is a fighter.** A 3D real-time Clash Royale-style card battler on
+Solana where the roster is the market itself — memecoins, majors and tokenised
+stocks, each one a card with its own art, archetype and stats. Collect them,
+build an 8-card deck, and fight 1v1 for a staked SOL pot. Winner takes 90%.
 
-A card is bound to its mint, so on mainnet a player's roster is whatever they
-hold. This devnet build ships a seeded registry of test mints standing in for
-real coins — same mechanic, stand-in tokens.
+**You never hand over your holdings.** Mempire does not custody, lock or stake
+anyone's tokens. The coins are *characters*, not collateral: you play with BONK
+the way you'd play with a chess piece. The only thing you ever risk is the SOL
+you choose to put on a match, and even that is escrowed by a program that pays
+out to whoever wins.
 
-Built for **Solana Blitz V7** · [mempire.fun](https://mempire.fun)
+[play.mempire.fun](https://play.mempire.fun) · live on devnet, free, no install,
+no wallet required to start.
 
 ## How it plays
 
-1. **Connect** — the official Solana wallet adapters (Phantom, Solflare,
-   Coinbase, Trust, Nightly) with their real logos and true install detection,
-   plus a labeled **Guest** mode so anyone can play the whole game with a
-   simulated balance. Trusted wallets reconnect silently.
-2. **Scan bags** — the SPL tokens you hold appear from the registry; a coin needs
-   ≥$25k liquidity and ≥48h age to mint (kills the "mint your own coin, stake 1B
-   supply, god card" exploit). On devnet the registry is seeded test mints.
-3. **Mint cards** — 0.02 SOL fee. Coin → archetype is deterministic:
-   `fnv1a(mint) % 6` → Tank / Swarm / Ranged / Splash / Support / Spell.
-4. **Stake** — lock coin tokens in the card's vault. Staked USD (snapshotted at
-   stake time) sets level 1–10 on a diminishing curve — whales buy an edge, never
-   the win. Unstake is two-step with a 72h cooldown (60s on devnet) and 2% fee.
+1. **Play** — open the site and you're in. Guest mode is a real keypair in your
+   browser, so the whole game works with no wallet installed; connect Phantom,
+   Solflare, Coinbase, Trust or Nightly whenever you want to own things properly.
+2. **Collect fighters** — 36 verified assets at launch: majors (BTC, ETH, SOL),
+   memecoins (BONK, WIF, POPCAT, MEW, PEPE), and tokenised stocks (NVDA, META,
+   MSTR, V). Coin → archetype is deterministic: `fnv1a(mint) % 6` → Tank / Swarm
+   / Ranged / Splash / Support / Spell, so a card's identity is fixed by its mint
+   and nobody can reroll into a better one.
+3. **Mint cards** — 0.02 SOL. That mints *a card*, an account you own, not your
+   coins. Holding the underlying token is not required and never was on this
+   build; anyone can field any fighter in the registry.
+4. **Level by winning** — win a match, earn a chest; chests drop duplicates;
+   merging a duplicate promotes the card, 1 → 10. Levels are earned, never
+   bought: there is no way to pay for power.
 5. **Battle** — pick a tier (0.05 / 0.25 / 1 / 5 SOL, bracketed by deck power),
    **drag cards onto your half** of the arena (a ghost tracks your finger, the
    ring turns teal when the drop is legal and red when it isn't), fell towers for
    crowns, pot settles onchain. House rake 10% (5% on a draw).
 
 Stakes escrow only when the match actually starts — cancelling a search costs
-nothing. You can only stake tokens you genuinely hold, and unstaking is a
-two-step claim with a live cooldown.
+nothing. If an opponent abandons, the pot is recoverable by timeout, and the
+result screen always says which of those happened.
 
 ## Architecture
 
@@ -53,8 +58,9 @@ app/    Vite + React + TS + React Three Fiber + Zustand
         └─ public/sfx   10 SFX + menu and battle music loops
         └─ public/models 5 rigged chibi units, meshopt-compressed (1.7MB total)
 chain/  Anchor workspace — program `mempire`, LIVE on devnet
-        config · coin registry + mock oracle · card PDAs + stake vaults ·
-        two-step unstake · match escrow + dual-sig settle + timeout claims
+        config · coin registry · card PDAs · merge-to-level · Metaplex 1-of-1s
+        match escrow + two-claim settle + timeout claims · MagicBlock rollup
+        (`nft` and `rollup` are cargo features — see MAINNET.md for why)
         scripts: seed-devnet (resumable) · verify-devnet · e2e-devnet (16 checks)
 server/ Express API — player persistence (MongoDB), cached live coin feed,
         leaderboard, and the full clan service (48-assertion integration test)
@@ -92,7 +98,7 @@ that also holds real SOL. They now come from the MagicBlock VRF oracle, and the
 it. Requests go to the *delegated* queue from inside the rollup: MagicBlock
 prices ER randomness at zero and base-layer randomness at 0.0008 SOL per
 request, and a player opening four chests a session should not pay a fraction of
-a Pauper stake in oracle fees for cosmetics.
+a fortune in oracle fees for cosmetics.
 
 Measured play latency, both stated with their conditions because they differ by
 two orders of magnitude: **7–17ms** on localnet, where the ER is on the same
@@ -143,61 +149,72 @@ settlement feed in the mock build are simulated and labeled as such in-app.
 
 ## Fees (the business)
 
-| Action | Fee |
-|---|---|
-| Card mint | 0.02 SOL |
-| Battle rake | 10% of pot (5% on draw) |
-| Unstake | 2% |
-| Fusion (post-MVP) | 0.05 SOL |
-| NFT royalties (post-MVP) | 5% |
+| Action | Fee | Live? |
+|---|---|---|
+| Battle rake | 10% of pot (5% on a draw) | yes |
+| Card mint | 0.02 SOL | yes |
+| Chest timer skip | 25 $MEMPIRE | yes |
+| Extra chest slot | 100 $MEMPIRE | yes |
+| Shop purchase / paid reroll | 250 / 35 $MEMPIRE | yes |
+| Clan charter | 250 $MEMPIRE | yes |
+| NFT royalties | 5% | on tokenised cards |
+
+Every line above is shipping today, not roadmap. Note what is *not* on the
+list: nothing charges for power. There is no way to buy a level, and no fee is
+taken on anyone's own tokens, because the game never holds them.
 
 ## Go-to-market
 
-**Positioning: Clash Royale where the cards are your bags.** Every memecoin is
-a fighter; holding a community's coin is how you field it. That one rule turns
-every coin community on Solana into a recruitable faction — and factions, not
-ads, are the growth engine.
+**Positioning: the market is the roster.** Clash Royale, except every fighter is
+a real asset — BONK, WIF, NVDA, BTC — with art and stats of its own. That reads
+instantly to two audiences who never share a game: crypto people who know the
+tickers, and mobile gamers who just want a good three-minute match. Critically,
+nobody has to own anything to play, so the top of the funnel is the entire
+internet rather than the subset holding eight specific tokens.
 
-### The funnel is already built and verified
+### Why the funnel converts
 
-Play in ten seconds, no install, no wallet — guest mode is fully playable.
-Wins earn chests; chests mint cards; minting nudges the wallet connect; a
-wallet unlocks staking, ranked pots, and real NFTs in Explorer. Every step is
-a live, tested flow (see `VERIFICATION-REPORT.pdf`), so the funnel's job is
-volume, not fixes.
+Ten seconds to playing: no install, no wallet, no holdings. Win a match, earn a
+chest; chests drop duplicates; merging promotes a card. Wanting to keep what
+you've won is what makes a wallet worth connecting — and a connected wallet
+unlocks real pots and cards that show up in Explorer as NFTs you own. Each step
+is a live, tested flow (`VERIFICATION-REPORT.pdf`), so growth is a volume
+problem, not a fixing problem.
 
-### Wedge and channels
+### Channels
 
 | Channel | Why it compounds |
 |---|---|
-| **Coin-community factions** | 36 verified coins at launch (BONK, WIF, POPCAT…). Per-coin leaderboards + "faction war" seasons hand every community a reason to send their people. Registry curation is the BD lever: communities pitch to get *in*. |
-| **Solana ecosystem** | The game is a flagship MagicBlock integration — rollup-speed plays, VRF chests, PER-sealed matches — which earns showcase slots, co-marketing, and ecosystem-page listings without spend. |
-| **Creators & clips** | Three-minute matches with real pots are natively clippable; SHARE 𝕏 is already in the result screen. Seed a small creator bounty pool in $MEMPIRE. |
-| **Onchain receipts** | Every settlement, NFT, and pot is a public transaction. The Explorer link *is* the ad. |
+| **Asset communities** | 36 verified fighters at launch, each with a community that wants *their* ticker to top the board. Per-asset leaderboards and season wars give BONK vs WIF a scoreboard. Getting added to the roster is the BD ask — and it costs them nothing, because we never touch their token. |
+| **Solana ecosystem** | A real-time onchain game with escrowed pots and settlement is a showcase integration, which earns listings and co-marketing without ad spend. |
+| **Creators & clips** | Three-minute matches with real pots are natively clippable, and SHARE 𝕏 is already on the result screen. Seed a small creator pool in $MEMPIRE. |
+| **Onchain receipts** | Every pot and NFT is a public transaction. The Explorer link is the ad. |
 
-### Phased launch (tied to MAINNET.md)
+### Phased launch
 
-1. **Now — devnet open beta.** Free, faucet-funded, weekly leaderboard
-   resets. Goal: repeatable fun + a Discord of regulars before money moves.
-2. **Mainnet soft launch (~12 SOL, runbook ready).** Small tiers only
-   (0.05 SOL cap), 36-coin registry, three coin-community partnerships,
-   one weekly season. Goal: prove rake revenue and retention with capped risk.
-3. **Faction wars.** Coin-vs-coin seasons, clan tournaments with rake-funded
-   prize pools, deeper $MEMPIRE/USDC liquidity, creator program.
-4. **Expansion.** xStocks registry additions, the Android wrapper (release
-   keystore already cut), third-party audit, then higher stake tiers.
+1. **Now — devnet open beta.** Free, weekly leaderboard seasons, zero spend.
+   Goal: a Discord of regulars and proof the loop is fun before money moves.
+2. **Mainnet launch — ~3.2 SOL.** The lean build (see `MAINNET.md`): the whole
+   game, real escrowed pots, the full 36-asset roster. Small tiers only
+   (0.05 SOL cap). Goal: prove rake revenue with capped risk. Almost all of that
+   3.2 is *recoverable rent*, not spend — closing the program returns it.
+3. **+1.6 SOL — cards as NFTs.** `solana program extend` and upgrade; cards
+   start rendering in wallets and explorers.
+4. **+3.1 SOL — the rollup.** MagicBlock ER: plays land on a rollup mid-match,
+   VRF-rolled chests, on-chain play log. Funded out of rake, not out of pocket.
+5. **Then** — clan tournaments with rake-funded prizes, the Android wrapper
+   (keystore already cut), a third-party audit, higher tiers.
 
-### Revenue is live, not roadmap
+### Revenue is shipping, not planned
 
-Rake (10% pots / 5% draws), card mints (0.02 SOL), unstake fee (2%), chest
-timer skips (25 $MEMPIRE), extra chest slots (100), shop purchases and paid
-rerolls, clan charters (250) — all shipping and tested today. $MEMPIRE has
-sinks before it has emissions, which is the right order.
+Rake on every pot, card mints, chest skips and slots, shop purchases and paid
+rerolls, clan charters. $MEMPIRE has sinks before it has emissions, which is the
+right order — and none of it depends on anyone locking up an asset.
 
 ### KPIs that decide the next phase
 
-Guest→wallet conversion · D1/D7 retention · matches per DAU · staked TVL ·
-weekly rake · coin communities activated · % of matches that settle onchain.
+Guest→wallet conversion · D1/D7 retention · matches per DAU · weekly rake ·
+asset communities activated · % of matches that settle onchain.
 
 ## Design
 
@@ -234,10 +251,11 @@ byte-identical across every prompt, keeps the set coherent.
       permission; **VRF** — provably-fair chest tiers from the oracle, with the
       randomness stored for verification. 20/20 against devnet and the live
       oracle (`scripts/e2e-per-vrf.ts`)
-- [x] **Program live on devnet** — deployed, seeded with 12 real SPL mints,
-      proven by a 16-assertion onchain e2e (mint, gate, stake, 2-step unstake)
-- [x] Client wired: mint/stake/unstake are wallet-signed transactions with
-      explorer receipts and an honest live/simulated/offline badge
+- [x] **Program live on devnet** — deployed and proven by a 92-item test plan
+      run against the real product (`TESTPLAN.md`, `VERIFICATION-REPORT.pdf`)
+- [x] Client wired: mint, merge, match escrow and settlement are wallet-signed
+      transactions with explorer receipts and an honest live/offline badge
+- [x] Staking retired — the game never touches a player's holdings
 - [x] Clans: full backend (48-assertion test) + browse/found/join/lend UI
 - [x] First-run tutorial, server leaderboard, ad-slot boards in the gutters
 - [x] Human vs human: WS matchmaker, lockstep input relay, hash referee
@@ -250,16 +268,22 @@ byte-identical across every prompt, keeps the set coherent.
 
 ## Known limits, stated plainly
 
-- The program is live on devnet and mint/stake/unstake are real wallet-signed
-  transactions. Match pots still settle in the simulated ledger: onchain
-  settlement needs both players' signatures by design, so it arrives when the
-  escrow instructions (already in `chain/actions.ts`) are pointed at paired
-  PvP matches. A bot has no key, so bot matches stay simulated forever.
-- Guest mode is simulated end to end, and the in-app badge says which mode
-  you are in at all times.
-- Humans play humans over a lockstep relay with hash checkpoints; a desync
-  voids the match (stakes back, no rake). The bot steps in after 8s so a solo
-  judge always gets a battle.
-- Chest drops mint real cards into the collection; making them cNFTs rides
-  on the Bubblegum layer.
-- Clans live in MongoDB, not onchain — social standing, not custody.
+- **Everything verified so far is devnet.** The programs are deployed and the
+  92-item plan passes against the live product, but mainnet execution waits on
+  funding (`MAINNET.md`, ~3.2 SOL).
+- **The programs are not third-party audited.** Compensating controls: small
+  stake tiers cap exposure, and the settlement design voids rather than pays
+  when the two seats disagree — a cheat costs the cheater the match, it cannot
+  pay them. One documented residual (`AUDIT.md` C9): a sore loser can force a
+  void and get their own stake back, denying the winner the pot. They cannot
+  steal. Closing it needs the play log verified onchain.
+- **A lean launch defers two things.** Built without the `nft` and `rollup`
+  features, cards are program accounts rather than NFTs and chests roll from a
+  local seed that is labelled as such. Both come back with a program extend and
+  an upgrade; matches escrow and settle identically either way.
+- **The relay runs one replica.** Its matchmaking queues are in memory, so a
+  deploy drops queued players — not matches, which live on chain.
+- **Bots exist for solo play** and are labelled: a bot match says NO STAKE and
+  escrows nothing, because a bot has no key to escrow with.
+- **Guest mode is devnet-only for signing.** On mainnet a browser-held key is
+  refused for anything that holds value, and the connect screen says so.

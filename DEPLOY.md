@@ -31,7 +31,8 @@ with the configs in this repo.
    - `VITE_API_URL` — the Railway URL, no trailing slash. PvP derives its
      `wss://` endpoint from this.
    - `VITE_RPC_URL` — a devnet RPC. The public endpoint works but rate-limits;
-     a free Helius devnet key makes mint/stake snappy.
+     a free Helius devnet key makes minting, merging and match transactions
+     snappy.
    - `VITE_CLUSTER` — `devnet`
 3. Deploy. The app is fully static; every dynamic thing goes through the API
    or the chain.
@@ -47,6 +48,13 @@ npx tsx scripts/verify-devnet.ts # read the live state back
 npx tsx scripts/e2e-devnet.ts    # 16 assertions against the deployed program
 ```
 
+`anchor build` with no flags is the full build — both the `nft` (Metaplex 1-of-1
+cards) and `rollup` (MagicBlock ER + VRF chests) cargo features — which is what
+devnet runs. Mainnet deploys the lean `--no-default-features` build instead;
+`MAINNET.md` carries the sizes, the budget and the launch order. Escrow and
+settlement are identical in both: a match settles off the two seats' claims
+whether or not the play log ever visited a rollup.
+
 Upgrade authority and (devnet) treasury: `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoTuYwsS5`.
 
 ## Smoke test after a deploy
@@ -57,7 +65,10 @@ Upgrade authority and (devnet) treasury: `3YUgUPu9AdJj6FCFFvzR9pJixCN7EcAnCXMJoT
    same match, seats 0 and 1. On one machine, run
    `sessionStorage.setItem('pvpWaitMs','60000')` in both tabs first — hidden
    tabs get their timers throttled by the browser, not by us.
-3. Win a match → chest → open → real cards land in the collection.
+3. Win a match → chest → open → real cards land in the collection. If the drop
+   duplicates a card already owned, merge it and confirm the kept card goes up
+   a level — that is the only path to level 2–10, so it is worth a look on
+   every deploy.
 4. `node server/test-clans.mjs` and `node server/test-pvp.mjs` against the
    deployed API (`API=`/`WS=` env vars) — 48 + 12 assertions.
 

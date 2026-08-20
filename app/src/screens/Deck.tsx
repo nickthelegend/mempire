@@ -156,7 +156,7 @@ export function Deck() {
               onClick={() => nav('/cards')}
               style={{ fontSize: 15, minHeight: 44, padding: '10px 20px', width: 'auto' }}
             >
-              Mint from your bags
+              Mint a fighter
             </Pill>
           </div>
         ) : (

@@ -343,7 +343,8 @@ export function Cards() {
       >
         <h1 className="display" style={{ fontSize: 30 }}>Cards</h1>
         <p style={{ color: 'var(--dim)', fontSize: 14 }}>
-          Connect a wallet to see your bags and mint them into cards.
+          Connect a wallet to mint fighters you keep. Minting costs a small fee
+          and never touches the coins in your wallet.
         </p>
         <Pill onClick={openPicker} style={{ maxWidth: 260 }}>Connect Wallet</Pill>
       </div>
