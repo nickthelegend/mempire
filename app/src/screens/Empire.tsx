@@ -218,7 +218,7 @@ export function Empire() {
                 ? 'Guest mode on mainnet is play-only — connect a wallet to mint, stake, or hold anything real. '
                 : 'Guest mode — this browser holds a real devnet keypair, so mints and stakes spend real devnet SOL and escrow for real. Back it up before you fund it. ')
               : `${IS_MAINNET ? 'Mainnet' : 'Devnet'} — your SOL balance is read from the chain and staked matches escrow for real. `}
-            Mint fee 0.02 SOL · rake 10% · unstake fee 2%.
+            Mint fee 0.02 SOL · rake 10% of the pot, 5% on a draw.
           </p>
         </>
       )}

@@ -216,7 +216,9 @@ export async function fetchSolBalance(owner: string): Promise<number> {
 /**
  * Real SPL balances for one wallet, keyed by mint.
  *
- * This is what makes "your bags are your army" literal: the coins a player can
+ * The roster a wallet actually owns. Cards are accounts the player holds —
+ * minting one never required holding the underlying coin, and the game does
+ * not touch anyone's tokens. This is simply the coins a player can
  * mint cards from are the coins this call reports, not a fixture.
  */
 export async function fetchTokenBalances(owner: string): Promise<Map<string, number>> {

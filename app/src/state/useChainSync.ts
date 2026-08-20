@@ -128,8 +128,8 @@ function useChestRail(): void {
  * reported "8 of your cards are not minted onchain yet", because none of the
  * cards they were shown were the ones they owned.
  *
- * That is the premise of the game failing quietly: "your bags are your army"
- * only means something if the army on screen is the bags on chain.
+ * That is the game failing quietly: the fighters on screen have to be the
+ * cards the wallet actually owns on chain, or the collection is fiction.
  *
  * The local collection survives for exactly one case — a wallet with no minted
  * cards at all, where the seeded set is what lets someone see the game before

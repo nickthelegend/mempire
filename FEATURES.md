@@ -121,6 +121,10 @@ Paid unlocks a cosmetic arena skin, bonus chest slots, and $MEMPIRE drops.
 **Revenue: recurring seasonal purchase** — the most predictable line on the sheet.
 
 ### 7. Merging — shipped, and it is the whole progression
+It sits in Tier 2 because it took the slot *Card Fusion* used to hold: a fee
+that bought a stat bonus, which rule 1 no longer permits. It shipped ahead of
+everything else in this tier.
+
 Two cards for the same coin become one card a level higher, 1 → 10. The
 duplicate is closed and its rent returned to the owner, so the merge costs the
 fee and nothing else: **100 $MEMPIRE × the card's current level**, so 1→2 is 100
@@ -190,9 +194,9 @@ slice of the rake.
 **Revenue: indirect but large.** Ranked players battle far more often, and every
 battle is raked.
 
-### 14. Live meme meta — the coin market moves the game
-The top pumping coins of the day get a temporary in-battle boost, published in
-advance. Your deck's strength genuinely tracks the market.
+### 14. Live meta — the market moves the game
+The day's top movers get a temporary in-battle boost, published in advance.
+Deck strength genuinely tracks the market, and no money is involved either way.
 
 **Revenue: indirect, and it is our moat.** No other card game can do this,
 because no other card game's cards are real assets. It also drives daily return

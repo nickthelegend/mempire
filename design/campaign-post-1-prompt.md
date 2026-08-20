@@ -3,11 +3,21 @@
 Make one **1600 × 900 PNG** (16:9) to attach to an X post. It is the first
 public image this project has ever shipped, so it has one job: someone
 scrolling a timeline stops, understands in a second that this is a Clash
-Royale-style battler where the fighters are meme coins, and clocks that it is
-built on Solana with MagicBlock.
+Royale-style battler whose fighters are coins, stocks and crypto, and clocks
+that it is built on Solana with MagicBlock.
 
 Do not invent metrics, user counts, testimonials, partner logos, or exchange
 listings. Nothing on this image may claim something that is not true.
+
+**One claim is now false and must never appear, in art or in copy: that the game
+touches a player's holdings.** It does not custody, lock or stake anyone's
+tokens — that whole subsystem is gone from the program. A ticker is a character
+on your roster, not collateral, and you never have to hold the coin to play it.
+So: no vault, no padlock over a token, no wallet balance turning into card
+power, no "your bags", no "the coins in your wallet". The only thing a player
+ever puts up is the SOL they choose to wager on a match, and levels are won,
+never bought. Post #2 carries the same ban — the two images have to be telling
+the same story.
 
 ---
 
@@ -70,15 +80,25 @@ put art in the post that does not exist in the game.
 ```
 
 **Suggested cast for this image** — the most recognisable, and a spread across
-all three classes:
+coins, stocks and crypto:
 `card_btc.png` (gold knight, the hero), `card_pepe.png` (trenchcoat frog),
-`card_doge.png` (gold shiba), `card_sol.png` (purple/teal cyber), `card_wif.png`
-(pink hat dog), `card_bonk.png`, `card_eth.png` (purple mage), `card_nvda.png`.
+`card_sol.png` (purple/teal cyber), `card_nvda.png`, `card_eth.png` (purple
+mage), `card_bonk.png`, `card_popcat.png`.
 
-The full 64: aapl ada ai16z amd amzn apt arb atom avax bnb bome bonk brett btc
-cats chillguy coin dis dot fwog googl harambe hood intc jpm link ltc matic meta
-mew michi mog moodeng msft mstr near nflx nvda op pengu pepe pltr pnut popcat
-sbux shib slerf sol sui tao tia trump trx tsla uni v wif wld xrp
+Not all frogs and dogs. A line-up of seven memecoins sells a memecoin game,
+which this is not — if any ticker on the image is legible, at least one of them
+should be a stock.
+
+The directory holds art for 64 tickers, which is more than the game ships.
+**The playable roster is the 36 verified mainnet assets** in
+`app/src/lib/mainnet-coins.json`, and every fighter on this image must come from
+that list:
+
+> btc eth sol bnb ada trx shib uni · **nvda meta intc hood mstr dis v** ·
+> bonk popcat pnut fwog goat chillguy moodeng ai16z mew pepe brett mog ponke
+> michi giga retardio slerf bome silly harambe wen
+
+The seven in bold are tokenised stocks.
 
 ### Logo
 ```
@@ -133,11 +153,11 @@ the space — this is a roster shot, not a feature grid.
 - **Logo:** upper centre or upper left, roughly 300–380px wide.
 - **Headline:** in the upper third, Lilita One, ink stroke under fill:
 
-  > **YOUR BAGS ARE YOUR ARMY**
+  > **THE MARKET IS THE ROSTER**
 
 - **Sub-line**, Nunito, `#b9d4f7`, one line:
 
-  > The coins in your wallet become the fighters.
+  > Coins, stocks and crypto. You never have to hold one to play it.
 
 - **Foot:** one carved wood banner, or a row of small pill chips, carrying:
 
