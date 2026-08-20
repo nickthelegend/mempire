@@ -131,22 +131,26 @@ Times are cumulative. Total **2:52**.
 
 Not screen capture. Built as a HyperFrames composition.
 
-- Wallet list, meme coins in red, dust.
-- Line resolves: **"Your bags are your army."**
+- A price ticker scrolling: BTC, NVDA, PEPE, SOL, META — greens and reds.
+- Each ticker resolves into its fighter. Line lands: **"The market is the
+  roster."**
 - Mempire mark, then `built on Solana · running on MagicBlock` with both logos.
 - Hard cut into live capture — no fade. The cut from designed motion to a real
   cursor is what sells that the rest is real.
 
-### B · The wallet is the roster · 0:15–0:35
+### B · The roster, and minting a card · 0:15–0:35
 
 Live, Player A.
 
 1. Connect Phantom. Real approval popup, not a guest session.
-2. Collection loads from chain — cards are the coins the wallet holds.
+2. Collection loads from chain — the cards this wallet has minted, coins and
+   tokenised stocks side by side.
 3. Open one card: mint address, level, power.
-4. **Mint a new card** — sign, confirm, card appears.
+4. **Mint a new card** — sign, confirm, card appears. Say the price out loud:
+   0.02 SOL, and holding the coin is not required to play it.
 
-Proves: fighters are token holdings, minting is a real transaction.
+Proves: a card is an account the player owns, created by a real transaction —
+not a claim on anything in their wallet.
 
 ### C · Deploying troops, two clients, one simulation · 0:35–1:35
 
@@ -240,10 +244,12 @@ Mempire
 
 **Description — what it does and how it uses MagicBlock**
 ```
-Mempire is a real-time 3D card battler on Solana where your fighters are the
-meme coins you actually hold. Mint a card from any token in your wallet, stake
-into it for power, and duel another player for a SOL pot in a Clash-Royale-style
-arena.
+Mempire is a real-time 3D card battler on Solana where the roster is the market:
+coins, stocks and crypto as fighters. Mint a card for 0.02 SOL — holding the
+token is not required — level it from 1 to 10 by winning matches, and duel
+another player for a SOL pot in a Clash-Royale-style arena. The only thing a
+player puts up is the SOL they choose to wager on that match; the program
+escrows both sides and pays the winner.
 
 Both clients run the same deterministic fixed-point simulation at 20 ticks per
 second and hash their state every 40 ticks, so a desync is detectable rather

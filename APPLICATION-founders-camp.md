@@ -10,30 +10,43 @@
 
 ## The thesis
 
-Every token holder has a position they can do nothing with except look at it.
-Mempire turns it into a roster.
+A card battler needs a roster people already have opinions about. Mempire's
+roster is the market itself: 36 verified mainnet assets — the majors (BTC, ETH,
+SOL), memecoins (BONK, POPCAT, MEW, PEPE), and tokenised stocks (NVDA, META,
+MSTR, V). $BTC is a gold knight, $PEPE is a trenchcoat frog, and everyone in the
+game plays the same $BTC.
 
-You connect a wallet, and the coins you actually hold become the fighters —
-$BTC is a gold knight, $PEPE is a trenchcoat frog. You mint them into cards,
-stake more of the coin into a card to level it, build a deck of eight, and drop
-them on a live battlefield against another player's bags with real SOL on the
-match. Winner takes the pot.
+You do not have to hold any of it. A card costs 0.02 SOL to mint and the account
+it creates is yours — the token is the character's identity, not collateral.
+Mempire never custodies, locks or stakes a player's holdings; there is no
+instruction in the program that could. You can play the whole game as a guest
+with no wallet at all.
+
+Cards go 1 → 10 by winning, and only by winning: a win pays a chest, the chest
+drops cards, and a duplicate merges into a level on the card you keep. Nothing
+in the product sells a level. That is the only durable answer to the question
+every onchain game is asked about whales — it is a mechanic rather than a
+policy.
+
+The one thing a player ever puts up is SOL they chose to wager on a single
+match. Both sides escrow it, the deterministic sim decides it, and the program
+pays the winner and takes its rake. Winner takes the pot.
 
 The bet underneath it: onchain games have mostly failed for one of two reasons.
 Either they are not really onchain — a web2 game with a mint attached — or they
 are turn-based, because an L1 cannot run a real-time loop. Ephemeral rollups
 remove the second constraint entirely, and the moment they do, the interesting
 question becomes what a game can do that a web2 game structurally cannot. My
-answer is: make the chain state the game content. Your holdings are your deck.
-That is not a feature a Supercell clone can copy, because it requires the
-player's actual portfolio to be readable and stakeable.
+answer is: make the chain state the game content. The roster is a live market,
+the pot is a real escrow, and both are readable by anyone who cares to check.
+That is not a feature a Supercell clone can copy.
 
 Every design rule follows from keeping that chain honest. A coin under $25k
 liquidity or younger than 48 hours is refused, so nobody mints a god card from
 a token they launched this morning. The archetype is `hash(mint) % 6` — global,
 permanent, no rerolls — so $BTC is the same class of fighter in everyone's deck.
 The level curve is `1 + 0.6·√((lvl−1)/9)`, deliberately brutal at the top, so a
-whale buys an edge and never a win.
+levelled card is an edge and never a win.
 
 ## Why MagicBlock is load-bearing, not decorative
 
@@ -71,11 +84,12 @@ genuinely unwithdrawable. Not a mocked swap screen.
 
 118 commits since 30 July. Solo.
 
-- 64 fighters, each with original art, a name, a written story, and a
+- 64 fighters drawn, each with original art, a name, a written story, and a
   deterministic trait derived from its mint, so no two cards of the same
-  archetype play alike.
+  archetype play alike. The mainnet roster is the 36 of them with verified
+  mints; the rest are devnet.
 - Real-time 3D arena (React Three Fiber), deterministic sim shared by both
-  clients, match voids and both stakes return if the two ever disagree.
+  clients, match voids and both wagers return if the two ever disagree.
 - Session keys, so there are no wallet popups mid-battle.
 - A deployed API with an **ed25519 signature required on every mutating route**,
   over a timestamped per-action message. Clans, ranked and the leaderboard are

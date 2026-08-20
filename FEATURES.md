@@ -33,6 +33,7 @@ Every line in this table ships.
 | Shop card | **up to 250 $MEMPIRE**, or SOL | Four offers a day. |
 | Shop reroll | **35 $MEMPIRE** | After the one free reroll. |
 | Clan charter | **250 $MEMPIRE** | Founding a clan, once. |
+| Merge fee | **100 $MEMPIRE × level** | Charged on a duplicate the player already won. It does not sell the level — see rule 1 and feature 7. |
 | NFT royalty | **5%** | Every secondary sale of a tokenised card, forever. |
 
 The $MEMPIRE lines are plain SPL transfers to the treasury, so the take is
@@ -119,18 +120,26 @@ Paid unlocks a cosmetic arena skin, bonus chest slots, and $MEMPIRE drops.
 
 **Revenue: recurring seasonal purchase** — the most predictable line on the sheet.
 
-### 7. Card Fusion
-Burn two same-archetype cards plus a fee to mint one stronger card that inherits
-the higher-market-cap coin's identity, with a 15% stat bonus.
+### 7. Merging — shipped, and it is the whole progression
+Two cards for the same coin become one card a level higher, 1 → 10. The
+duplicate is closed and its rent returned to the owner, so the merge costs the
+fee and nothing else: **100 $MEMPIRE × the card's current level**, so 1→2 is 100
+and 9→10 is 900.
 
-**Revenue: 0.05 SOL fusion fee + it destroys card supply**, which supports the
-value of everything still held.
+That fee is a toll on a card already won, not a price on a level. The level
+follows the duplicate, duplicates come out of chests, and chests come out of
+wins. The only other place a second copy can appear is the day's Shop rotation,
+which is the same four offers for every player and cannot be aimed at the card
+someone wants to raise.
+
+**Revenue: the merge fee + it destroys card supply**, which supports the value
+of everything still held.
 
 ### 8. Cosmetics: arena skins, unit skins, emotes
 Purely visual. A gold-plated arena, a crowned $BONK, a laughing-Wojak emote you
 can spam after a tower falls.
 
-**Revenue: Gem sink with no balance risk.** The safest money in games.
+**Revenue: token sink with no balance risk.** The safest money in games.
 
 ### 9. Coin sponsorship — sell the arena to the coin teams ⭐
 A meme coin project pays to be **Coin of the Week**: their art on the arena
@@ -160,13 +169,15 @@ play more.
 ## Tier 3 — depth once there is a population
 
 ### 11. Clans and Clan Wars
-Clans of 50. Members donate cards to each other; Clan Wars stake a shared pot.
+Clans of 50. The charter is live and costs **250 $MEMPIRE**; card donations
+between members and Clan Wars over a shared pot are still to build.
 
-**Revenue: clan creation fee, war entry rake, donation fee.** Mostly this exists
-because clans are the strongest retention mechanic in the genre.
+**Revenue: the charter today, war entry rake and a donation fee later.** Mostly
+this exists because clans are the strongest retention mechanic in the genre.
 
 ### 12. Card marketplace with royalties
-Cards are cNFTs, so they trade. We take a **5% royalty** on every secondary sale,
+A card can be tokenised into a real one-of-one NFT with Metaplex metadata, and
+then it trades anywhere. We take a **5% royalty** on every secondary sale,
 forever.
 
 **Revenue: 5% of all secondary volume** — the annuity. It compounds as the
@@ -204,13 +215,16 @@ Judges see a lot of games with a token bolted on. The argument here is narrower:
   coins fight makes coin treasuries our customers, not just their holders.
 - **Feature 14 is a mechanic nobody else can copy.** It only works if the cards
   are genuinely the assets, which is the whole architecture.
-- **Nothing sells stats.** The economy survives contact with whales, which is the
-  question every judge asks about a pay-to-play game.
+- **Nothing sells stats, because nothing can.** Levels come out of wins, so the
+  economy survives contact with whales — the question every judge asks about a
+  game with money in it. The answer here is a mechanic, not a policy.
 
 ## Build order
 
-Shipping now: **1, 2, 3, 4** — chests, Gems, Shop, card detail. Together they
-close the loop: win → chest → open → want a card → Shop → stake → battle.
+Shipping now: **1, 2, 3, 4** — chests, $MEMPIRE, Shop, card detail. Together
+they close the loop: win → chest → open → merge the duplicate → a level →
+battle again, with the timer skip and the Shop sitting beside it for the players
+who will not wait.
 
 Next: **5** tournaments, then **9** sponsorship, because that is where the
 revenue ceiling actually lifts.
