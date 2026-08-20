@@ -2171,6 +2171,20 @@
                 2
               ]
             }
+          },
+          {
+            "name": "claims",
+            "docs": [
+              "Each seat's claimed result: 0/1 a seat index, 2 a draw, 3 \"has not",
+              "spoken\". Mirrors the base program's design for the same reason it has",
+              "it — a result one party declares alone is not a result."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                2
+              ]
+            }
           }
         ]
       }

@@ -8,7 +8,8 @@
  */
 import cors from 'cors';
 import express from 'express';
-import { requireWallet, setWalletLimiter } from './auth.js';
+import { requireWallet, setReplayStore, setWalletLimiter } from './auth.js';
+import { verifySettledMatch } from './chain-verify.js';
 import { MongoClient } from 'mongodb';
 import { readFileSync } from 'node:fs';
 import { registerClanRoutes } from './clans.js';
@@ -169,10 +170,27 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
   const {
-    won, draw, potSol, payoutSol, rakeSol, crowns, escrowed, voided, hashes,
+    won, draw, potSol, payoutSol, rakeSol, crowns, escrowed, voided, hashes, matchId,
   } = req.body ?? {};
   try {
     const now = new Date();
+
+    /*
+     * Money facts come from the chain or they do not count.
+     *
+     * The signature on this request proves who sent it, not that the match
+     * it describes happened — `escrowed: true, payoutSol: 999` was accepted
+     * at face value and ranked on the public board. Now an escrowed claim
+     * must name its on-chain match, and the pot, the winner, and the net
+     * movement are read from the settled account itself; a claim the chain
+     * does not support ranks as zero. W/L and crowns still record either
+     * way — rating is the relay's to keep, money is not.
+     */
+    let verified = null;
+    if (escrowed && matchId !== null && matchId !== undefined) {
+      verified = await verifySettledMatch(matchId, address).catch(() => null);
+    }
+    const chainNetSol = verified ? verified.netSol : 0;
     await leaderboard.updateOne(
       { _id: address },
       {
@@ -185,7 +203,7 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
           // pot is worth and is present whether or not escrow opened, so
           // counting it unconditionally made this column a running total of
           // money that never existed — a guest's unstaked wins included.
-          netSol: escrowed ? Number(payoutSol || 0) - Number(potSol || 0) / 2 : 0,
+          netSol: chainNetSol,
           crowns: Array.isArray(crowns) ? Number(crowns[0]) || 0 : 0,
         },
         $set: { updatedAt: now },
@@ -484,13 +502,16 @@ const server = await (async () => {
   await ladder.createIndex({ trophies: -1 });
   registerClanRoutes(app, db);
 
-  // The starter kit. Reads the same seeded registry the client does, so the
-  // coins it hands out are exactly the ones the default deck is built from and
-  // the ones the program will accept a card for.
-  const devnetCoins = JSON.parse(
-    readFileSync(new URL('./devnet-coins.json', import.meta.url), 'utf8'),
+  // The starter kit. Reads the same registry the client does, chosen by the
+  // RPC the relay is pointed at — one env var decides the cluster and
+  // everything derives from it. The mainnet file comes from
+  // chain/build-mainnet-registry.mjs (Jupiter-verified identities); the
+  // faucet itself refuses to register on a mainnet RPC regardless.
+  const isMainnetRpc = /mainnet/i.test(process.env.SOLANA_RPC ?? '');
+  const registryCoins = JSON.parse(
+    readFileSync(new URL(isMainnetRpc ? './mainnet-coins.json' : './devnet-coins.json', import.meta.url), 'utf8'),
   ).coins;
-  registerFaucetRoutes(app, db, devnetCoins);
+  registerFaucetRoutes(app, db, registryCoins);
   registerPlayerRoutes(app, db);
   registerTelemetryRoutes(app, db, requireWallet);
   // Value locked, read straight from chain — the one set of numbers on the
@@ -506,6 +527,22 @@ const server = await (async () => {
   // pass-through installed at module load.
   limit = rateLimiter(db);
   setWalletLimiter(walletLimiter(db));
+
+  // Replay protection: one row per seen signature, expiring shortly after the
+  // auth skew window closes so the collection stays tiny. The unique index is
+  // the actual check — a duplicate insert throws, and that throw means replay.
+  const seen = db.collection('auth_signatures');
+  await seen.createIndex({ sig: 1 }, { unique: true });
+  await seen.createIndex({ at: 1 }, { expireAfterSeconds: 11 * 60 });
+  setReplayStore(async (signature) => {
+    try {
+      await seen.insertOne({ sig: String(signature), at: new Date() });
+      return false;
+    } catch (e) {
+      if (e?.code === 11000) return true; // duplicate key = replay
+      return false; // store trouble must not lock every player out
+    }
+  });
   // Last, deliberately: Express only routes an error to a four-argument
   // handler registered after everything that could throw.
   app.use(errorRecorder(db).middleware);

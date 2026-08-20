@@ -184,6 +184,47 @@ const baseLogPda = (id) => PublicKey.findProgramAddressSync(
  * the base program's own `end_match_log` — the same instruction the browser
  * sends from the other seat.
  */
+const ROLLUP_PROGRAM = new PublicKey('3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N');
+const rollupIdl = JSON.parse(readFileSync(new URL('./src/chain/mempire_rollup.idl.json', import.meta.url)));
+const rollupLogPda = (id) => PublicKey.findProgramAddressSync(
+  [Buffer.from('log'), le(id)], ROLLUP_PROGRAM,
+)[0];
+const chestsPda = (owner) => PublicKey.findProgramAddressSync(
+  [Buffer.from('chests'), owner.toBytes()], ROLLUP_PROGRAM,
+)[0];
+
+/**
+ * The rollup log's claim — the chest side of the report.
+ *
+ * `end_log` now settles like the pot does: each seat records a claim and the
+ * log seals when the second one lands, agreement granting the winner's chest.
+ * So a seat that never claims holds the chest hostage. The rail passed is the
+ * *claimed winner's* — the completing call's rail is what gets credited, and
+ * both honest seats name the same winner, so it works in either order.
+ */
+async function reportRollupClaim(matchId, winner, finalHash, seats) {
+  const erConn = new Connection(ER_RPC, 'confirmed');
+  const log = rollupLogPda(matchId);
+  const exists = await erConn.getAccountInfo(log);
+  if (!exists) { console.log('spar-full: no rollup log for this match — skipping claim'); return; }
+  const prog = new anchor.Program(
+    rollupIdl,
+    new anchor.AnchorProvider(erConn, wallet, { commitment: 'confirmed' }),
+  );
+  const winnerChests = winner < 2 ? chestsPda(new PublicKey(seats[winner])) : null;
+  const sig = await prog.methods
+    .endLog(winner, new anchor.BN(finalHash.toString()))
+    .accounts({
+      payer: kp.publicKey,
+      log,
+      winnerChests,
+      magicProgram: MAGIC_PROGRAM,
+      magicContext: MAGIC_CONTEXT,
+    })
+    .rpc();
+  console.log(`spar-full: ROLLUP CLAIM winner=${winner} — ${sig.slice(0, 20)}…`);
+}
+
 async function reportResult(matchId, winner, finalHash) {
   const erConn = new Connection(ER_RPC, 'confirmed');
   const erProgram = new anchor.Program(
@@ -261,6 +302,11 @@ function runSim({ seed, startAt, offset, format, seat0Deck, seat1Deck, seats }) 
       await reportResult(onchainMatchId, winner, finalHash);
     } catch (e) {
       console.log('spar-full: report failed —', (e.message || String(e)).slice(0, 180));
+    }
+    try {
+      await reportRollupClaim(onchainMatchId, winner, finalHash, seats);
+    } catch (e) {
+      console.log('spar-full: rollup claim failed —', (e.message || String(e)).slice(0, 180));
     }
   }, TICK_MS / 2);
 

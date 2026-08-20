@@ -37,6 +37,15 @@ import { recordEvent } from './telemetry.js';
 
 const RPC = process.env.SOLANA_RPC ?? 'https://api.devnet.solana.com';
 
+/*
+ * A faucet is a devnet thing by definition. If this relay is ever pointed at
+ * mainnet (SOLANA_RPC set to a mainnet endpoint), the faucet must refuse
+ * outright rather than drip whatever real SOL its key happens to hold — the
+ * key is a hot wallet in an env var, and "free SOL endpoint on mainnet" is a
+ * drain waiting for a scanner to find it.
+ */
+const IS_MAINNET_RPC = /mainnet/i.test(RPC);
+
 /** Enough for eight mint fees (0.02 each), a 0.05 stake, rent and signatures. */
 const DRIP_SOL = 0.35;
 /** Whole tokens of each starter coin. One is enough to mint; more is friendlier. */
@@ -72,6 +81,13 @@ function faucetKeypair() {
 }
 
 export function registerFaucetRoutes(app, db, coins) {
+  if (IS_MAINNET_RPC) {
+    // Skip registration, don't crash the relay: everything else it does —
+    // matchmaking, clans, ladder — is cluster-agnostic and must keep running.
+    // The routes simply not existing (404) is the correct mainnet answer.
+    console.warn('faucet routes not registered: relay is configured for mainnet');
+    return;
+  }
   const kp = faucetKeypair();
   const conn = new Connection(RPC, 'confirmed');
   const claims = db ? db.collection('faucet_claims') : null;

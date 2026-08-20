@@ -3,7 +3,7 @@ import { DELEGATION_PROGRAM_ID, GetCommitmentSignature } from '@magicblock-labs/
 import type { Adapter } from '@solana/wallet-adapter-base';
 import { Connection, PublicKey } from '@solana/web3.js';
 import idl from './mempire.idl.json';
-import { getConnection as getBaseConnection, getProvider, resilientFetch } from './provider';
+import { IS_MAINNET, getConnection as getBaseConnection, getProvider, resilientFetch } from './provider';
 
 /**
  * MagicBlock Ephemeral Rollup plumbing.
@@ -23,12 +23,15 @@ import { getConnection as getBaseConnection, getProvider, resilientFetch } from 
  * checks on the rollup, exactly as it would on Solana.
  */
 
+// Endpoints follow the cluster. MagicBlock's mainnet fleet (as/eu/us
+// .magicblock.app + router.magicblock.app) is live — verified against
+// status.magicblock.app before this was written.
 const ROUTER_URL = (import.meta.env.VITE_MB_ROUTER as string | undefined)
-  ?? 'https://devnet-router.magicblock.app/';
+  ?? (IS_MAINNET ? 'https://router.magicblock.app/' : 'https://devnet-router.magicblock.app/');
 
 /** Only used when the router has nothing to say (account not yet delegated). */
 const FALLBACK_ER = (import.meta.env.VITE_MB_ER as string | undefined)
-  ?? 'https://devnet-as.magicblock.app/';
+  ?? (IS_MAINNET ? 'https://as.magicblock.app/' : 'https://devnet-as.magicblock.app/');
 
 export const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
 export const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111111');

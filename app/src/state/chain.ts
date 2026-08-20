@@ -4,7 +4,9 @@ import {
   fetchCardsFor, fetchConfig, fetchRegisteredCoins, fetchSolBalance, fetchTokenBalances,
   type ChainCard, type ChainCoin, type ChainConfig,
 } from '../chain/read';
-import { CLUSTER, canSign, explorerUrl } from '../chain/provider';
+import { CLUSTER, IS_MAINNET, canSign, explorerUrl } from '../chain/provider';
+import { apiFetch, hasApi } from '../lib/api';
+import { overlayLivePrices } from '../lib/coins';
 import { useWallet } from './wallet';
 
 /**
@@ -79,6 +81,26 @@ export const useChain = create<ChainState>((set, get) => ({
 
   init: async () => {
     set({ loading: true, error: null });
+
+    /*
+     * Mainnet prices are real, so they must come from a market, not a bundle.
+     * Overlaid before the first store write so the first painted number is
+     * already live; refreshed on an interval because money paths read
+     * `priceUsd` at click time and drift compounds quietly. Devnet keeps its
+     * fixed reference prices and the disclosure that says so.
+     */
+    if (IS_MAINNET && hasApi()) {
+      const refresh = async () => {
+        try {
+          const res = await apiFetch('/api/coins');
+          const body = res && res.ok ? await res.json() : null;
+          if (Array.isArray(body?.coins)) overlayLivePrices(body.coins);
+        } catch { /* stale prices beat no app; the next tick retries */ }
+      };
+      await refresh();
+      setInterval(() => { void refresh(); }, 5 * 60_000);
+    }
+
     try {
       const [config, coins] = await Promise.all([fetchConfig(), fetchRegisteredCoins()]);
       if (!config) {

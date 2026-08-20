@@ -1,3 +1,4 @@
+import { IS_MAINNET } from '../chain/provider';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CardFrame } from '../components/CardFrame';
@@ -125,7 +126,7 @@ function ConnectHero() {
       <div style={{ padding: '0 12px', marginTop: 6 }}>
         <Pill onClick={openPicker} tone="gold" style={{ fontSize: 19 }}>Connect Wallet</Pill>
       </div>
-      <span className="label" style={{ fontSize: 12 }}>devnet · no real funds</span>
+      <span className="label" style={{ fontSize: 12 }}>{IS_MAINNET ? 'mainnet · real funds' : 'devnet · no real funds'}</span>
     </div>
   );
 }

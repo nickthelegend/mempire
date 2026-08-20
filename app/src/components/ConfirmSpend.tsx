@@ -164,7 +164,7 @@ export function ConfirmSpend({
         </div>
 
         <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-          A real SPL transfer to the treasury on devnet. Nothing is signed until
+          A real SPL transfer to the treasury. Nothing is signed until
           you press the button above.
         </p>
       </div>

@@ -9,6 +9,8 @@ crate-type = ["cdylib", "lib"]
 name = "mempire_amm"
 
 [features]
+# No cluster-specific behaviour; exists so workspace-wide feature builds resolve.
+mainnet = []
 default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []

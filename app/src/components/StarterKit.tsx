@@ -1,3 +1,4 @@
+import { IS_MAINNET } from '../chain/provider';
 import { useEffect, useState } from 'react';
 import { Pill } from './ui';
 import { apiFetch, apiPost } from '../lib/api';
@@ -32,6 +33,14 @@ interface FaucetStatus {
 }
 
 export function StarterKit() {
+  /*
+   * Devnet only, by definition. The kit is a faucet grant — free SOL and
+   * coins — and no faucet exists (or should) where the tokens are money.
+   * Returning null beats hiding it in CSS: the claim endpoint stays entirely
+   * unreachable from a mainnet build.
+   */
+  if (IS_MAINNET) return null;
+
   const address = useWallet((s) => s.address);
   const sol = useWallet((s) => s.sol);
   const chainCards = useChain((s) => s.cards);

@@ -1,9 +1,10 @@
 import { AnchorProvider, Program, type Idl } from '@coral-xyz/anchor';
 import type { Adapter } from '@solana/wallet-adapter-base';
 import {
-  Connection, Keypair, PublicKey,
-  type Transaction, type VersionedTransaction,
+  ComputeBudgetProgram, Connection, Keypair, PublicKey,
+  Transaction, type VersionedTransaction,
 } from '@solana/web3.js';
+import type { Signer, ConfirmOptions, TransactionSignature } from '@solana/web3.js';
 import idl from './mempire.idl.json';
 import { PROGRAM_ID } from './pdas';
 import { guestSolanaSigner } from '../lib/identity';
@@ -23,10 +24,40 @@ import { guestSolanaSigner } from '../lib/identity';
  *    signature time with a confusing wallet error.
  */
 
-const RPC_URL = (import.meta.env.VITE_RPC_URL as string | undefined)
-  ?? 'https://api.devnet.solana.com';
-
 export const CLUSTER = (import.meta.env.VITE_CLUSTER as string | undefined) ?? 'devnet';
+
+/** One switch for everything that must behave differently with real money. */
+export const IS_MAINNET = CLUSTER === 'mainnet-beta' || CLUSTER === 'mainnet';
+
+/*
+ * The label and the endpoint must agree, and the tie-breaker is the endpoint.
+ *
+ * Everything money-adjacent keys off CLUSTER — but CLUSTER is a free-text env
+ * var that defaults to 'devnet', and VITE_RPC_URL is set independently. Set a
+ * mainnet RPC while forgetting the label and every "devnet-only" gate stays
+ * open: most dangerously the guest signer, which would hand an unencrypted
+ * localStorage keypair a live mainnet connection. So any URL that so much as
+ * mentions mainnet forces the mainnet posture regardless of the label, and a
+ * mainnet label with a devnet-looking URL is refused at module load — a build
+ * misconfigured about which chain it is on must not boot quietly.
+ */
+const RPC_LOOKS_MAINNET = /mainnet/i.test(String(import.meta.env.VITE_RPC_URL ?? ''));
+const RPC_LOOKS_DEVNET = /devnet|localhost|127\.0\.0\.1/i.test(String(import.meta.env.VITE_RPC_URL ?? ''));
+export const TREAT_AS_MAINNET = IS_MAINNET || RPC_LOOKS_MAINNET;
+if ((IS_MAINNET && RPC_LOOKS_DEVNET) || (!IS_MAINNET && RPC_LOOKS_MAINNET)) {
+  throw new Error(
+    `VITE_CLUSTER says ${CLUSTER} but VITE_RPC_URL says otherwise — refusing to boot a build that is confused about which chain it is on`,
+  );
+}
+
+/*
+ * The default RPC follows the cluster. MagicBlock's base-layer endpoint is the
+ * mainnet default because the game already depends on their infrastructure for
+ * the rollup, and `api.mainnet-beta.solana.com` throttles browsers hard enough
+ * to be unusable. A dedicated provider (Helius etc.) still wins when set.
+ */
+const RPC_URL = (import.meta.env.VITE_RPC_URL as string | undefined)
+  ?? (IS_MAINNET ? 'https://rpc.magicblock.app/mainnet' : 'https://api.devnet.solana.com');
 
 let connection: Connection | null = null;
 
@@ -106,6 +137,9 @@ interface SigningWallet {
  * anything that holds real value. See `guestSolanaSigner`.
  */
 function guestSigningWallet(): SigningWallet | null {
+  // Fail closed on the *effective* cluster: a mainnet-looking RPC disables
+  // guest signing even when the label says devnet. See TREAT_AS_MAINNET.
+  if (TREAT_AS_MAINNET) return null;
   const kp = guestSolanaSigner(CLUSTER);
   if (!kp) return null;
   // tweetnacl keeps the 64-byte expanded secret; web3.js wants the same shape.
@@ -157,9 +191,48 @@ const readOnlyWallet: SigningWallet = {
   signAllTransactions: () => { throw new Error('read-only provider cannot sign'); },
 };
 
+/**
+ * Micro-lamports per compute unit added to every base-layer transaction on
+ * mainnet. Without a priority fee a transaction competes at zero and can sit
+ * unlanded through the whole blockhash window during any congestion — which
+ * for this app means stakes that never escrow and matches that never settle.
+ * 10k µlamports ≈ 2,000 lamports on a 200k-CU transaction: a fraction of the
+ * 5k base fee, bought landing reliability. Devnet stays at zero.
+ */
+const PRIORITY_MICROLAMPORTS = Number(import.meta.env.VITE_PRIORITY_FEE ?? (IS_MAINNET ? 10_000 : 0));
+
+/**
+ * AnchorProvider that prepends the compute-unit price to legacy transactions.
+ *
+ * One override instead of edits at thirty call sites: every `program.methods
+ * .x().rpc()` in this app funnels through `sendAndConfirm`. Versioned
+ * transactions pass through untouched (nothing here builds them), and the
+ * instruction is skipped when one is already present so a caller that sets
+ * its own fee is not double-charged.
+ */
+class FeeAwareProvider extends AnchorProvider {
+  override async sendAndConfirm(
+    tx: Transaction | VersionedTransaction,
+    signers?: Signer[],
+    opts?: ConfirmOptions,
+  ): Promise<TransactionSignature> {
+    if (
+      PRIORITY_MICROLAMPORTS > 0
+      && tx instanceof Transaction
+      && !tx.instructions.some((ix) => ix.programId.equals(ComputeBudgetProgram.programId))
+    ) {
+      tx.instructions = [
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: PRIORITY_MICROLAMPORTS }),
+        ...tx.instructions,
+      ];
+    }
+    return super.sendAndConfirm(tx, signers, opts);
+  }
+}
+
 export function getProvider(adapter: Adapter | null = null): AnchorProvider {
   const wallet = asSigningWallet(adapter) ?? readOnlyWallet;
-  return new AnchorProvider(getConnection(), wallet as never, {
+  return new FeeAwareProvider(getConnection(), wallet as never, {
     commitment: 'confirmed',
     preflightCommitment: 'confirmed',
   });
@@ -176,7 +249,8 @@ export function canSign(adapter: Adapter | null): boolean {
 
 export { PROGRAM_ID };
 
-/** Explorer link for a signature or address — devnet needs the cluster param. */
+/** Explorer link. Mainnet is the explorer's default; devnet needs the param. */
 export function explorerUrl(idOrSig: string, kind: 'tx' | 'address' = 'tx'): string {
-  return `https://explorer.solana.com/${kind}/${idOrSig}?cluster=${CLUSTER}`;
+  const suffix = IS_MAINNET ? '' : `?cluster=${CLUSTER}`;
+  return `https://explorer.solana.com/${kind}/${idOrSig}${suffix}`;
 }

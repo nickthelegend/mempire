@@ -164,6 +164,8 @@ pub mod mempire_rollup {
         log.bump = ctx.bumps.log;
         log.session_signers = [Pubkey::default(); 2];
         log.session_expires = [0; 2];
+        // 3 = "has not spoken". Both seats must speak before the log seals.
+        log.claims = [3; 2];
         Ok(())
     }
 
@@ -512,6 +514,7 @@ pub mod mempire_rollup {
     /// transaction against the main program.
     pub fn end_log(ctx: Context<EndLog>, winner: u8, final_hash: u64) -> Result<()> {
         require!(winner <= 2, RollupError::BadWinner);
+        let seat: usize;
         {
             let signer = ctx.accounts.payer.key();
             let log = &ctx.accounts.log;
@@ -520,7 +523,34 @@ pub mod mempire_rollup {
                 signer == log.players[0] || signer == log.players[1],
                 RollupError::NotAPlayer
             );
+            seat = if signer == log.players[0] { 0 } else { 1 };
         }
+
+        /*
+         * One seat's word ends nothing.
+         *
+         * This used to seal on the first call with whatever winner the caller
+         * named — so a loser quick on the trigger could declare themselves
+         * winner and, by passing their own rail, take the chest that pays for
+         * a real card mint. Now each seat records a claim; the log seals when
+         * the second one lands. Agreement grants the chest and commits that
+         * winner; disagreement seals as disputed (3) and grants nothing —
+         * the same shape `settle_from_log` enforces for the pot, because a
+         * result one party declares alone is not a result.
+         */
+        {
+            let log = &mut ctx.accounts.log;
+            require!(log.claims[seat] == 3, RollupError::AlreadyEnded);
+            log.claims[seat] = winner;
+            let other = log.claims[1 - seat];
+            if other == 3 {
+                // First claim: record it and stay delegated for the second.
+                log.exit(&crate::ID)?;
+                return Ok(());
+            }
+        }
+        let agreed = ctx.accounts.log.claims[0] == ctx.accounts.log.claims[1];
+        let winner = if agreed { ctx.accounts.log.claims[0] } else { 3 };
 
         // Grant the winner their one chest, here and nowhere else.
         //
@@ -542,7 +572,7 @@ pub mod mempire_rollup {
         // Residual: a loser who hand-builds `end_log` without the account
         // denies the winner one chest. They gain nothing by it, and the pot is
         // untouched — worth accepting to keep settlement unconditional.
-        if winner < 2 {
+        if agreed && winner < 2 {
             let expected = ctx.accounts.log.players[winner as usize];
             if let Some(chests) = ctx.accounts.winner_chests.as_mut() {
                 require_keys_eq!(chests.owner, expected, RollupError::NotAPlayer);
@@ -893,12 +923,17 @@ pub struct MatchLog {
     /// Unix seconds each session stops being accepted. Enforced on-chain; a UI
     /// timer is not a security control.
     pub session_expires: [i64; 2],
+    /// Each seat's claimed result: 0/1 a seat index, 2 a draw, 3 "has not
+    /// spoken". Mirrors the base program's design for the same reason it has
+    /// it — a result one party declares alone is not a result.
+    pub claims: [u8; 2],
 }
 impl MatchLog {
     pub const SIZE: usize =
         8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1
         + 64  // session_signers
-        + 16; // session_expires
+        + 16  // session_expires
+        + 2; // claims
 
     /// The seat this key may write for, if any, honouring expiry.
     ///
@@ -1260,6 +1295,7 @@ mod session_tests {
             bump: 255,
             session_signers: sessions,
             session_expires: expires,
+            claims: [3; 2],
         }
     }
 

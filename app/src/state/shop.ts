@@ -14,9 +14,12 @@ export const SHOP_SLOTS = 4;
 export const FREE_REROLLS = 1;
 /** Reroll, in whole $MEMPIRE. Was 35 Crowns; the currency changed, not the cost. */
 export const REROLL_COST = 35;
+import { IS_MAINNET } from '../chain/provider';
+
 const DAY_MS = 86_400_000;
 /** Devnet demo pacing so a judge sees a rotation without waiting a day. */
-export const DEMO_DAY_MS = 3 * 60_000;
+/** The shop day: real 24h on mainnet, 3 minutes on the devnet demo. */
+export const DEMO_DAY_MS = IS_MAINNET ? DAY_MS : 3 * 60_000;
 
 export interface ShopOffer {
   mint: string;

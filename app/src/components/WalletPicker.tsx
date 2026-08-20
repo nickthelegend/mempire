@@ -1,3 +1,4 @@
+import { IS_MAINNET } from '../chain/provider';
 import { useEffect, useMemo } from 'react';
 import { click } from '../lib/audio';
 import { listWallets, useWallet } from '../state/wallet';
@@ -92,7 +93,7 @@ export function WalletPicker() {
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
           <div>
             <h2 className="display" style={{ fontSize: 25, lineHeight: 1.1 }}>Connect Wallet</h2>
-            <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>Devnet · no real funds move</p>
+            <p className="fine" style={{ color: 'var(--dim-on-wood)' }}>{IS_MAINNET ? 'Mainnet · real funds move' : 'Devnet · no real funds move'}</p>
           </div>
           <button
             onClick={() => { click(); closePicker(); }}

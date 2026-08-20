@@ -1,5 +1,25 @@
 import cardCatalogue from '../data/cards.json';
 import devnet from './devnet-coins.json';
+import mainnet from './mainnet-coins.json';
+import { IS_MAINNET } from '../chain/provider';
+
+/*
+ * One registry per cluster, chosen at build time, and the choice is checked.
+ *
+ * The devnet file is 66 seeded mints with fixed reference prices — honest
+ * where no market exists. The mainnet file is built by
+ * `chain/build-mainnet-registry.mjs` from Jupiter's *verified* token list
+ * (identity) plus DexScreener per-mint reads (market data) — never from
+ * symbol search, which returns scam tokens wearing real tickers. A build
+ * whose registry stamp disagrees with its cluster refuses to boot: a card
+ * game staking real tokens must not guess which chain its mints live on.
+ */
+const registry = (IS_MAINNET ? mainnet : devnet) as {
+  cluster: string; coins: SeededCoin[]; programId?: string; config?: string;
+};
+if (IS_MAINNET !== String(registry.cluster).startsWith('mainnet')) {
+  throw new Error(`registry is stamped ${registry.cluster} but this build is ${IS_MAINNET ? 'mainnet' : 'devnet'}`);
+}
 
 /**
  * The coin registry.
@@ -104,16 +124,12 @@ export const ineligibleReason = (c: Coin): string | null => {
   return null;
 };
 
-/** The cluster and program the mints above belong to. */
-export const DEVNET_META = {
-  cluster: devnet.cluster as string,
-  programId: devnet.programId as string,
-  config: devnet.config as string,
-};
+/** The cluster the active registry belongs to. */
+export const REGISTRY_META = { cluster: registry.cluster };
 
 function build(): Coin[] {
   const nowSec = Date.now() / 1000;
-  return (devnet.coins as SeededCoin[]).map((c) => {
+  return registry.coins.map((c) => {
     const look = PRESENTATION[c.ticker];
     return {
       mint: c.mint,
@@ -123,7 +139,10 @@ function build(): Coin[] {
       // Simulated-mode holdings. Assets without a hand-tuned entry get roughly
       // $600 worth, so every card in the registry is actually stakeable in the
       // demo rather than sitting at zero and looking broken.
-      balance: look?.balance ?? Math.max(1, Math.round(600 / Math.max(c.priceUsd, 1e-6))),
+      // Simulated holdings exist only where the tokens don't: a mainnet
+      // build starts every real coin at zero and holdings come from the
+      // wallet, because pretending to hold $600 of a real asset is a lie.
+      balance: IS_MAINNET ? 0 : (look?.balance ?? Math.max(1, Math.round(600 / Math.max(c.priceUsd, 1e-6)))),
       priceUsd: c.priceUsd,
       liquidityUsd: c.liquidityUsd,
       // Age is derived from the seeded first-seen timestamp, so the two gated
@@ -174,4 +193,36 @@ export function toRawAmount(coin: Coin, uiAmount: number): bigint {
 /** Raw base units → token units for display. */
 export function fromRawAmount(coin: Coin, raw: number | bigint): number {
   return Number(raw) / 10 ** coin.decimals;
+}
+
+/**
+ * Live prices, for the cluster where prices are real.
+ *
+ * The bundled registry's numbers are fixed reference prices — the honest
+ * choice on devnet, where the mints have no market, and a lie on mainnet,
+ * where they do. This overlays the relay's DexScreener read onto the same
+ * `Coin` objects every consumer already holds, keyed by mint, and reports
+ * whether anything changed so the caller can trigger a re-render. Money paths
+ * read `priceUsd` at click time, so the overlay corrects them immediately
+ * even before the UI repaints.
+ *
+ * Devnet builds never call this; their disclosure says exactly what the
+ * numbers are.
+ */
+export function overlayLivePrices(
+  live: { mint: string; priceUsd?: number; liquidityUsd?: number }[],
+): boolean {
+  let changed = false;
+  for (const row of live) {
+    const coin = BY_MINT.get(row.mint);
+    if (!coin) continue;
+    if (typeof row.priceUsd === 'number' && row.priceUsd > 0 && row.priceUsd !== coin.priceUsd) {
+      coin.priceUsd = row.priceUsd; changed = true;
+    }
+    if (typeof row.liquidityUsd === 'number' && row.liquidityUsd >= 0
+        && row.liquidityUsd !== coin.liquidityUsd) {
+      coin.liquidityUsd = row.liquidityUsd; changed = true;
+    }
+  }
+  return changed;
 }

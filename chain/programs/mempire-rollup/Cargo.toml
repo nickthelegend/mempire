@@ -9,6 +9,8 @@ crate-type = ["cdylib", "lib"]
 name = "mempire_rollup"
 
 [features]
+# Accept only the production VRF oracle queue. See chests.rs.
+mainnet = []
 default = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []

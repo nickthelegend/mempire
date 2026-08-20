@@ -12,6 +12,7 @@ import {
 } from '../chain/actions';
 import { click, play } from '../lib/audio';
 import { useChain } from '../state/chain';
+import { IS_MAINNET } from '../chain/provider';
 import {
   ASSET_KINDS, COINS, ineligibleReason, tickerOf, toRawAmount,
   type AssetKind, type Coin,
@@ -284,7 +285,9 @@ function StakeSheet({ card, onClose }: { card: MintedCard; onClose: () => void }
         {cooling ? (
           <p className="fine" style={{ color: 'var(--dim-on-wood)', textAlign: 'center' }}>
             {fmtUsd(card.pendingUnstakeUsd)} unstaking — claimable in {remaining}s
-            {' '}(72h on mainnet, {UNSTAKE_COOLDOWN_MS / 1000}s on this devnet demo)
+            {/* The demo disclosure only makes sense where the demo is. On
+                mainnet the countdown above already states the real number. */}
+            {!IS_MAINNET && <>{' '}(72h on mainnet, {UNSTAKE_COOLDOWN_MS / 1000}s on this devnet demo)</>}
           </p>
         ) : !claimable && (
           <button

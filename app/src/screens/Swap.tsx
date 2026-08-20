@@ -2,10 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { Pill, Spinner } from '../components/ui';
 import {
-  MEMPIRE_MINT, POOL, UNIT, USDC_MINT, quote, readPool, swap, tokenBalance,
-  type PoolState,
+  AMM_CONFIG_MATCHES_CLUSTER, MEMPIRE_MINT, POOL, UNIT, USDC_MINT,
+  quote, readPool, swap, tokenBalance, type PoolState,
 } from '../chain/amm';
-import { canSign, explorerUrl } from '../chain/provider';
+import { IS_MAINNET, canSign, explorerUrl } from '../chain/provider';
 import { useWallet } from '../state/wallet';
 import { signer } from '../state/wallet';
 
@@ -48,6 +48,25 @@ function parseAmount(text: string): bigint {
  * guards — not a simplified one that happens to look similar.
  */
 export function SwapPanel({ compact = false }: { compact?: boolean }) {
+  /*
+   * The one state where quoting at all would be a lie: this build's cluster
+   * and the pool baked into amm.json disagree — a mainnet bundle cut before
+   * the mainnet pool was opened (or vice versa). Refuse with the reason
+   * rather than showing prices from the other cluster's market.
+   */
+  if (!AMM_CONFIG_MATCHES_CLUSTER) {
+    return (
+      <div className="panel" style={{ padding: 16 }}>
+        <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
+          The swap pool for this cluster has not been opened yet — this build
+          carries a pool from a different cluster, and quoting it here would
+          show prices from a market you cannot trade. Everything else works;
+          swaps arrive with the pool.
+        </p>
+      </div>
+    );
+  }
+
   const address = useWallet((s) => s.address);
   const [pool, setPool] = useState<PoolState | null>(null);
   const [poolFailed, setPoolFailed] = useState(false);
@@ -178,7 +197,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         "get more $MEMPIRE" a dead end. Saying where the token comes from is
         the difference between a broken screen and an errand.
       */}
-      {buying && balances.usdc === 0n && (
+      {!IS_MAINNET && buying && balances.usdc === 0n && (
         <p
           className="fine"
           style={{
@@ -350,7 +369,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
       )}
 
       <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-        Devnet. Quoted in Circle&apos;s USDC ({USDC_MINT.toBase58().slice(0, 4)}…
+        {IS_MAINNET ? 'Mainnet.' : 'Devnet.'} Quoted in Circle&apos;s USDC ({USDC_MINT.toBase58().slice(0, 4)}…
         {USDC_MINT.toBase58().slice(-4)}), constant product, 0.30% to liquidity
         providers. Pool {POOL.toBase58().slice(0, 4)}…{POOL.toBase58().slice(-4)}.
       </p>

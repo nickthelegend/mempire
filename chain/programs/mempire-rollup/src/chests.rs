@@ -143,7 +143,17 @@ pub fn tier_from_randomness(randomness: &[u8; 32]) -> u8 {
 /// would build a request that cannot be served from where it runs, and the
 /// failure would surface as a request that is simply never fulfilled.
 pub fn is_ephemeral_queue(key: &Pubkey) -> bool {
-    *key == DEFAULT_EPHEMERAL_QUEUE || *key == DEFAULT_EPHEMERAL_TEST_QUEUE
+    /*
+     * The test queue's fulfiller is documented as usable by anyone — meaning
+     * on mainnet, "verifiable randomness" that anyone can fulfil is chest
+     * tiers chosen by whoever answers first. The mainnet build accepts only
+     * the production oracle queue; dev and localnet keep the test queue
+     * because that is what runs there.
+     */
+    #[cfg(feature = "mainnet")]
+    { *key == DEFAULT_EPHEMERAL_QUEUE }
+    #[cfg(not(feature = "mainnet"))]
+    { *key == DEFAULT_EPHEMERAL_QUEUE || *key == DEFAULT_EPHEMERAL_TEST_QUEUE }
 }
 
 #[cfg(test)]

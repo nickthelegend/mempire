@@ -8,7 +8,7 @@ import {
 } from '@solana/spl-token';
 import ammIdl from './mempire_amm.idl.json';
 import cfg from '../lib/amm.json';
-import { canSign, getConnection, getProvider } from './provider';
+import { IS_MAINNET, canSign, getConnection, getProvider } from './provider';
 
 /**
  * The $MEMPIRE / USDC pool.
@@ -22,6 +22,18 @@ import { canSign, getConnection, getProvider } from './provider';
  * Nothing here estimates: a quote the pool would not honour is worse than no
  * quote, because the trader finds out by losing money.
  */
+
+/*
+ * A mainnet build quoting a devnet pool would show real-looking prices for a
+ * market that does not exist on the cluster the user is on. `amm.json` is
+ * written by the pool-setup script and stamps which cluster it opened the pool
+ * on; the swap screen refuses to quote when the stamp and the build disagree,
+ * which is exactly the state between "mainnet build cut" and "mainnet pool
+ * opened" if the runbook is run out of order.
+ */
+export const AMM_CONFIG_MATCHES_CLUSTER = IS_MAINNET
+  ? String(cfg.cluster).startsWith('mainnet')
+  : !String(cfg.cluster).startsWith('mainnet');
 
 export const AMM_PROGRAM_ID = new PublicKey(cfg.ammProgramId);
 export const MEMPIRE_MINT = new PublicKey(cfg.mempireMint);

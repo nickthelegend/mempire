@@ -18,6 +18,20 @@ import { readFileSync } from 'fs';
 
 const BASE = process.env.BASE_RPC ?? 'https://api.devnet.solana.com';
 
+/*
+ * The seed below is IN THIS PUBLIC REPOSITORY, which means anyone on earth
+ * can derive the treasury's secret key. On devnet that is a demo convenience.
+ * On mainnet it is every fee the game ever earns, standing in the street.
+ * This script refuses to run against anything that is not devnet; the
+ * mainnet treasury is created by the launch runbook as a fresh keypair (or
+ * better, a Squads multisig) and passed to init_config directly.
+ */
+if (/mainnet/i.test(BASE)) {
+  throw new Error(
+    'set-treasury derives its key from a public seed and must never run on mainnet — see MAINNET.md',
+  );
+}
+
 /** Deterministic devnet treasury. Not a secret and not holding anything real. */
 export function devnetTreasury(): Keypair {
   const seed = new Uint8Array(32);

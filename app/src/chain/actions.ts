@@ -439,7 +439,7 @@ export function baseLogPda(matchId: number): PublicKey {
 /** Read a match account, or null if it does not exist yet. */
 export async function readMatch(matchId: number): Promise<{
   id: number; state: number; players: string[]; stakeLamports: number;
-  winner: number; deadline: number;
+  winner: number; deadline: number; deckHashes: Uint8Array[];
 } | null> {
   const program = getProgram(null);
   try {
@@ -451,6 +451,9 @@ export async function readMatch(matchId: number): Promise<{
       stakeLamports: Number(m.stakeLamports),
       winner: Number(m.winner),
       deadline: Number(m.deadline),
+      // The per-seat deck commitments, so a client can hold the relayed deck
+      // against what the opponent actually locked on chain.
+      deckHashes: (m.deckHash as number[][]).map((h) => Uint8Array.from(h)),
     };
   } catch {
     return null;

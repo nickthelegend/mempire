@@ -1,3 +1,4 @@
+import { explorerUrl } from '../chain/provider';
 import { useEffect, useRef, useState } from 'react';
 import { readableChainError, tokenizeCardTx } from '../chain/actions';
 import { useChain } from '../state/chain';
@@ -287,7 +288,7 @@ export function CardDetail({
         {onChain && (
           nft ? (
             <a
-              href={`https://explorer.solana.com/address/${nft}?cluster=devnet`}
+              href={explorerUrl(nft, 'address')}
               target="_blank"
               rel="noreferrer"
               className="btn-3d"

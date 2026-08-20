@@ -1,3 +1,4 @@
+import { IS_MAINNET } from '../chain/provider';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MoneyRow, Pill } from '../components/ui';
@@ -94,8 +95,15 @@ export function Empire() {
 
   const wins = history.filter((h) => h.won).length;
   const losses = history.filter((h) => !h.won && !h.draw).length;
-  const earned = history.reduce((s, h) => s + h.payoutSol, 0);
-  const raked = history.reduce((s, h) => s + h.rakeSol, 0);
+  /*
+   * Money totals count only matches where money moved. `escrowed` exists for
+   * exactly this: an unstaked match reports the pot it *would* have paid, and
+   * summing those printed a "Won" figure of SOL that never existed — the same
+   * class of lie the result card was cured of. Rating counts all matches;
+   * SOL counts escrowed ones.
+   */
+  const earned = history.reduce((s, h) => s + (h.escrowed ? h.payoutSol : 0), 0);
+  const raked = history.reduce((s, h) => s + (h.escrowed ? h.rakeSol : 0), 0);
 
   return (
     <div style={{ padding: '18px 16px', display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -180,8 +188,11 @@ export function Empire() {
                     <span className="fine" style={{ fontSize: 12 }}>
                       pot {fmtSol(h.potSol)} · {h.hashes} commits
                     </span>
-                    <span className="money" style={{ marginLeft: 'auto', color: h.payoutSol > 0 ? 'var(--gold)' : 'var(--red)' }}>
-                      {h.payoutSol > 0 ? `+${fmtSol(h.payoutSol)}` : `−${fmtSol(h.potSol / 2)}`}
+                    <span className="money" style={{ marginLeft: 'auto', color: !h.escrowed ? 'var(--dim)' : h.payoutSol > 0 ? 'var(--gold)' : 'var(--red)' }}>
+                      {/* An unescrowed match moved nothing; showing ±SOL for it
+                          would restate the number the result card already
+                          disclaims. */}
+                      {!h.escrowed ? 'rating only' : h.payoutSol > 0 ? `+${fmtSol(h.payoutSol)}` : `−${fmtSol(h.potSol / 2)}`}
                     </span>
                   </div>
                 ))}
@@ -200,9 +211,13 @@ export function Empire() {
                 connected wallet would. Saying otherwise contradicted the
                 connect screen and undersold the one thing that is genuinely
                 onchain here. */}
+            {/* On mainnet a guest cannot sign at all — the browser key is
+                devnet-only by policy — so the guest line only exists there. */}
             {wallet.isGuest
-              ? 'Guest mode — this browser holds a real devnet keypair, so mints and stakes spend real devnet SOL and escrow for real. Back it up before you fund it. '
-              : 'Devnet — your SOL balance is read from the chain and staked matches escrow for real. '}
+              ? (IS_MAINNET
+                ? 'Guest mode on mainnet is play-only — connect a wallet to mint, stake, or hold anything real. '
+                : 'Guest mode — this browser holds a real devnet keypair, so mints and stakes spend real devnet SOL and escrow for real. Back it up before you fund it. ')
+              : `${IS_MAINNET ? 'Mainnet' : 'Devnet'} — your SOL balance is read from the chain and staked matches escrow for real. `}
             Mint fee 0.02 SOL · rake 10% · unstake fee 2%.
           </p>
         </>

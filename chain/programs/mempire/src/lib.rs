@@ -32,7 +32,13 @@ const MIN_LIQUIDITY_USD: u64 = 25_000;
 /// The game's currency. Constants rather than `Config` fields on purpose:
 /// `Config::SIZE` is exact, so widening it would orphan the live config
 /// account the same way a wider `Card` would orphan every existing card.
+#[cfg(not(feature = "mainnet"))]
 const MEMPIRE_MINT: Pubkey = pubkey!("AhF5trvRTrqRU3gdDGQKCX5H5zZh5WjSw4bmeCwYFpR8");
+/// The mainnet mint. Generated offline before launch — the keypair lives in
+/// the gitignored `chain/.mempire-mint-mainnet.json` and MUST be the key that
+/// actually mints on mainnet, or every $MEMPIRE constraint refuses.
+#[cfg(feature = "mainnet")]
+const MEMPIRE_MINT: Pubkey = pubkey!("EzN1R1qbU4Vx1XC8FJFKuLJxN8hjxvMNipHi3uLBPAcU");
 
 /// Base units of $MEMPIRE (6 decimals) for the first upgrade — 100 whole
 /// tokens. Multiplied by the current level, so 1→2 costs 100 and 9→10 costs
@@ -88,6 +94,24 @@ pub mod mempire {
         require!(rake_bps <= 2000, MempireError::FeeTooHigh);
         require!(tie_rake_bps <= rake_bps, MempireError::FeeTooHigh);
         require!(unstake_fee_bps <= 1000, MempireError::FeeTooHigh);
+        /*
+         * The durations must be sane, and the fees only checked themselves.
+         * A zero or negative cooldown makes request/claim a single-block
+         * round trip (the two-step design worthless); a zero timeout lets
+         * claim_timeout fire the instant a match opens and take the pot; and
+         * i64 accepts negatives everywhere a human meant "seconds". Bounds
+         * are wide — one minute to thirty days — because devnet legitimately
+         * runs a 60s cooldown; what they exclude is nonsense, not policy.
+         */
+        require!(
+            (60..=30 * 86_400).contains(&unstake_cooldown_secs),
+            MempireError::BadConfig
+        );
+        require!(
+            (60..=7 * 86_400).contains(&match_timeout_secs),
+            MempireError::BadConfig
+        );
+        require!((0..=365 * 86_400).contains(&min_age_secs), MempireError::BadConfig);
         let c = &mut ctx.accounts.config;
         c.admin = ctx.accounts.admin.key();
         c.treasury = ctx.accounts.treasury.key();
@@ -311,7 +335,18 @@ pub mod mempire {
     /// of being written is worse than metadata that stays quiet — the card
     /// account is the authority on level, and the URI points at art, not stats.
     pub fn tokenize_card(ctx: Context<TokenizeCard>, ticker: String) -> Result<()> {
-        require!(ticker.len() <= 12, MempireError::TickerTooLong);
+        require!(ticker.len() <= 12 && !ticker.is_empty(), MempireError::TickerTooLong);
+        /*
+         * The ticker lands in the NFT's on-chain name and its metadata URI.
+         * Free-form input there means a caller can title an NFT
+         * "Mempire $<anything>" and point its JSON at a path they influence —
+         * phishing surface wearing this program's name. Alphanumerics only;
+         * every real ticker in the registry already satisfies this.
+         */
+        require!(
+            ticker.bytes().all(|b| b.is_ascii_alphanumeric()),
+            MempireError::TickerTooLong
+        );
         let card = &ctx.accounts.card;
         let card_id = card.id;
 
@@ -2075,6 +2110,8 @@ pub enum MempireError {
     DifferentCoins,
     #[msg("card is already at the maximum level")]
     MaxLevel,
+    #[msg("config value is outside the sane range")]
+    BadConfig,
     #[msg("ticker is too long")]
     TickerTooLong,
     #[msg("an unstake is already pending")]

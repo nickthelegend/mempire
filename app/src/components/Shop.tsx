@@ -1,3 +1,4 @@
+import { mintCardTx } from '../chain/actions';
 import { useEffect, useState } from 'react';
 import { buzz, click, play } from '../lib/audio';
 import { coinByMint, tickerOf } from '../lib/coins';
@@ -39,6 +40,7 @@ export function Shop() {
   const refreshMempire = useMempire((s) => s.refresh);
   const [pending, setPending] = useState<string | null>(null);
   const chainMode = useChain((s) => s.mode);
+  const mintFeeSol = useChain((s) => s.config?.mintFeeSol ?? 0.02);
   const wallet = useWallet();
   const { mintCard, cards } = useCollection();
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +78,17 @@ export function Shop() {
     setError(null);
     try {
       await spendMempire(signer(), price, wallet.address);
+      /*
+       * The paid-for card must survive a reload, which means it must exist
+       * on chain. `grant` alone wrote a local card, and the chain sync
+       * rebuilds the collection as chain cards + seeded starters — so the
+       * purchase was real $MEMPIRE to the treasury for a card that vanished
+       * on the next sync. Real spend, durable card, or neither.
+       */
+      if (useChain.getState().mode === 'onchain') {
+        await mintCardTx(signer(), mint);
+        void useChain.getState().refresh();
+      }
       grant(mint);
       void refreshMempire(wallet.address);
     } catch (e) {
@@ -112,8 +125,30 @@ export function Shop() {
     }
   };
 
-  const buyWithSol = (mint: string, solPrice: number) => {
+  /*
+   * The SOL price is honest in exactly one mode. `wallet.spend` is an
+   * affordability *check* — it moves nothing — so in onchain mode this
+   * granted a card for zero payment. There, the SOL path is the program's
+   * own `mint_card`, which charges the config's real mint fee; the demo
+   * price button only survives where the whole economy is simulated.
+   */
+  const buyWithSol = async (mint: string, solPrice: number) => {
     click();
+    if (useChain.getState().mode === 'onchain') {
+      setPending(mint);
+      setError(null);
+      try {
+        await mintCardTx(signer(), mint);
+        void useChain.getState().refresh();
+        grant(mint);
+      } catch (e) {
+        play('error');
+        setError(e instanceof Error ? e.message : 'The mint did not go through.');
+      } finally {
+        setPending(null);
+      }
+      return;
+    }
     if (!wallet.spend(solPrice)) {
       play('error');
       setError(`need ${fmtSol(solPrice)}`);
@@ -192,8 +227,10 @@ export function Shop() {
                       : <TokenAmount amount={tokenPrice} size={14} />}
                   </button>
                   <button
-                    onClick={() => buyWithSol(o.mint, solPrice)}
-                    aria-label={`Buy ${tickerOf(coin)} for ${solPrice} SOL`}
+                    onClick={() => void buyWithSol(o.mint, solPrice)}
+                    aria-label={`Buy ${tickerOf(coin)} for ${chainMode === 'onchain'
+                      ? `${mintFeeSol} SOL mint fee`
+                      : `${solPrice} SOL`}`}
                     className="btn-3d"
                     style={{
                       minHeight: 44, padding: '0 10px', borderRadius: 9,
@@ -205,7 +242,10 @@ export function Shop() {
                       whiteSpace: 'nowrap',
                     }}
                   >
-                    {solPrice}◎
+                    {/* Onchain the SOL path is the program's mint at the
+                        config fee — the demo discount price would be a number
+                        the chain will not honour. */}
+                    {chainMode === 'onchain' ? <>{mintFeeSol}◎</> : <>{solPrice}◎</>}
                   </button>
                 </span>
               )}

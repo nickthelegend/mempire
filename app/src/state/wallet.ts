@@ -33,7 +33,9 @@ import { guestAddress, guestWasActive, markGuestActive } from '../lib/identity';
  * is real money or a scoreboard.
  */
 
-const NETWORK = WalletAdapterNetwork.Devnet;
+import { IS_MAINNET } from '../chain/provider';
+
+const NETWORK = IS_MAINNET ? WalletAdapterNetwork.Mainnet : WalletAdapterNetwork.Devnet;
 
 
 

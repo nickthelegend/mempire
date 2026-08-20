@@ -77,11 +77,24 @@ export function verifySignature({ address, action, ts, signature }) {
  * the raw param again: that is the whole point.
  */
 export function requireWallet(action) {
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const address = req.params.address || req.body?.address;
     const { signature, ts } = req.body ?? {};
     const bad = verifySignature({ address, action, ts, signature });
     if (bad) return res.status(401).json({ error: `unauthorised: ${bad}` });
+    /*
+     * A valid signature must also be a *fresh* one. The skew window alone
+     * left five minutes in which a captured request could be replayed
+     * verbatim — tolerable for a devnet ladder, written down as such, and
+     * not tolerable once these routes gate anything real. The store is a
+     * TTL'd unique index on the signature itself: the second submission of
+     * the same bytes fails the insert and the request. Absent a database
+     * (tests, cold boot) this passes through, which only ever widens back
+     * to the documented window rather than opening anything new.
+     */
+    if (replaySeen && await replaySeen(signature)) {
+      return res.status(401).json({ error: 'unauthorised: signature already used' });
+    }
     req.wallet = address;
     // Per-wallet rate limiting, once the wallet is proven. Installed at startup
     // via `setWalletLimiter`; absent in tests and before the database is up, in
@@ -100,6 +113,10 @@ export function requireWallet(action) {
  */
 let walletLimit = null;
 export function setWalletLimiter(fn) { walletLimit = fn; }
+
+/** Injected like the limiter: returns true when this signature was seen before. */
+let replaySeen = null;
+export function setReplayStore(fn) { replaySeen = fn; }
 
 /**
  * The same check for a WebSocket message, where there is no Express request.

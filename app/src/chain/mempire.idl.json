@@ -2637,106 +2637,111 @@
     },
     {
       "code": 6010,
+      "name": "BadConfig",
+      "msg": "config value is outside the sane range"
+    },
+    {
+      "code": 6011,
       "name": "TickerTooLong",
       "msg": "ticker is too long"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "UnstakePending",
       "msg": "an unstake is already pending"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "NothingToClaim",
       "msg": "nothing to claim"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "CooldownActive",
       "msg": "unstake cooldown still active"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "BadDeck",
       "msg": "deck must be exactly 8 owned, unlocked cards"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "NotCardOwner",
       "msg": "card not owned by player"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "DuplicateCoin",
       "msg": "deck may contain each coin only once"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "BadMatchState",
       "msg": "match is not in the required state"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "SelfMatch",
       "msg": "cannot battle yourself"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "PowerMismatch",
       "msg": "deck power outside the tier band"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "BadWinner",
       "msg": "invalid winner value"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "NotAPlayer",
       "msg": "signer is not a match player"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "TooEarly",
       "msg": "deadline has not passed"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "WrongTreasury",
       "msg": "fee account is not the treasury named in config"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "NotUpgradeAuthority",
       "msg": "signer is not the program's upgrade authority"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "BadCardLayout",
       "msg": "card account is not a recognised layout"
     },
     {
-      "code": 6029,
+      "code": 6030,
       "name": "AlreadyClaimed",
       "msg": "this seat has already recorded its result"
     },
     {
-      "code": 6030,
+      "code": 6031,
       "name": "TreasuryUnchanged",
       "msg": "the treasury is already that address"
     }

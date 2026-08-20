@@ -13,7 +13,15 @@ export const FEES = {
 };
 
 // Devnet demo cooldown — mainnet is 72h; 60s here so judges can see the flow.
-export const UNSTAKE_COOLDOWN_MS = 60_000;
+import { IS_MAINNET } from '../chain/provider';
+
+/*
+ * Mirrors the program's `unstake_cooldown_secs` config: 72h on mainnet, 60s on
+ * the devnet demo. The program is the authority — this constant only drives
+ * countdowns and copy, and a mismatch shows up as a Claim button that appears
+ * early and gets refused with CooldownActive rather than as money moving.
+ */
+export const UNSTAKE_COOLDOWN_MS = IS_MAINNET ? 72 * 3600_000 : 60_000;
 
 export interface MintedCard {
   id: string;

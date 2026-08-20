@@ -1,3 +1,4 @@
+import { IS_MAINNET } from '../chain/provider';
 import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { click } from '../lib/audio';
@@ -33,7 +34,7 @@ const STEPS: TutorialStep[] = [
   {
     anchor: 'tier',
     title: 'Pick your stakes',
-    body: 'Each tier stakes real devnet SOL once your deck is minted onchain. Both players pay in, winner takes 90% of the pot — the house keeps 10%, and says so. Until then a match counts for rating only.',
+    body: `Each tier stakes real ${IS_MAINNET ? '' : 'devnet '}SOL once your deck is minted onchain. Both players pay in, winner takes 90% of the pot — the house keeps 10%, and says so. Until then a match counts for rating only.`,
   },
   {
     anchor: 'practice',

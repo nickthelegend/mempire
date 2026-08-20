@@ -72,7 +72,15 @@ export const CHEST_SLOTS = 4;
 export const TIER_ORDER: ChestTier[] = ['silver', 'golden', 'magic', 'legendary'];
 
 /** Devnet demo pacing: minutes, not hours, so a judge sees the whole loop. */
-export const DEMO_TIME_SCALE = 1 / 60;
+import { IS_MAINNET } from '../chain/provider';
+
+/**
+ * Devnet demo pacing: an hour-long unlock plays out in a minute. On mainnet
+ * the chest card states its real unlock time, so it must run at 1:1 — a
+ * "12h legendary" that opens in 12 minutes would be the UI lying about the
+ * scarcity the whole chest economy is priced on.
+ */
+export const DEMO_TIME_SCALE = IS_MAINNET ? 1 : 1 / 60;
 
 export interface ChestSlot {
   id: string;

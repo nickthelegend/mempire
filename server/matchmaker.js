@@ -16,6 +16,7 @@
  * player (nor this server picking who is player 0) can grind a favourable
  * opening hand.
  */
+import { wsVerified } from './auth.js';
 import { WebSocketServer } from 'ws';
 
 /** base58, Solana pubkey shape — the same test the HTTP routes use. */
@@ -183,20 +184,27 @@ export function registerMatchmaker(server) {
           /*
            * TODO(security): this address is asserted, not proved.
            *
-           * `wsVerified` exists for exactly this and is imported by nothing, so
-           * `msg.address` is whatever the client typed — it is relayed to the
-           * opponent as `opponent.address`, fed into their onchain escrow join,
-           * and the self-match guard compares two strings the same attacker
-           * chose. Two sockets can pair with each other and farm the ladder.
-           *
-           * Requiring the signature here was written, deployed, and reverted:
-           * it stopped both seats pairing at all and took live PvP down, twice
-           * reproducibly. The shape check below is kept because it costs
-           * nothing; the signature needs the client's queue path reworked to
-           * send it reliably before the socket is used, which is more than a
-           * one-line change and is not worth breaking the game to rush.
+           * History: requiring a signature here was deployed and reverted
+           * twice, because the client never sent one and enforcement took
+           * live PvP down with it. The client now signs its queue payload
+           * (see match.ts), so verification finally lands below — as a
+           * demotion to casual rather than a rejection, which keeps the
+           * failure mode "cannot rank" instead of "cannot play".
            */
           if (!ADDRESS.test(String(msg.address)) || !validDeck(msg.deck)) return;
+
+          /*
+           * Ranked play requires a proven address; casual does not.
+           *
+           * The client now signs its queue (action 'queue', same scheme as
+           * every HTTP write), so the enforcement that was reverted twice for
+           * breaking pairing can land as a demotion instead of a rejection:
+           * an unsigned or badly-signed queue still plays, it just cannot
+           * touch the ladder — which is the thing an impersonated address
+           * could damage. The `queued` ack already reports the ranked flag
+           * back, so the client knows which game it is in.
+           */
+          if (msg.ranked && !wsVerified(msg, 'queue')) msg.ranked = false;
           // A socket already in a live match cannot queue for another — that
           // would orphan the first match's opponent mid-battle.
           if (matches.has(ws.matchId)) return;

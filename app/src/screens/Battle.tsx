@@ -201,7 +201,7 @@ function ResultOverlay() {
         </div>
       )}
       <p className="fine" style={{ fontSize: 12 }}>
-        {result.hashes} state hashes committed · settled by final-state signature (devnet sim)
+        {result.hashes} state hashes committed · settled by final-state signature
       </p>
       <Pill onClick={() => { dismiss(); nav('/'); }}>Return to Arena</Pill>
     </div>

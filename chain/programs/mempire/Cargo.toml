@@ -10,6 +10,10 @@ name = "mempire"
 
 [features]
 default = []
+# Bakes the mainnet $MEMPIRE mint into the binary. The devnet and mainnet
+# builds differ by exactly this one pubkey; everything else that varies by
+# cluster (cooldown, timeout, fees) is a Config field set at initialize.
+mainnet = []
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
