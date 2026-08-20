@@ -1363,3 +1363,114 @@ first win arrives by timeout still ends with no $MEMPIRE.
 The mainnet binary remains unrun; only its devnet twin, differing by one
 constant. Bags is still verified only unconfigured, and creator-fee claiming is
 still unwired.
+
+# Run 15 — the mint the client would have used on mainnet
+
+Run 14 established the shape of these bugs: *devnet state masking mainnet
+reality.* This run hunted that class deliberately and found the worst instance
+so far, plus a control that was documented but never implemented.
+
+## The launch blocker: $MEMPIRE's mint came from a devnet-stamped file
+
+`MEMPIRE_MINT` is read from `app/src/lib/amm.json`, which carries
+`"cluster": "devnet"` and the devnet mint. The swap screen guards against a
+stale stamp with `AMM_CONFIG_MATCHES_CLUSTER` — but that guard is consulted in
+**exactly one file**, and `MEMPIRE_MINT` is imported by three more:
+
+    spend.ts        every $MEMPIRE sink — chest skips, shop, clan charters
+    actions.ts      the merge fee, the reward vault address, winner tokens
+    state/mempire.ts the balance the player sees
+
+None of them check it. That was survivable while deploying our own AMM was the
+plan, because the pool-setup script rewrites `amm.json` — but it is the *only*
+writer, and **it never runs on mainnet now that $MEMPIRE launches on Bags.**
+The devnet stamp would have been permanent.
+
+A mainnet build would therefore have addressed the devnet mint everywhere:
+balances reading zero, merges failing the program's own mint constraint, sinks
+transferring a token nobody holds, and the reward vault resolving to an account
+that does not exist — so the win reward, fixed in run 14, would silently never
+pay again.
+
+Fixed with `VITE_MEMPIRE_MINT`, and a mainnet build that has not been told one
+now throws at load rather than guessing. But a runtime throw means the broken
+bundle still gets *built and deployed*, so `npm run build` gained
+`scripts/preflight.mjs`, which refuses first. Four rules, each tested:
+
+    mainnet, no mint, devnet-stamped amm.json   REFUSED (would use devnet mint)
+    mainnet cluster + devnet RPC                REFUSED
+    mainnet RPC + devnet cluster                REFUSED
+    decimals != 6                               REFUSED (off by 10^n)
+    devnet, and proper mainnet builds           ok
+
+The decimals rule matters because Bags creates the mint, not us: `WIN_REWARD`,
+`UPGRADE_BASE_FEE` and every shop price are compiled against six decimals. A
+nine-decimal mint does not fail, it misprices every sink by a thousand.
+
+## A documented control that was never implemented
+
+`MAINNET.md` names "small tiers only (0.05 SOL cap)" as the compensating control
+for shipping unaudited programs. It did not exist. `create_match` took `tier`
+and `stake_lamports` as two independent arguments and validated **neither** —
+no cap, and no requirement that the stake match the tier it claimed. A patched
+client could escrow any amount and label it any tier, which also made `tier`
+untrustworthy to everything reading it back.
+
+`TIER_STAKES` now lives in the program and binds them. Checked before any
+transfer, so a malformed match costs nothing to reject. Deployed
+(`3wheWU7zWNptakLF…`, +600 bytes) and simulated against the live program:
+
+    tier 0 (Pauper) staking 0.5 SOL     REFUSED — stake does not match a real tier
+    tier 0 staking 1 lamport            REFUSED — stake does not match a real tier
+    tier 9 (does not exist)             REFUSED — stake does not match a real tier
+    tier 3 (Emperor) staking 5 SOL      passes the stake check, falls through to deck validation
+
+That last line is the one that mattered: the legitimate pair is *not* blocked.
+The client's `tier` is an index into `TIERS`, and `stakeSol` comes from the same
+index, so the 0-based table aligns — checked deliberately, because an
+off-by-one here would have refused every match on the network.
+
+## `join_match` was already safe
+
+Worth recording a negative result. The joiner's stake is read from
+`match_account.stake_lamports` rather than taken as an argument, so both seats
+always escrow the same amount and a cheap joiner is impossible. The transfer
+happens before the `state == Open` check, which looks wrong but is not — a
+failed instruction reverts the CPI with everything else.
+
+## A "staked" figure on a game that does not stake
+
+`/api/analytics/tvl` was still summing `staked_micro_usd` across every card and
+publishing `cards.stakedUsd`. Since the pivot deleted staking from the program
+that number can only ever be zero — and a product whose first promise is that it
+never touches anyone's holdings should not be publishing a staked figure at all.
+Removed from the computation, the response, and the `lockedUsd` total. Verified
+live after redeploy: `cards: {"count": 125}`.
+
+## Not fixed, because it is a decision rather than a defect
+
+`Card` still carries four dead staking fields — `staked_tokens`,
+`staked_micro_usd`, `pending_unstake_tokens`, `unstake_ready_at`. The program
+only zeroes them at mint; nothing reads them.
+
+    Card today       147 B → 0.001914 SOL of rent
+    without them     115 B → 0.001691 SOL
+    saved per card             0.000223 SOL
+
+That is players' money, not ours — every mint pays it, forever. At 10,000 cards
+it is 2.2 SOL; at 50,000, 11.1.
+
+**Mainnet is the only moment this is free.** A fresh deploy has no cards to
+migrate; afterwards it needs a layout migration over real player assets. Against
+that: it changes `Card::SIZE` right before launch, would break the 125 existing
+devnet cards without a migration pass (`migrate-cards.ts` is the precedent), and
+`server/tvl.js` reads cards by raw byte offset. Flagged for a decision rather
+than done unilaterally days before funding.
+
+## Swept and clean
+
+Checked and found correct, recorded so they are not re-checked: MagicBlock's
+router and fallback ER endpoints both switch on `IS_MAINNET`; the relay picks
+its coin registry from `SOLANA_RPC`; the faucet refuses to register on a mainnet
+RPC (routes 404); `USDC_MINT` never escapes the guarded swap screen; `amm.ts`
+already created its ATAs idempotently.

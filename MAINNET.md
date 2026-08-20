@@ -67,9 +67,37 @@ is about 0.05 SOL in transaction fees. Measured from this repo, current code:
 |---|---|---|---|
 | `mainnet` (lean) | 469,736 | 3.27 | the whole game, no MagicBlock |
 | `mainnet,nft` | 580,496 | 4.04 | Metaplex cards |
-| `mainnet,rollup` | 599,040 | 4.17 | **ER delegation + commit** |
-| `mainnet,nft,rollup` | 710,304 | 4.94 | both |
+| `mainnet,rollup` | 599,640 | 4.17 | **ER delegation + commit** |
+| `mainnet,nft,rollup` | 710,904 | 4.95 | both |
 | `mempire_rollup` (separate program) | 441,432 | 3.07 | VRF, play log, PER, sessions |
+
+### Where the 4.29 goes, and what comes back
+
+Measured against live rent-exemption minimums, not estimated:
+
+| item | SOL | comes back? |
+|---|---:|---|
+| program rent (599,640 B) | 4.1747 | only by closing the program **forever** |
+| 36 coin registrations (66 B each) | 0.0486 | yes, anytime |
+| config PDA (131 B) | 0.0018 | yes, anytime |
+| $MEMPIRE mint account (82 B) | 0.0015 | yes, anytime |
+| reward vault token account (165 B) | 0.0020 | yes, anytime |
+| transaction + priority fees | 0.0500 | no — genuinely spent |
+| Bags launch (fee + Jito tip) | 0.0200 | no — genuinely spent |
+| **total to go live** | **≈4.29** | **98.4% is refundable rent** |
+
+Only **0.07 SOL is actually consumed**. Everything else is a deposit.
+
+The distinction that matters: 4.17 of it is locked in the program account and
+comes back *only* via `solana program close`, which permanently destroys the
+program ID — you cannot redeploy to it, ever. So it is not a balance to draw
+against while running; it is the deposit you get back if you shut the game
+down. The other 0.054 (registrations, config, mint, vault) can be closed
+individually at any time.
+
+Two ways to lose the refund permanently: run
+`solana program set-upgrade-authority --final` (immutable programs can never be
+closed), or lose the upgrade authority key.
 
 Because rent comes back, "v2 costs 0.90 more than lean" means 0.90 SOL *locked*,
 not 0.90 SOL *gone*.
@@ -215,10 +243,21 @@ normally and skips the bonus. Verified on devnet, match #78: winner
    `CORS_ORIGIN=https://play.mempire.fun`, rotate the Mongo credentials, and do
    **not** set `FAUCET_SECRET`.
 7. **App build:** `VITE_CLUSTER=mainnet-beta`, `VITE_RPC_URL=<mainnet rpc>`
-   — they must agree or the app refuses to boot — and **`VITE_FEATURE_NFT=0`**,
+   — they must agree or the app refuses to boot — **`VITE_MEMPIRE_MINT=<the
+   Bags mint>`**, and **`VITE_FEATURE_NFT=0`**,
    because v2 compiles `nft` out. Without it the card sheet offers *Mint as NFT*
    and the program answers with a refusal; the error is translated to a readable
-   sentence either way, but there is no reason to offer the button at all. Build *after* step 5 writes
+   sentence either way, but there is no reason to offer the button at all.
+
+   `VITE_MEMPIRE_MINT` is the load-bearing one. $MEMPIRE's mint reached the
+   client through `amm.json`, which is written by the **pool-setup script** —
+   and that script never runs on mainnet now that the token launches on Bags.
+   Its `devnet` stamp would therefore be permanent, and every $MEMPIRE path
+   (the merge fee, every sink, the balance readout, the reward vault's address)
+   would quietly address the devnet token. `npm run build` now runs
+   `scripts/preflight.mjs`, which refuses the build rather than shipping it —
+   it also catches a cluster/RPC mismatch and any mint whose decimals are not
+   the 6 the program's constants are compiled against. Build *after* step 5 writes
    the registry. Deploy to Vercel.
 8. **Smoke test** with two funded wallets at the smallest tier: mint a card,
    merge a duplicate, and settle one staked PvP match end to end.

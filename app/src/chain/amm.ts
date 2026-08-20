@@ -36,13 +36,68 @@ export const AMM_CONFIG_MATCHES_CLUSTER = IS_MAINNET
   : !String(cfg.cluster).startsWith('mainnet');
 
 export const AMM_PROGRAM_ID = new PublicKey(cfg.ammProgramId);
-export const MEMPIRE_MINT = new PublicKey(cfg.mempireMint);
+
+/*
+ * $MEMPIRE's mint, and the one value in this file that is *not* only about the
+ * AMM.
+ *
+ * `amm.json` is written by the pool-setup script, and the swap screen guards
+ * against a stale one with `AMM_CONFIG_MATCHES_CLUSTER`. But `MEMPIRE_MINT` is
+ * imported far outside that screen — the merge fee, every $MEMPIRE sink, the
+ * balance readout, and the address of the win-reward vault — and none of those
+ * consult the guard.
+ *
+ * That was survivable while our own AMM was the plan, because deploying the
+ * pool rewrote this file. Launching on Bags instead means the pool-setup script
+ * never runs on mainnet, so the stamp would stay `devnet` permanently and every
+ * $MEMPIRE path would quietly address the *devnet* mint: balances read zero,
+ * merges fail the program's own mint constraint, sinks move a token nobody
+ * holds, and the reward vault resolves to an account that does not exist, so
+ * the reward never pays.
+ *
+ * So the mint gets its own env var, and a mainnet build that has not been told
+ * one refuses to start — the same fail-closed rule `provider.ts` applies to the
+ * cluster and the RPC, for the same reason: a silent mismatch here is
+ * discovered by players, in transactions, after the money is spent.
+ */
+const MINT_FROM_ENV = String(import.meta.env.VITE_MEMPIRE_MINT ?? '').trim();
+const CONFIG_IS_MAINNET = String(cfg.cluster).startsWith('mainnet');
+
+if (IS_MAINNET && !MINT_FROM_ENV && !CONFIG_IS_MAINNET) {
+  throw new Error(
+    'This is a mainnet build but $MEMPIRE\'s mint comes from a devnet-stamped '
+    + 'amm.json and VITE_MEMPIRE_MINT is unset — refusing to boot rather than '
+    + 'address the wrong token. Set VITE_MEMPIRE_MINT to the mainnet mint.',
+  );
+}
+
+export const MEMPIRE_MINT = new PublicKey(MINT_FROM_ENV || cfg.mempireMint);
 export const USDC_MINT = new PublicKey(cfg.usdcMint);
 export const POOL = new PublicKey(cfg.pool);
 export const FEE_BPS = BigInt(cfg.feeBps);
 
-/** Both sides are six decimals, so one constant serves for both. */
-export const UNIT = 1_000_000n;
+/**
+ * One whole $MEMPIRE in base units.
+ *
+ * Six decimals is not a free choice — every amount constant in the *program* is
+ * written against it (`WIN_REWARD`, `UPGRADE_BASE_FEE`, the shop prices), and
+ * those are compiled in. If the launch mint is created with different decimals
+ * the client and the program disagree by a factor of ten per decimal, so this
+ * reads the configured value and refuses anything else rather than silently
+ * mispricing every sink. `bake-mainnet-mint.mjs` warns about the same thing
+ * from the other side.
+ */
+const MEMPIRE_DECIMALS = Number(
+  import.meta.env.VITE_MEMPIRE_DECIMALS ?? cfg.mempireDecimals ?? 6,
+);
+if (MEMPIRE_DECIMALS !== 6) {
+  throw new Error(
+    `$MEMPIRE is configured with ${MEMPIRE_DECIMALS} decimals, but the program's `
+    + 'amount constants assume 6. Rebuild the program for the real decimals '
+    + 'before shipping this, or the fees and rewards are off by orders of magnitude.',
+  );
+}
+export const UNIT = 10n ** BigInt(MEMPIRE_DECIMALS);
 
 export interface PoolState {
   reserveBase: bigint;

@@ -98,13 +98,6 @@ async function readTvl(programId, amm) {
     treasury ? conn.getBalance(treasury).catch(() => null) : null,
   ]);
 
-  // Card stake. The slice is exactly the one field, so this cannot drift onto
-  // a neighbouring one without the dataSize filter also failing.
-  let stakedMicroUsd = 0n;
-  for (const { account } of cards) {
-    stakedMicroUsd += account.data.readBigUInt64LE(0);
-  }
-
   // Escrow. Both seats' stakes sit in the account, so an Active match holds
   // twice its `stake_lamports`; an Open one holds a single side.
   let escrowLamports = 0n;
@@ -126,7 +119,6 @@ async function readTvl(programId, amm) {
   const mempirePrice = baseTokens > 0 ? quoteUsd / baseTokens : null;
 
   const escrowSol = Number(escrowLamports) / LAMPORTS_PER_SOL;
-  const stakedUsd = Number(stakedMicroUsd) / 1_000_000;
 
   return {
     generatedAt: new Date(),
@@ -134,14 +126,19 @@ async function readTvl(programId, amm) {
     /**
      * Deliberately two figures, not one.
      *
-     * Escrow is denominated in SOL and card stake in USD, and adding them would
+     * Escrow is denominated in SOL and the pool in USD, and adding them would
      * need a SOL price this service does not have. Inventing one to produce a
      * single headline number is exactly the kind of tidy figure nobody can
      * check.
+     *
+     * There used to be a third: the USD value staked in cards. The pivot
+     * deleted staking from the program, so that number could only ever be
+     * zero — and a game whose first promise is that it never touches anyone's
+     * holdings should not be publishing a "staked" figure at all.
      */
     totals: {
       escrowSol,
-      lockedUsd: stakedUsd + (poolUsd ?? 0),
+      lockedUsd: poolUsd ?? 0,
     },
     escrow: {
       sol: escrowSol,
@@ -156,7 +153,6 @@ async function readTvl(programId, amm) {
     },
     cards: {
       count: cards.length,
-      stakedUsd,
     },
     /**
      * What the game has actually taken in.

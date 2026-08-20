@@ -49,6 +49,23 @@ const UPGRADE_BASE_FEE: u64 = 100_000_000;
 /// already sits behind.
 const WIN_REWARD: u64 = 50_000_000;
 
+/// The four stake tiers, in lamports: Pauper, Knight, Duke, Emperor.
+///
+/// These existed only in the client until now. `create_match` took `tier` and
+/// `stake_lamports` as two independent arguments and checked neither, so a
+/// patched client could escrow any amount it liked and label it any tier —
+/// which made the tier meaningless to anything reading it back (matchmaking,
+/// the leaderboard) and left the "small tiers only" launch control living
+/// entirely in a UI that the player controls.
+///
+/// Binding them here costs a comparison and makes the tier a fact.
+const TIER_STAKES: [u64; 4] = [
+    50_000_000,    // 0.05 SOL
+    250_000_000,   // 0.25 SOL
+    1_000_000_000, // 1 SOL
+    5_000_000_000, // 5 SOL
+];
+
 /// Where a card's metadata JSON lives. The ticker is appended, lower-cased.
 const METADATA_BASE_URI: &str = "https://play.mempire.fun/nft/";
 const DECK_SIZE: usize = 8;
@@ -488,6 +505,14 @@ pub mod mempire {
         // existing clients; the commitment is derived from the locked cards.
         _deck_hash: [u8; 32],
     ) -> Result<()> {
+        // Before anything moves: the tier must be real and the stake must be
+        // the one that tier means. Checked here rather than after the deck
+        // work so a malformed match costs nothing to reject.
+        let tier_stake = *TIER_STAKES
+            .get(tier as usize)
+            .ok_or(MempireError::BadStake)?;
+        require!(stake_lamports == tier_stake, MempireError::BadStake);
+
         let match_key = ctx.accounts.match_account.key();
         let (power, deck_hash) = validate_and_lock_deck(
             ctx.remaining_accounts,
@@ -2012,6 +2037,8 @@ pub enum MempireError {
     MaxLevel,
     #[msg("config value is outside the sane range")]
     BadConfig,
+    #[msg("stake does not match a real tier")]
+    BadStake,
     #[msg("ticker is too long")]
     TickerTooLong,
     #[msg("an unstake is already pending")]
