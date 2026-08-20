@@ -119,10 +119,13 @@ nothing without `--yes`.
    holding every escrow. A 2-of-3 is the minimum that means anything.
 3. **`npx tsx scripts/harden.ts --mint --yes`** — last, and deliberately so.
    After it the supply is fixed forever, including against you.
-4. **Real prices.** `register_coin` lets the admin set price and liquidity, and
-   card power derives from staked USD — so on mainnet the admin can move any
-   card's power, and power gates matchmaking. Needs Pyth or Switchboard before
-   the number means anything.
+4. **Real prices.** `register_coin` and `set_price` let the admin write a coin's
+   price and liquidity, and the liquidity floor plus coin age are what decide
+   whether a coin can be minted as a card at all. Card power is the sum of the
+   deck's levels, earned by winning, so no admin number moves it any more — but
+   eligibility is still the admin's word against nothing. The mainnet roster is
+   built from Jupiter's verified list; a live Pyth or Switchboard feed is what
+   would make the on-chain number mean something after that.
 5. **A paid RPC.** The public devnet endpoint 429s under two concurrent test
    suites; it will not survive players. Set `SOLANA_RPC` and the client's
    cluster endpoint to a dedicated provider.

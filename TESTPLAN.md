@@ -136,7 +136,7 @@ Correct = documented status, JSON shape as consumed by the client, no 5xx.
 | C1 | `mint_card` | Creates Card PDA, charges fee, no holdings requirement, rejects ineligible coins. |
 | C2 | `upgrade_card` | +1 level, charges 100×level $MEMPIRE, closes duplicate, refuses locked/max/mismatched. |
 | C3 | `tokenize_card` | Mints supply-1/0-dec NFT + Metaplex metadata; authority burned; second attempt fails. |
-| C4 | `stake` / `request_unstake` / `claim_unstake` | Tokens move to/from vault; cooldown enforced. |
+| C4 | ~~`stake` / `request_unstake` / `claim_unstake`~~ | **RETIRED.** Verified when it existed (run 6); the instructions were later removed from the program — the game never touches a player's holdings. See run 11. |
 | C5 | `create_match` / `join_match` / `settle` | Escrow held, winner paid, rake taken. |
 | C6 | `claim_timeout` | Recovers a stranded stake with the correct account set. |
 | C7 | Rollup `delegate_log` → `play_card` → `end_log` → undelegate | Delegation resolves; plays land on ER; settlement commits to base. |
@@ -881,7 +881,7 @@ all.
 | C1 `mint_card` | PASS |
 | C2 `upgrade_card` | PASS |
 | C3 `tokenize_card` | PASS |
-| C4 stake / unstake / claim | PASS — 50 → 30 → 49.6 BTC, 2% fee exact, cooldown enforced |
+| C4 stake / unstake / claim | PASS when it existed, then RETIRED — every held token returned to its owner, instructions removed, absence verified on the live program |
 | C5 escrow + settlement | PASS — `SettleFromLog` with claims [0,0] from two independent simulations |
 | C6 `claim_timeout` / `cancel_match` | PASS |
 | C7 ER delegation round-trip | PASS — ROLLUP LIVE, 86 state hashes, COMMITTED |
@@ -950,5 +950,82 @@ result card told the truth about what happened).
   and the late entitlement banks for the next win (observed: earned 2,
   opened 1 after the late grant).
 
-Mainnet launch itself is deliberately not performed: it spends real money
-and waits on ~12 SOL. MAINNET.md is the runbook.
+Mainnet launch itself is deliberately not performed: it spends real money.
+The budget has since dropped to ~3.2 SOL (run 11) — MAINNET.md is the runbook.
+
+# Run 11 — the pivot: no staking, and a launch that costs 3.2 SOL
+
+The product's premise changed, so the code and every document had to. Mempire
+does not custody, lock or stake anyone's tokens. Coins, stocks and crypto are
+the *roster* — fighters you collect and play — not collateral. The only thing
+a player risks is the SOL they choose to wager on a match.
+
+## Staking retired — verified gone from the live program
+
+Removal order mattered more than the removal. Nineteen cards still held staked
+tokens; taking away the only way to withdraw is the exact bug this test log
+spent ten runs killing. So the drain ran first:
+
+  19 cards → request_unstake, wait the cooldown, claim
+  treasury and owner ATAs created where they had never existed
+  final scan: cards still holding tokens: 0 (none)
+
+Only then were `stake`, `request_unstake`, `claim_unstake`, the vaults and the
+USD level-threshold table deleted, and the program redeployed
+(`5aY78HwPKNgMpBbz…`). Confirmed against the live chain: calling
+`request_unstake` on a real card now fails because the instruction does not
+exist, while config and all 125 cards read back fine.
+
+The app lost the whole surface with it — the stake sheet, the "$X staked"
+header, `availableUsdFor`, the fabricated starter-deck balances, and the card
+sheet's "next level costs $Y", which now reads **"merge a duplicate → Lv 2"**.
+`MintedCard` is four fields lighter.
+
+## Launch cost: 12 SOL → 3.2 SOL
+
+`nft` and `rollup` are now cargo features, on by default and switched off with
+`--no-default-features`. They are *dependency* features, not `cfg`'d call
+sites, because the saving is in what gets linked at all — a feature that only
+skips call sites still links mpl-token-metadata and the rollup SDK.
+
+| build | bytes | SOL | adds |
+|---|---|---|---|
+| lean (`--no-default-features`) | 463,456 | **3.23** | the whole game: roster, decks, chests, escrowed PvP, settlement, timeouts |
+| `nft` | 594,224 | 4.14 | cards as Metaplex 1-of-1s |
+| `rollup` | 574,624 | 4.00 | MagicBlock ER, VRF chests, play log |
+| both (devnet runs this) | 704,432 | 4.90 | everything the 92-item plan verified |
+
+Rent is a refundable deposit — `solana program close` returns it — so the real
+consumed cost of launching is about 0.05 SOL in fees.
+
+Settlement never depended on the rollup. The two seats' claims are the same
+bytes whether they are written on an ER or on base layer, so `claimResultEr`
+now settles wherever the log actually is instead of throwing when it is not
+delegated. That also closed a real defect in the full build: a rollup that was
+unreachable at prepare time left a finished match with no way to pay out
+except a timeout.
+
+## Re-verified end to end after all of it — match #77
+
+  CreateMatch    65FgeTLaBmnh8Z…
+  JoinMatch      3RwuraCDBsW9Nf…
+  InitMatchLog   BKXHGdHsg3qheD…
+  SettleFromLog  5a9F9LCnDNFuzh…
+
+Won 2–0. Badge read ROLLUP LIVE · 29 🔒 during play, COMMITTED and PAID after.
+Both seats reported (`2NU9kJfhLsiiSUjF…`) and both claimed the rollup log
+(`324DNGjpgvjx7dhX…`). Console across every screen: zero errors.
+
+One diagnostic worth recording: an earlier attempt ran LADDER ONLY with
+`canStake true chainDeck 8`, which looked like a regression and was not — the
+deploy top-up had drained wallet A to 0.03 SOL, below the 0.05 stake. Refunded,
+and the match escrowed immediately. The lesson is the one this log keeps
+learning: read the chain before believing a symptom.
+
+## Honest limit
+
+The lean build is measured and compiles from this same verified source, but has
+not been separately re-run end to end. It differs only by compiling out the NFT
+mint and the rollup trip, and its settlement path — claims written on base
+layer — is the same code the full build already runs whenever a log is not
+delegated.

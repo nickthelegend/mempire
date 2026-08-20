@@ -6,6 +6,27 @@ indistinguishable from one nobody found.
 
 Severity is by what an attacker gains, not by how hard it was to spot.
 
+### One word, two meanings
+
+A **stake** in this document is SOL a player wagers on a match. The program
+escrows both sides, settlement pays the winner, and the house takes 10% — 5% on
+a draw. That is unchanged, and every finding about it stands as written.
+
+**Staking a coin into a card** was a different mechanic: lock tokens in a card
+and the locked USD set its level. It was retired on 20 Aug 2026. `stake`,
+`request_unstake` and `claim_unstake` are gone from the program, and with them
+the vaults, the 2% unstake fee, the 72h/60s cooldown, and the USD level
+thresholds. Every staked token was returned to its owner before the
+instructions were removed — taking away the only way to withdraw is the exact
+class of bug this audit exists to catch. Cards now go 1→10 by winning: a win
+earns a chest, chests drop duplicates, and merging a duplicate promotes the
+card. Levels are earned, never bought, and nothing in the game custodies, locks
+or stakes a player's own holdings. The coins, stocks and crypto in the roster
+are characters, not collateral.
+
+Findings that audited the retired mechanic are kept — a fix that was real is
+still a record — and marked where they no longer describe live code.
+
 ## Fixed
 
 | # | Where | Was |
@@ -25,7 +46,7 @@ Severity is by what an attacker gains, not by how hard it was to spot.
 | C7 | `mempire-rollup` `unseal_log` | **HIGH** No seat check: a stranger could open a live match's permission and read both hands two ticks before they resolved. Now seat-only. |
 | C8 | `mempire-rollup` `open_session` | **HIGH** Accepted a session key equal to a seat. Now refuses a seat key *and* the other seat's session key, so attribution never depends on iteration order. |
 | C9 | `mempire-rollup` `request_chest` | **HIGH** Nothing consumed an earned chest — request → claim → request minted drops forever, with the one-per-match rule living only in the client. Wins now grant an `earned` entitlement that a roll spends. |
-| C10 | `mempire` `ClaimUnstake` | **MEDIUM** `treasury_tokens` was constrained on `.mint` alone, so the unstaker passed their own account and refunded their own fee. Now tied to `config.treasury`. |
+| C10 | `mempire` `ClaimUnstake` | **MEDIUM** `treasury_tokens` was constrained on `.mint` alone, so the unstaker passed their own account and refunded their own fee. Tied to `config.treasury` on 6 Aug; the instruction itself was removed on 20 Aug with the rest of token staking, so there is no longer a fee account to mis-constrain. |
 | C11 | `mempire` `create_match` | **MEDIUM** No cancel path: an unjoined match stranded the stake and locked eight cards forever. `cancel_match` refunds the creator and releases the deck. |
 | C12 | `mempire` `init_config` | **MEDIUM** Whoever front-ran the first call owned rake, fees and prices permanently. Now bound to the program's upgrade authority. |
 | A5 | `state/match.ts` | **HIGH** Both clients stepped `(Date.now() - startAt)` against their *own* wall clocks, so ordinary drift on a laptop that had been asleep desynced the sim and voided a staked match. The matchmaker now stamps `serverNow` and each client corrects for its offset. |
@@ -62,10 +83,16 @@ each component passed in isolation:
 | `canStake` was `signer() !== null` | the Arena said "Escrowed onchain" and not one lamport moved |
 
 **A new wallet could not play at all.** Not a caveat — a wall. `mint_card`
-requires holding the coin, so a stranger could not mint one fighter, field
+required holding the coin, so a stranger could not mint one fighter, field
 a deck, or reach a staked match. Every screen worked and the loop was
 unreachable. `server/faucet.js` hands out 0.35 SOL and eight coins, once
 per address, signed by a key whose only power is spending what it holds.
+
+That gate is gone as of 20 Aug: `mint_card` charges its 0.02 SOL and checks
+the *coin* — liquidity floor and age — not the minter's wallet. Holding the
+underlying token is not required to mint or field its card. The faucet still
+matters on devnet, because a new player needs SOL for fees and a first wager,
+but reaching the loop no longer depends on being handed tokens.
 
 Guests were also crippled for no reason: a guest address already **was** a
 real ed25519 public key, and only message-signing was wired. It signs
@@ -80,9 +107,9 @@ real stranded pots on devnet and freed 48 locked cards through
 
 - **Sim determinism.** No float arithmetic, `Math.random`, `Date.now`, or Set/Map iteration reaches sim state. Targeting tie-breaks are a genuine total order (distance, then lowest id), independent of array order.
 - **AMM maths.** `k` never decreases; every division floors toward the pool; all intermediates are u128 with checked ops. `MINIMUM_LIQUIDITY` is added to supply without being minted, so it is genuinely unwithdrawable — the donation attack is not possible because reserves are internal state and never read from vault balances.
-- **VRF.** The callback is gated on `scoped_vrf_identity`, so only the VRF program can deliver. Replays and cancelled-request callbacks are rejected by a `(slot, nonce, state)` re-check. The player's `caller_seed` picks among 256 inputs to an oracle they cannot evaluate — no grinding path.
+- **VRF.** The callback is gated on `scoped_vrf_identity`, so only the VRF program can deliver. Replays and cancelled-request callbacks are rejected by a `(slot, nonce, state)` re-check. The player's `caller_seed` picks among 256 inputs to an oracle they cannot evaluate — no grinding path. This is `mempire-rollup`, which ships with the rollup subsystem and not with the lean launch build.
 - **Rake arithmetic.** `rake + payout == pot` exactly in all three payout paths. No double-settlement; all paths require `Active` and set `Settled`.
-- **Unstaking.** `has_one = owner` plus a PDA-authority vault; no cross-player unstake, and the 72h two-step cannot be replayed.
+- ~~**Unstaking.**~~ **Superseded 20 Aug.** It held while it existed — `has_one = owner` plus a PDA-authority vault, no cross-player unstake, and the 72h two-step could not be replayed. The instruction, the vault and the cooldown were then removed, after the last staked token had been returned. There is no unstake path left to audit.
 - **NoSQL injection, ReDoS, committed secrets, Dockerfile.** All clean — Express 5's `simple` query parser yields only strings, regex metacharacters are escaped, `.env` is untracked in both git and Docker, and the image runs non-root with a healthcheck.
 
 ## Verified against the deployed programs — 5 Aug
@@ -96,6 +123,22 @@ real stranded pots on devnet and freed 48 locked cards through
 | AMM unit tests | 14/14 |
 | Client suites | 34/34 |
 | Live E2E, both sites, mobile + desktop | **92/92** |
+
+**What those runs cover, now that there are two builds.** On 20 Aug the two
+heavy subsystems became cargo features, both on by default: `nft` (Metaplex
+1-of-1 cards) and `rollup` (MagicBlock delegation, and with it the VRF chests in
+`mempire-rollup`). Devnet keeps the full build — 704,432 bytes, 4.90 SOL of
+deploy rent — so the runs above are still runs against what devnet answers with.
+The lean launch build is `--no-default-features`: 463,456 bytes, 3.23 SOL, and
+it links neither feature. Deploy rent is a refundable deposit in both cases;
+`solana program close` returns it.
+
+Settlement does not depend on the rollup and never did. The claims are the same
+bytes whether the log lives on base layer or on an ER, so `e2e-full-flow`,
+`e2e-security` and the escrow findings apply to both builds unchanged. What only
+the full build carries is the delegation and chest surface — `e2e-per-vrf`, and
+the findings above that name `delegate_*`, `unseal_log`, `open_session` and
+`request_chest`.
 
 The API is deployed at `mempire-api-19110f59a37d.herokuapp.com`, so clans,
 ranked and the leaderboard are live. Every mutating route demands an ed25519
@@ -192,7 +235,7 @@ by no instruction and no client.
 So: lock eight freshly minted level-1 cards, pass the bracket against any
 level-1 opponent, then send the relay eight level-10 cards. `sanitiseDeck`
 accepts them, both clients hash the same fabricated deck so no desync fires, and
-the staked match is won with a deck nobody ever staked for.
+the wagered match is won with a deck the program never locked.
 
 The commitment is now derived on chain — `sha256(coin_mint || level)` over the
 eight cards in the order they were locked — and the argument is ignored.

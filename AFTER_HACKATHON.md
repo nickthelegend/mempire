@@ -15,31 +15,57 @@ Shipped and verified, not aspirational:
 - **The game works.** Deterministic lockstep sim, 3D arena, rigged units, real
   human matchmaking with hash refereeing, bot fallback so a solo demo never
   stalls.
-- **The program is live on devnet** (`BnLD…FxeP`). Mint, stake and two-step
-  unstake are real wallet-signed transactions against real SPL mints. The
-  eligibility gate is observable: two seeded coins are rejected, one on age, one
-  on liquidity.
+- **The program is live on devnet** (`BnLD…FxeP`). Minting a card (0.02 SOL),
+  merging a duplicate to promote it, escrowing a pot and settling it are real
+  wallet-signed transactions. The eligibility gate is observable: two seeded
+  coins are rejected, one on age, one on liquidity.
+- **The game never touches a player's holdings.** Staking is gone — the
+  instructions, the vaults, the unstake fee and the cooldown were removed, and
+  every token that had been staked was returned to its owner first. Coins,
+  stocks and crypto are the roster, not collateral. The only asset anyone risks
+  is the SOL they choose to put on a match.
+- **Cards level by winning.** Win a match, earn a chest; chests drop duplicates;
+  merging a duplicate promotes the card, 1 → 10. Nothing on the fee list buys a
+  level, which is the constraint every idea below has to survive.
 - **Battles run on a MagicBlock ephemeral rollup** (`3G4Gidvj…5g6N`, live on
   devnet). Card plays and state-hash checkpoints are written to the rollup and
   committed back to Solana. 23/23 end-to-end including hosted router placement.
+- **PER and VRF are wired, not just deployed.** The match log is sealed inside an
+  ER-local permission whose only members are the two seats, and chest tiers come
+  from the MagicBlock VRF oracle with the 32 bytes stored so anyone can
+  re-derive the drop. 20/20 against devnet and the live oracle.
+- **Session keys work.** One wallet signature at match start authorises a
+  temporary signer scoped to one seat, one match, 30 minutes at most — then no
+  popups for the rest of it.
 - **Clans** are a full stack — 48-assertion API suite, browse/found/join, the
   lend loop, crown ladder, roles and leader succession.
+- **Mainnet is costed rather than hypothetical.** The lean build
+  (`--no-default-features`, 463,456 bytes) deploys for 3.23 SOL, and that is a
+  refundable rent deposit, not spend. `nft` (Metaplex 1-of-1 cards) and `rollup`
+  (ER + VRF chests) are cargo features that can be added later with
+  `solana program extend`; the full build is 704,432 bytes / 4.90 SOL.
+  Settlement behaves identically with or without the rollup. `MAINNET.md` has
+  the sequence.
 
-Not built: session keys, VRF, and everything in this document.
+Not built: a marketplace, a launchpad, and everything else in this document.
 
 ---
 
 ## The one mechanic everything waits on
 
-**Today a card's power comes only from staked USD. That makes every coin
-interchangeable.** $100 staked in $BONK produces exactly the same card as $100
-staked in a coin that launched five minutes ago.
+**Two cards of the same archetype and level fight identically, whatever their
+coins did today.** A card's identity is fixed by its mint — `fnv1a(mint) % 6`
+picks the archetype, the token's own metadata supplies the art — and its power
+comes from levels earned by winning. Both are settled before the match starts.
+Nothing $BONK does this week reaches the arena.
 
-Which means there is no reason to want a *specific* coin — and therefore no
-reason for a marketplace, a launchpad, or a meta to exist. Every ambitious idea
-below is standing on this one hole.
+That is correct for fairness and empty for meaning. The roster is a cast of
+characters whose market lives happen somewhere else, so there is nothing to
+scout, no meta that moves on its own, and nothing a launchpad could sell —
+spotting a coin early gets you a card anyone else can mint for 0.02 SOL. Every
+ambitious idea below is standing on this one hole.
 
-### Phase 1 — Live meme meta
+### Phase 1 — Live market meta
 
 > A coin's market performance changes how its card fights.
 
@@ -50,48 +76,54 @@ coin dumps       →  its card weakens
 
 The moment this ships, four things become true that are not true now:
 
-1. **Coins stop being interchangeable.** Cards become scouting, not just staking.
-2. **Holding early pays twice** — in price *and* in win rate.
+1. **Coins stop being interchangeable.** Two Tanks stop being the same Tank, and
+   building a deck becomes reading the market.
+2. **Reading it early pays inside the game** — and it pays without anyone having
+   to hold anything. The card costs 0.02 SOL whether or not you own the token,
+   so this rewards scouting, not bags.
 3. **The meta moves on its own.** Nobody balances it; the market does. No other
    card game has a live external balance patch.
-4. **A launchpad becomes coherent**, because buying a coin early now means
-   getting a strong card before anyone else knows.
+4. **A launchpad becomes coherent**, because spotting a coin early now means
+   fielding a strong card before the rest of the ladder notices.
 
-Deliberate constraints, so this does not become pay-to-win: the swing is bounded
-(±15% is the working figure), it applies to stats and never to elixir cost, and
-the existing diminishing stake curve stays load-bearing. **Whales buy an edge,
-never the win** survives this change or the change does not ship.
+Deliberate constraints, so this does not quietly reintroduce a way to buy power:
+the swing is bounded (±15% is the working figure), it applies to stats and never
+to elixir cost, and the earned level curve stays the dominant term. Level is the
+thing nobody can purchase; a market modifier large enough to make that untrue is
+a modifier that does not ship.
 
 Cost: small. The server's `/api/coins` feed already carries `change24h`. The work
 is the oracle path that makes it trustworthy onchain, not the mechanic.
 
 ---
 
-## Phase 2 — Private decks (MagicBlock PER)
+## Phase 2 — Private decks (the rest of PER)
 
-The second MagicBlock product, and the one that fits without inventing a new
-product surface.
+PER already shipped, but for the play log rather than the deck: `seal_log` /
+`reseal_log` / `unseal_log` on the rollup, an `EphemeralPermission` whose only
+members are the two seats, and no base-layer permission account at all. The deck
+is the part still in the open.
 
-Today both players commit a `deck_hash` at match start — a hand-rolled
-commitment scheme. A Private Ephemeral Rollup does that properly: **the deck
-lives inside a TEE-backed rollup and the opponent cannot read it until reveal.**
+Why it matters: deck-sniping is a real problem in every competitive card game,
+and Mempire's decks are unusually legible. `create_match` derives the deck
+commitment onchain from the eight card PDAs it locks — deliberately, because
+accepting the hash from the caller let a player bracket in on eight level-1 cards
+and then hand the simulation eight level-10 ones. The price of that fix is that
+the lock is a public write: anyone can read which cards a wallet just committed.
 
-Why it matters: deck-sniping is a real problem in every competitive card game.
-Right now a determined opponent can correlate an address with its past decks.
-Private decks make that structurally impossible rather than merely inconvenient.
+So this is a larger change than it looked before. Hiding the hash is not enough,
+because the lock itself is the leak — what has to move behind the TEE validator
+(`MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo`, the same identity on devnet and
+mainnet) is the card-lock step, with the reveal committed back at match start.
+Note that the TEE region does not serve an RPC router by design, so placement is
+named rather than discovered.
 
-Why it is the right second product:
+Two things it must not cost:
 
-- Zero custody of user funds — the failure mode is a delayed reveal, never a lost
-  stake
-- Slots into a match flow that already exists
-- Small enough to finish, which matters more than it sounds
-
-Implementation shape: delegate the deck-commitment PDA to the TEE validator
-(`MTEWGuqxUpYZGFJQcp8tLN7x5v9BSeoFHYWQQ3n3xzo` — the same identity on devnet and
-mainnet), create its `EphemeralPermission` on the rollup, reveal at match start
-by committing back. Note that the TEE region does not serve an RPC router by
-design, so placement is named rather than discovered.
+- **Zero custody.** The failure mode stays a delayed reveal, never a lost stake.
+- **Settlement's account list.** `end_log` deliberately does not depend on the
+  permission, so a sealing change can never add a way for a paid match to fail
+  to pay out. Whatever replaces the public lock keeps that property.
 
 ---
 
@@ -106,9 +138,11 @@ critically — it is worthless until Phase 1 makes coins non-interchangeable.
 A launchpad where **allocation is gated on gameplay**, and the order book is
 invisible until it fills.
 
-- **Entry is earned.** Your deck power (later: crowns, matches won) decides
-  whether you may buy and how much. Proven onchain by passing your eight card
-  PDAs — the same mechanism `create_match` already uses.
+- **Entry is earned**, and since staking was removed that is now literal. Deck
+  power is the sum of card levels, and levels come only from winning, so gating
+  allocation on deck power is gating it on matches won rather than on deposits.
+  Proven onchain by passing your eight card PDAs — the same mechanism
+  `create_match` already uses.
 - **The book is shielded in a PER.** Nobody can see the fill level or the
   allocation table, so there is nothing to snipe and no pending flow to
   front-run.
@@ -133,10 +167,16 @@ is strictly harder to snipe anyway.
 
 ### Why anyone would launch here rather than pump.fun
 
-Not the fees. **The holders.** A pump.fun buyer sells in twenty minutes. A
-Mempire buyer stakes into a card, which locks the tokens behind a 72-hour
-two-step unstake and costs them card levels to exit. Creators are not buying
-distribution — they are buying *holders who have a reason to stay*.
+Not the fees. And no longer lockup, either: nothing in Mempire holds a token, so
+any pitch that depends on a cooldown keeping holders in place is a pitch we
+cannot make and should not imply.
+
+What is left is **duration of attention**. A pump.fun buyer's relationship with a
+coin ends at the sell button. A Mempire launch puts the coin on the roster as a
+fighter with art, an archetype and a place in the ladder, and Phase 1 gives its
+community a second reason to watch its chart. Sold honestly, that is
+distribution into a game people come back to — not captivity, and weaker than a
+lockup would have been.
 
 ### The art question, answered
 
@@ -149,11 +189,14 @@ token metadata. A brand-new coin needs zero new art.
 
 ## Phase 4 — Mainnet
 
-None of this touches mainnet without all four:
+Mainnet for the base game is no longer a cost question — `MAINNET.md` prices the
+lean build at ~3.2 SOL, nearly all of it recoverable rent. What gates it is the
+list below, and everything in this document adds money paths that make that list
+stricter rather than shorter:
 
 | | Why |
 |---|---|
-| **Program security review** | Real money moves through the escrow and the vaults |
+| **Program security review** | Real money moves through the match escrow, and the launchpad would add a vault of its own |
 | **Treasury multisig (Squads)** | Never launch with a single-key treasury |
 | **Geo-blocking + ToS** | A rake on a wagered pot is real-money skill gaming, and it is regulated |
 | **Real price oracle** | Replaces the devnet mock — and Phase 1 makes the oracle load-bearing rather than cosmetic |
@@ -200,27 +243,37 @@ it is why it does not collapse when inflows slow.
 
 Ordered by value per unit of effort, from `ROADMAP.md`:
 
-- **Session keys** — no wallet popup per card play. `PRODUCT.md` already promises
-  "zero wallet popups once a match starts"; the onchain path cannot deliver that
-  today. This is a claim-versus-reality gap, not a feature.
-- **VRF chest rolls** — chest tiers are currently decided by `Math.random()` in
-  the browser, and gems buy chest skips. We sell access to a loot box whose odds
-  nobody can verify. MagicBlock VRF makes the roll provably fair, and the
-  request→callback shape maps onto the existing shake→burst ceremony.
-- **cNFT card layer** (Bubblegum) — makes cards tradeable, which unlocks a
-  marketplace and a 5% royalty that compounds forever.
+- **Marketplace + royalty** — under the `nft` feature a card already mints as a
+  Metaplex 1-of-1 with 500 basis points of royalty written into its metadata, so
+  what is missing is the venue, not the plumbing. A place to trade cards turns
+  that 5% into an annuity that costs nothing to run.
+- **Bubblegum cNFT drops** — the cheap layer underneath, for the cards chests
+  hand out by the thousand. Independent of the marketplace, not a prerequisite
+  for it.
 - **Tournaments** — 8% of every pool, and they scale without us operating
   anything.
 - **Coin sponsorship** — "Coin of the Week". B2B; coin treasuries become
   customers. Highest revenue ceiling on the list.
 - **Replays** — nearly free. The input log *is* the replay.
 
+Two items that were on this list have since shipped, and are worth recording
+because they were both claim-versus-reality gaps rather than features. Session
+keys: `PRODUCT.md` promised "zero wallet popups once a match starts" while the
+onchain path could not deliver it, and now one signature at match start covers
+the whole match. VRF chests: tiers were decided by `Math.random()` in the browser
+while the shop sold skips into them, which is selling access to a loot box whose
+odds nobody could verify — the roll now comes from the oracle and its randomness
+is stored on the chest.
+
 ---
 
 ## Deliberately not on this list
 
-- **A token.** The economy works without one, and adding one turns a working
-  rake into an emissions problem.
+- **Emissions.** $MEMPIRE exists, but every use of it is a sink — chest skips and
+  extra slots, shop purchases and rerolls, clan charters, the per-level merge
+  fee. Nothing pays players for playing, and nothing sells power. A token that
+  funds rewards out of its own supply turns a working rake into an inflation
+  problem; that is the version that stays off the list.
 - **Play-to-earn mechanics.** The graveyard is full of them for one reason: the
   earning was funded by new players rather than by value created.
 - **Competing with pump.fun head-on.** They have the liquidity and the network

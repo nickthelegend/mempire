@@ -239,7 +239,7 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Drag-and-drop deploy, crown score, sound, spawn/damage VFX
 - [x] Wallet picker (Phantom/Backpack/Solflare + Guest), error boundary
 - [x] Generated art + audio set wired in
-- [x] Anchor program: registry, cards, vaults, escrow, settle, timeouts
+- [x] Anchor program: registry, cards, merge-to-level, escrow, settle, timeouts
 - [x] Devnet seed script (12 coins, mock oracle, eligibility gate demo)
 - [x] Official Solana wallet adapters with real logos
 - [x] Chests, Gems, card inspector with live pump.fun market data

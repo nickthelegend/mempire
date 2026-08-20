@@ -11,6 +11,23 @@ Programs on devnet:
 | `mempire` (money) | `BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP` |
 | `mempire_rollup` (hot state) | `3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N` |
 
+**Which build this describes.** Devnet runs the full build, so everything below
+is live there. Mainnet will not start on the same binary. `nft` and `rollup` are
+cargo features — on by default, switched off with `--no-default-features` — and
+the lean build is what launches: 463,456 bytes against 704,432 for the full one,
+which is 3.23 SOL of deploy rent instead of 4.90. That rent is a refundable
+deposit, not a spend; `solana program close` returns it. `mempire_rollup`, the
+program carrying the play log, the seal and the chest rolls, is a further 3.07
+SOL and is not deployed at launch at all. Those are measured byte counts from
+this repo's own builds; the full table is in `MAINNET.md`.
+
+What the lean build costs is stated in each section below. What it does not cost
+is settlement. `end_match_log` compiles in both builds with the same accounts bar
+the two magic ones, `claimResultEr` writes a seat's claim wherever the log
+actually is, and `settle_from_log` reads both claims off the base-layer account
+either way. A match escrows, settles and times out identically with or without a
+rollup — which is the whole reason the rollup can be deferred.
+
 ---
 
 ## ER — Ephemeral Rollups
@@ -33,6 +50,12 @@ card drop.
 lamports beyond its own rent. Escrow and payout stay in `mempire` on base layer,
 so a stalled rollup costs latency and degrades to `claim_timeout` — it can never
 strand a pot.
+
+**Without it (the lean build):** no per-play log exists, because there is no
+`mempire_rollup` to write one. The match still runs the same deterministic
+lockstep sim and the server still referees a desync; the plays are simply
+relayed rather than recorded on chain, which is exactly the property this
+section exists to buy back later.
 
 ---
 
@@ -71,14 +94,22 @@ ER copy's presence.
   `mut`. Settlement must never gain a new way to fail, so `end_log` keeps the
   four accounts it always had and does not depend on the permission at all.
 
+**Without it (the lean build):** there is no sealed log because there is no log
+— the relay carries the plays, and the relay is a party both players have to
+trust. That is precisely the trust this section exists to delete, which is why
+the rollup is deferred rather than dropped.
+
 ---
 
 ## VRF — verifiable randomness
 
 **What it does here:** the chest tier is the one outcome the house picks.
-Everything else in Mempire is a function of what a player staked or how they
-played. A tier chosen by `Math.random()` in the browser is exactly the mechanic
-people are right to distrust in a game that also holds real SOL.
+Everything else in Mempire follows from how a match was played. That makes the
+tier load-bearing rather than decorative: a win earns a chest, a chest drops
+cards, and a duplicate card merged into the one you keep is how a card climbs
+from level 1 to 10. The chest rail *is* the progression system. A tier chosen by
+`Math.random()` in the browser is exactly the mechanic people are right to
+distrust in a game that also escrows real SOL.
 
 | Layer | Where |
 |---|---|
@@ -94,8 +125,8 @@ people are right to distrust in a game that also holds real SOL.
 base-layer randomness at **0.0008 SOL** per request
 ([pricing](https://docs.magicblock.gg/pages/overview/additional-information/pricing#vrf)).
 A player opening four chests a session should not pay a fraction of a Pauper
-stake in oracle fees for cosmetics. Requests therefore go to
-`DEFAULT_EPHEMERAL_QUEUE` — the delegated queue — which is the only one a
+wager in oracle fees to collect what they won by winning. Requests therefore go
+to `DEFAULT_EPHEMERAL_QUEUE` — the delegated queue — which is the only one a
 transaction running on the ER can write.
 
 **Lifecycle, as the SDK requires:** `empty → pending(nonce) → filled`, one live
@@ -103,6 +134,12 @@ request per player, callback bound to `(slot, nonce)` and idempotent rather than
 erroring, permissionless timeout recovery, and commit refused while a request is
 outstanding so a callback can never be sent to an account that has left the
 rollup.
+
+**Without it (the lean build):** every chest takes the local-seed path below —
+seeded with `crypto.getRandomValues`, recorded, and derivable by anyone holding
+the seed, but attested by nobody. The UI marks that by withholding the 🎲. The
+odds are the same numbers; what is missing is the proof they were rolled fairly,
+and that is the honest reason to add the rollup before the pots get large.
 
 **The randomness is stored on the chest** so the drop stays derivable by anyone,
 and `claim_chest` emits it so it survives the slot being reused.
@@ -113,11 +150,19 @@ The tier is only half a chest. Which cards come out is now derived from the
 *same* 32 bytes rather than rolled separately — `app/src/lib/chestDrop.ts`.
 
 The derivation is a pure function of three reconstructible inputs: the seed, the
-eligible coin list in registry order, and which of those the player already
-owned. It uses **xoshiro256\*\*** — chosen because its state is exactly 256
-bits, so every byte of the oracle's output goes into it directly — with
-rejection sampling for index selection, because `% pool.length` is biased and
-"slightly biased" has no place in a fairness claim.
+eligible asset list in registry order — the cluster's roster, 66 seeded mints on
+devnet and 36 verified assets on mainnet, majors and memecoins and tokenised
+stocks alike, filtered by the published liquidity and age gate — and which of
+those the player already owned. It uses **xoshiro256\*\*** — chosen because its
+state is exactly 256 bits, so every byte of the oracle's output goes into it
+directly — with rejection sampling for index selection, because `% pool.length`
+is biased and "slightly biased" has no place in a fairness claim.
+
+`owned` shapes the draw and is part of the published rule: unowned assets come
+out first and without replacement, so a drop teaches a new card before it repeats
+one. Duplicates appear once that pool is exhausted, and a duplicate is not a
+wasted drop — merging it into the card it duplicates is what raises that card's
+level. This is the only path from level 1 to level 10 in the game.
 
 The tier rule is mirrored from the program byte-for-byte, including the SDK's
 reverse-scan bias avoidance. That buys two things: a locally-seeded chest has the
@@ -171,8 +216,10 @@ construction; there is nowhere for it to be replayed.
 no lamports beyond its own rent and cannot move a token. The worst a stolen
 session key does is write nonsense into one match log — and the lockstep hash
 check already voids a match whose log disagrees with the simulation, refunding
-both stakes. Escrow and payout live in the base-layer program and stay
-wallet-only, deliberately.
+both wagers. Escrow and payout live in the base-layer program and stay
+wallet-only, deliberately. Nor is there anything else of the player's to reach:
+the game holds no token vaults and never has custody of a holding, only the SOL
+a player chose to put on this one match.
 
 `play_card` and `checkpoint` keep the account list they always had. Widening
 authority is a change to who may sign, not to what must be passed, so every
@@ -229,16 +276,16 @@ names them.
 |---|---|---|
 | **Guest wallet** | Simulated, and labelled everywhere it appears | `state/wallet.ts`, `WalletPicker`, `ChainBadge` reads `simulated` |
 | **Guest chest seeds** | Generated locally with `crypto.getRandomValues` — a session with no keypair cannot reach the oracle. Still recorded and still derivable, just not attested. Marked by the **absence** of the 🎲 | `lib/chestDrop.ts` |
-| **Price / liquidity oracle** | Devnet mock — `register_coin` / `set_price`, admin-written. Jupiter/Pyth replaces it on mainnet | `chain/programs/mempire/src/lib.rs` |
+| **Price / liquidity oracle** | Admin-written — `register_coin` / `set_price`. Devnet values are a mock; mainnet's come from Jupiter's verified list plus DexScreener reads, written the same way. Feeds the mint eligibility gate and nothing else — it no longer sets a card's level, and nothing does but merging a duplicate | `chain/programs/mempire/src/lib.rs` |
 | **Match seed** | Matchmaker-derived (`fnv(matchId) ^ fnv(deckA) ^ fnv(deckB)`), order-independent but **server-trusted**. Not commit-reveal | `server/matchmaker.js` |
 | **SOL balance in Guest mode** | Simulated, stated on the Empire screen | `screens/Empire.tsx` |
-| **cNFT card layer** | Not implemented. Cards are PDAs, not Bubblegum cNFTs | — |
+| **cNFT card layer** | Not implemented, and not the plan any more. Cards are PDAs; `tokenize_card` mints a Metaplex 1-of-1 on top of one, in builds carrying the `nft` feature. The lean launch build does not compile that instruction at all | `chain/programs/mempire/src/lib.rs`, `components/CardDetail.tsx` |
 | **AMM on the rollup** | The pool has delegate/commit instructions, but swaps run on base layer: the vault ATAs are not delegated through eSPL, so an ER swap would fail at the token CPI | `programs/mempire-amm` |
 | **PER on the pool** | Not built. The design follows the sealed-auction split — public pool so reserves stay auditable, private per-trader orders so size cannot be front-run | — |
-| **Mainnet** | Devnet only | — |
+| **Mainnet** | Devnet only. And when it launches it launches lean: `mempire_rollup` is not deployed on day one, so none of the ER, PER or VRF above is live on mainnet until it is. Chests roll from a local seed until then, and the UI says so by withholding the 🎲 | `MAINNET.md` |
 
 The lockstep hash check is what actually protects a match, not the seed: a
-divergence voids it and refunds both stakes.
+divergence voids it and refunds both wagers.
 
 ---
 
@@ -251,7 +298,7 @@ BASE_RPC=https://api.devnet.solana.com npx tsx scripts/e2e-full-flow.ts
 
 | Suite | Covers | Result |
 |---|---|---|
-| `e2e-devnet.ts` | mint, eligibility gate, stake, two-step unstake, fees | 17/17 |
+| `e2e-devnet.ts` | mint, eligibility gate, fees — and stake plus two-step unstake, which the program no longer has | 17/17, **superseded**: its staking half calls instructions that were removed, so the result is a record of the build it was written against, not a suite that runs green today |
 | `e2e-rollup.ts` | ER delegation, plays, seat auth, commit, undelegate, rent | 23/23 |
 | `e2e-per-vrf.ts` | permission lifecycle, queue routing, in-flight guard, oracle callback | 20/20 |
 | `e2e-full-flow.ts` | the entire match + chest lifecycle in order, two funded signers, a signature per step | 27/27 |
