@@ -125,7 +125,7 @@ literals. DESIGN.md records each rule with the failure that produced it.
 
 ---
 
-## Mainnet costs ~3.2 SOL, and most of it comes back
+## Mainnet costs ~4.2 SOL, and most of it comes back
 
 The launch budget was 12 SOL when everything was one binary. Rent scales with
 program bytes, so the fix was to make the two heaviest subsystems optional:
@@ -134,18 +134,26 @@ program bytes, so the fix was to make the two heaviest subsystems optional:
 
 | Build | Bytes | SOL |
 |---|---|---|
-| lean (`--no-default-features`) | 463,456 | 3.23 |
-| default, both features | 704,432 | 4.90 |
+| lean (`mainnet`) | 469,736 | 3.27 |
+| launch (`mainnet,rollup`) | 599,040 | 4.17 |
+| default, both features | 710,304 | 4.94 |
 
-The lean build is the whole game: roster, decks, chests, escrowed PvP pots,
-two-claim settlement, timeouts. Two things are worth being precise about.
+Even the lean build is the whole game: roster, decks, chests, escrowed PvP pots,
+two-claim settlement, timeouts. Three things are worth being precise about.
+
 First, deploy rent is a **refundable deposit** — `solana program close` returns
-it to the authority — so the launch is not a 3.2 SOL spend, it is a 3.2 SOL
-deposit plus about 0.05 in fees. Second, **settlement is identical with or
-without the rollup**: settlement reads the two seats' claims off the log
-whether that log ever visited a rollup or not. Turning the rollup off costs the
-onchain play log and VRF-rolled chests, not the money path. `solana program
-extend` plus an upgrade buys the features later, out of revenue.
+it to the authority — so the launch is not a 4.2 SOL spend, it is a 4.2 SOL
+deposit plus about 0.05 in fees.
+
+Second, **settlement is identical with or without the rollup**: it reads the two
+seats' claims off the log whether that log ever visited a rollup or not. Turning
+the rollup off costs the onchain play log and VRF-rolled chests, not the money
+path.
+
+Third, and the reason the launch target is 4.17 rather than 3.27: the lean build
+contains **no MagicBlock at all**. The 0.90 SOL between them buys ER delegation
+and commit of the settlement log on mainnet, rather than only on devnet.
+`solana program extend` plus an upgrade buys `nft` later, out of revenue.
 
 MAINNET.md holds the ordered runbook and the per-step costs.
 
@@ -154,8 +162,8 @@ MAINNET.md holds the ordered runbook and the per-step costs.
 1. **#49 rotate credentials** — everything else can wait behind this.
 2. **#23 treasury multisig** — the last single point of total failure before
    real money moves.
-3. **Launch the lean build** — MAINNET.md is the runbook, ~3.2 SOL of it
-   refundable, and the app flips cluster on two env vars.
+3. **Launch the `mainnet,rollup` build** — MAINNET.md is the runbook, ~4.2 SOL
+   of it refundable, and the app flips cluster on two env vars.
 4. **#7 asset sponsorship** — the pitch nobody else in the bracket can make,
    and the ad-slot boards in the gutters are already selling it.
 5. **#6 tournaments** — 8% of every pool, and it scales without us operating it.

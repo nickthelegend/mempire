@@ -15,8 +15,8 @@ past that floor. So instead: three versions, each a real thing you can ship.
 | | What ships | SOL |
 |---|---|---|
 | **v1** | $MEMPIRE launched on Bags + the game free-to-play | **≈0.1** |
-| **v2** | v1 + escrowed real-money PvP on mainnet | **≈3.4** |
-| **v3** | v2 + NFT cards + MagicBlock rollup | **≈8.2** |
+| **v2** | v1 + escrowed PvP settling through a MagicBlock rollup | **≈4.3** |
+| **v3** | v2 + NFT cards + VRF chests + the play-by-play log | **≈8.2** |
 
 Each version is a superset of the one before, and nothing is thrown away
 between them — `solana program extend` grows the deployed program in place.
@@ -38,51 +38,100 @@ The game itself needs no deploy to be playable — it already runs free at
 play.mempire.fun with the full roster, decks, chests, clans, ladder and bot and
 PvP matches. What a mainnet program buys is real-money pots, and nothing else.
 
-### v2 — real pots · +3.23 SOL
+### v2 — real pots, on a rollup · +4.17 SOL
 
-The lean program (`--no-default-features`), 463,456 bytes. Escrowed PvP,
-cards on chain, merge-to-level, timeouts and settlement. Cards are program
-accounts rather than NFTs, and chests roll from a local seed that the UI
-labels as such.
+`--features mainnet,rollup`, 599,040 bytes. Escrowed PvP, cards on chain,
+merge-to-level, timeouts, settlement — and the settlement log delegated to a
+**MagicBlock ephemeral rollup**, where both seats' claims land in tens of
+milliseconds and come home through `commit_and_undelegate`.
 
-### v3 — everything · +4.8 SOL
+The lean build (`--features mainnet`, 469,736 bytes, **3.27 SOL**) is the same
+game with no MagicBlock at all. The rollup is therefore a **0.90 SOL** decision,
+and it is the one place in this ladder where I'd argue against the cheaper
+option — see *Where MagicBlock sits* below.
 
-`nft` adds Metaplex 1-of-1 cards (+0.91 of program rent). `rollup` adds
-MagicBlock ER — plays landing on a rollup mid-match, VRF-rolled chests, an
-on-chain play log (+0.77 in the core program, plus 3.07 to deploy
-`mempire_rollup`). Fund it from rake, not from pocket.
+### v3 — everything · +3.84 SOL
+
+`nft` adds Metaplex 1-of-1 cards (+0.77 of program rent). Deploying the
+separate `mempire_rollup` program (+3.07) adds what a delegated settlement log
+cannot do alone: VRF-rolled chests, the play-by-play log with plays landing
+mid-match, PER sealing, and session keys. Fund it from rake, not from pocket.
 
 ### The rent is a deposit, not a spend
 
 Solana charges deploy rent as a rent-exemption deposit sized to the program's
 bytes; `solana program close` returns it to the authority. Actual consumed cost
-is about 0.05 SOL in transaction fees. Measured build sizes, from this repo:
+is about 0.05 SOL in transaction fees. Measured from this repo, current code:
 
 | Build | Bytes | SOL | Adds |
 |---|---|---|---|
-| lean (`--no-default-features`) | 463,456 | 3.23 | the whole game |
-| `--features nft` | 594,224 | 4.14 | Metaplex cards |
-| `--features rollup` | 574,624 | 4.00 | rollup + VRF |
-| default (both) | 704,432 | 4.90 | everything |
-| `mempire_rollup` (separate program) | 441,544 | 3.07 | needed only by v3 |
+| `mainnet` (lean) | 469,736 | 3.27 | the whole game, no MagicBlock |
+| `mainnet,nft` | 580,496 | 4.04 | Metaplex cards |
+| `mainnet,rollup` | 599,040 | 4.17 | **ER delegation + commit** |
+| `mainnet,nft,rollup` | 710,304 | 4.94 | both |
+| `mempire_rollup` (separate program) | 441,432 | 3.07 | VRF, play log, PER, sessions |
 
-Settlement is byte-identical in every build — the two seats' claims are the
-same bytes whether the log visits a rollup or stays on base layer — so moving
-up a version never migrates data or changes the money path.
+Because rent comes back, "v2 costs 0.90 more than lean" means 0.90 SOL *locked*,
+not 0.90 SOL *gone*.
 
-### Open decision before v2: how a new player gets their first $MEMPIRE
+Settlement is byte-identical in every build — the two seats' claims are the same
+bytes whether the log visits a rollup or stays on base layer — so moving up a
+version never migrates data or changes the money path.
+
+## Where MagicBlock sits — and what the accelerator would actually see
+
+Short answer: **the lean 3.27 build has no MagicBlock in it, so v2 has to be the
+4.17 build or the integration is devnet-only.**
+
+MagicBlock appears in this repo in two places, and they cost very differently:
+
+**In the core program, behind `--features rollup` (+0.90 SOL).** `MatchLog` is
+delegated to an ER on the base layer, `end_match_log` runs *on the rollup*, and
+the result commits and undelegates in one intent bundle. Delegation is
+restricted to a player in that match naming the validator, because whoever
+holds a delegated account is who commits its state — an open delegate would let
+a hostile validator commit an arbitrary winner. This is a real ER integration:
+one delegated account, executing under its own program owner, settling back to
+Solana.
+
+**In the separate `mempire_rollup` program (+3.07 SOL).** Four more MagicBlock
+products: **VRF** for chests (`request_chest` → `callback_chest`, so the reward
+is verifiably random rather than seeded locally), a **play-by-play log**
+(`play_card`, `checkpoint`) at ER latency, **PER** sealing through
+`EphemeralPermission` (`seal_log` / `reseal_log` / `unseal_log`), and **session
+keys** so a player signs once per match instead of once per play.
+
+Mainnet fleet checked live today via the status API: `er`, `rpc_router`,
+`pricing_oracle` and `vrf_oracle` all **up** in asia, europe and usa. The `tee`
+region publishes no `rpc_router` at all — that is structural, not an outage;
+PER talks to the TEE ER endpoint directly, and its `er` and `vrf_oracle` are up.
+
+**The recommendation.** Ship v2 at 4.17 with `rollup`. Deferring it saves 0.90
+SOL of refundable deposit and costs the one claim that is hardest to make later
+— that the deployed mainnet program uses MagicBlock. All four products already
+run on devnet, so the integration is demonstrable either way; the question is
+only whether mainnet matches devnet or lags it. If the budget is truly 3.3, ship
+lean and be plain that mainnet is the base-layer subset — but the gap between
+3.27 and 4.17 is the cheapest part of this whole ladder to close later, and the
+most expensive story to have to explain.
+
+## Settled: how a new player gets their first $MEMPIRE
+
+This was the last open product question, and it is now closed in code.
 
 Chests pay cards, not $MEMPIRE, and on devnet the faucet drips 2,000. There is
-no faucet on mainnet, so a new player arrives with none — and merging
-(100 × level), chest skips, the shop and clan charters all price in $MEMPIRE.
-Three ways out, and this is a product call rather than a technical one:
+no faucet on mainnet, so a new player would have arrived with none — while
+merging (100 × level), chest skips, the shop and clan charters all price in
+$MEMPIRE. **A win now pays 50 $MEMPIRE**, so the currency is earned by playing,
+like everything else after the pivot. Buying on Bags stays available for anyone
+in a hurry, but nothing requires it.
 
-1. **Earn it by winning** — add $MEMPIRE to chest payouts. Fits the pivot best:
-   everything else in the game is earned by playing.
-2. **Buy it on Bags** — honest and zero work, but it puts a purchase between a
-   new player and their second card level.
-3. **Treasury airdrop** — needs a stash, which means an initial dev buy at
-   launch and a sybil rule.
+Two properties worth keeping if this is ever tuned. The payout is a `const`,
+not a `Config` field, because `Config::SIZE` is exact and widening it would
+orphan the live config account. And all three reward accounts are `Option`, so
+an empty or missing vault can never strand a pot — settlement pays out
+normally and skips the bonus. Verified on devnet, match #78: winner
+6,165 → 6,215, vault 2,000 → 1,950.
 
 ## Pre-funding — already done, cost nothing
 
@@ -98,7 +147,15 @@ Three ways out, and this is a product call rather than a technical one:
       `node chain/build-mainnet-registry.mjs`. Identity never comes from symbol
       search — that returned a "BTC" with $8B of spoofed liquidity.
 - [x] Both binaries build and were byte-verified to carry their own mint.
-- [x] MagicBlock mainnet fleet confirmed live (for when the rollup is added).
+- [x] MagicBlock mainnet fleet re-checked live: ER, router, pricing oracle and
+      VRF oracle all up across asia/europe/usa.
+- [x] The Bags market is wired end to end (`server/bags.js` holds the key,
+      `app/src/chain/market.ts` calls our own origin) and reports
+      `configured: false` until the token exists. Nothing to build at launch —
+      set `BAGS_API_KEY` and `MEMPIRE_MINT` on the relay and it goes live.
+- [x] A win pays `WIN_REWARD` (50 $MEMPIRE) from a `[b"rewards"]` PDA vault.
+      **Fund that vault at launch** — the accounts are optional, so an unfunded
+      vault settles the pot normally and simply pays no bonus.
 
 ## Launch sequence
 
@@ -108,15 +165,16 @@ Three ways out, and this is a product call rather than a technical one:
    against mainnet. Decide the upgrade authority (same multisig recommended);
    today one hot wallet holds upgrade authority, config admin and mint
    authority, which is a single point of total failure.
-2. **Build and deploy the lean program.**
+2. **Build and deploy the program.**
    ```
    cd chain
-   anchor build -- --no-default-features --features mainnet
+   anchor build -- --no-default-features --features mainnet,rollup
    solana program deploy target/deploy/mempire.so \
      --program-id target/deploy/mempire-keypair.json --url <mainnet rpc>
    ```
-   Budget the full 3.23 in the deployer *before* starting: a failed attempt
-   strands a buffer, and `solana program close --buffers` reclaims it.
+   Budget the full 4.17 in the deployer *before* starting: a failed attempt
+   strands a buffer, and `solana program close --buffers` reclaims it. Drop
+   `,rollup` for the 3.27 lean build, having read *Where MagicBlock sits*.
 3. **$MEMPIRE already exists** — it was launched on Bags in v1, which is why
    v1 comes first. See the sequencing note below: its mint address has to be
    known before the program is built.
@@ -136,26 +194,28 @@ Three ways out, and this is a product call rather than a technical one:
 8. **Smoke test** with two funded wallets at the smallest tier: mint a card,
    merge a duplicate, and settle one staked PvP match end to end.
 
-## Wiring Bags into the swap screen
+## Bags — already wired, waiting on a key
 
-The Bags TypeScript SDK (`@bagsfm/bags-sdk`, needs a key from dev.bags.fm and
-an RPC) exposes exactly what the swap screen already does against the local
-AMM:
+Built and deployed, not pending. Two files:
 
-```ts
-const quote = await sdk.trade.getQuote({
-  inputMint: 'So11111111111111111111111111111111111111112', // wSOL
-  outputMint: MEMPIRE_MINT,
-  amount: 1_000_000_000,
-  slippageMode: 'dynamic',
-});
-```
+- `server/bags.js` — the relay proxies `/api/market`, `/api/market/quote` and
+  `/api/market/swap`. Bags authenticates with an `x-api-key`, and a key in a
+  browser bundle is a key anyone can spend, so the relay holds it and the client
+  only ever talks to our own origin.
+- `app/src/chain/market.ts` — quotes and the unsigned swap. The relay never
+  holds a player's key: it builds, the wallet signs. `requestId` ties the fill
+  to the exact quote shown.
 
-`app/src/chain/amm.ts` is already the single place quotes and swaps are built,
-and `AMM_CONFIG_MATCHES_CLUSTER` already makes the screen refuse honestly when
-no pool exists for the current cluster — so this is a swap of one module's
-internals, not a UI change. The SDK also covers claiming the creator fees
-(`sdk.fee.getAllClaimablePositions`), which is how the 1% royalty is collected.
+Absent is a state, not an error. With no key the routes answer
+`configured: false` and quotes return **503** rather than inventing a price; the
+swap screen prefers Bags, falls back to a local pool that matches its cluster,
+and refuses with the reason when neither exists. All three behaviours verified
+live on the deployed relay.
+
+**To go live:** set `BAGS_API_KEY` (from dev.bags.fm) and `MEMPIRE_MINT` on the
+relay. No rebuild. Creator fees — the 1% of volume, forever — are claimed
+through `sdk.fee.getAllClaimablePositions` in the Bags SDK; that is the one
+piece not yet wired, because there is nothing to claim until the token trades.
 
 **Sequencing constraint, and it is load-bearing.** The program bakes
 `MEMPIRE_MINT` in at compile time, so the token has to exist *before* the
@@ -169,13 +229,13 @@ deploy, though it would orphan the existing devnet config account.)
 
 ```
 solana program extend <program-id> <additional-bytes>
-anchor build -- --features mainnet,nft          # or mainnet,nft,rollup
+anchor build -- --no-default-features --features mainnet,nft,rollup
 solana program deploy ... --program-id ...
 ```
 
-Order by what players ask for. NFTs (+0.91 SOL of rent) make cards visible in
-wallets. The rollup (+0.77 in the core program, plus 3.07 to deploy
-`mempire_rollup`) adds VRF chests and the on-chain play log.
+Order by what players ask for. NFTs (+0.77 SOL of rent on top of v2) make cards
+visible in wallets. Deploying `mempire_rollup` (3.07, its own program ID) adds
+VRF chests, the play-by-play log, PER sealing and session keys.
 
 ## Deliberately deferred, with reasons
 

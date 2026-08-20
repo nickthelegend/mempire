@@ -23,7 +23,7 @@ Mempire (mempire.fun) is a 3D real-time 1v1 card battler on Solana. The roster i
 - Wallet-optional: guest mode is a real browser keypair, so the whole game works with nothing installed; Phantom/Solflare/Coinbase/Trust/Nightly via Solana Wallet Adapter for players who want to own cards and stake SOL. On mainnet a browser-held key is refused for anything that holds value, and the connect screen says so.
 - Built for Solana Blitz V7 (deadline Aug 9, 2026); that deadline has passed and the product shipped.
 - Devnet today: the program is live and the whole loop — mint, merge, escrowed pot, settlement, timeouts — is proven by a 92-item test plan run against the real product (`TESTPLAN.md`, `VERIFICATION-REPORT.pdf`). The devnet registry is 66 seeded assets (crypto, memecoins, tokenised stocks) against a mock price-oracle PDA.
-- Mainnet next, gated on ~3.2 SOL of deploy rent for the lean build (`MAINNET.md`), the 36-asset verified roster, and small tiers only. Cluster is an env flip; the deploy keypairs carry the same program IDs.
+- Mainnet next, gated on ~4.2 SOL of deploy rent for the `mainnet,rollup` build (`MAINNET.md`), the 36-asset verified roster, and small tiers only. Cluster is an env flip; the deploy keypairs carry the same program IDs.
 - Solo founder; Claude owns code end to end (TS/React + Rust/Anchor).
 - Anyone demos alone: a bot opponent makes every flow work without a second human. A bot match escrows nothing and says NO STAKE, because a bot has no key to escrow with.
 
@@ -43,7 +43,7 @@ Architecture locked 2026-07-29, amended when staking was removed:
 - Decks: 8 cards, one card per coin per deck, 3 saved slots in a Player PDA. Elixir: 1 per 2.8 s, cap 10, doubles in the last 60 s of regulation and throughout overtime.
 - Stack: Vite SPA + React + TS + React Three Fiber + Zustand; Anchor programs; Helius; Express + MongoDB relay (persistence, leaderboard, clans, cached coin feed — authoritative for nothing that holds value); Vercel + Railway.
 - Mobile browser: 30 fps cap, ≤40 units, shadows off, ≤2k tris/unit, one 512 px atlas, GPU instancing.
-- Program size is a product decision, because deploy rent scales with bytes: lean (`--no-default-features`) 463,456 B = 3.23 SOL; full (`nft` + `rollup`) 704,432 B = 4.90 SOL. That rent is a refundable deposit — `solana program close` returns it — not a spend.
+- Program size is a product decision, because deploy rent scales with bytes: lean 469,736 B = 3.27 SOL; `rollup` 599,040 B = 4.17 SOL; full (`nft` + `rollup`) 710,304 B = 4.94 SOL. That rent is a refundable deposit — `solana program close` returns it — not a spend. The launch target is `rollup`: the 0.90 SOL over lean is what keeps the MagicBlock integration live on mainnet rather than devnet-only.
 - Known residual (`AUDIT.md` C9): the programs are not third-party audited, and a losing player can contradict the result to force a void and recover their own stake, denying the winner the pot. They cannot steal. Closing it needs the play log verified onchain; small tier caps are the compensating control until then.
 
 ## Brand Commitments

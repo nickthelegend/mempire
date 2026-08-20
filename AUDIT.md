@@ -127,11 +127,12 @@ real stranded pots on devnet and freed 48 locked cards through
 **What those runs cover, now that there are two builds.** On 20 Aug the two
 heavy subsystems became cargo features, both on by default: `nft` (Metaplex
 1-of-1 cards) and `rollup` (MagicBlock delegation, and with it the VRF chests in
-`mempire-rollup`). Devnet keeps the full build — 704,432 bytes, 4.90 SOL of
+`mempire-rollup`). Devnet keeps the full build — 710,304 bytes, 4.94 SOL of
 deploy rent — so the runs above are still runs against what devnet answers with.
-The lean launch build is `--no-default-features`: 463,456 bytes, 3.23 SOL, and
-it links neither feature. Deploy rent is a refundable deposit in both cases;
-`solana program close` returns it.
+The mainnet launch build is `--no-default-features --features mainnet,rollup`:
+599,040 bytes, 4.17 SOL, linking `rollup` but not `nft`. Stripping `rollup` too
+gives the lean 469,736 bytes / 3.27 SOL, which links neither. Deploy rent is a
+refundable deposit in every case; `solana program close` returns it.
 
 Settlement does not depend on the rollup and never did. The claims are the same
 bytes whether the log lives on base layer or on an ER, so `e2e-full-flow`,

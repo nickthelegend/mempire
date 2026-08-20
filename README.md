@@ -63,7 +63,8 @@ chain/  Anchor workspace — program `mempire`, LIVE on devnet
         (`nft` and `rollup` are cargo features — see MAINNET.md for why)
         scripts: seed-devnet (resumable) · verify-devnet · e2e-devnet (16 checks)
 server/ Express API — player persistence (MongoDB), cached live coin feed,
-        leaderboard, and the full clan service (48-assertion integration test)
+        leaderboard, the full clan service (48-assertion integration test),
+        and the Bags market proxy (holds the API key so the browser never does)
 design/ generation pipeline: gen.sh, gen-audio.sh, gen-3d.sh, slice.py
 ```
 
@@ -133,8 +134,8 @@ cd chain && npx tsx scripts/seed-devnet.ts
 # build the mainnet roster from Jupiter-verified identities (read-only, free)
 cd chain && node build-mainnet-registry.mjs
 
-# the lean launch build — 463 KB, ~3.2 SOL to deploy (see MAINNET.md)
-cd chain && anchor build -- --no-default-features --features mainnet
+# the v2 launch build — 599 KB, ~4.2 SOL to deploy (see MAINNET.md)
+cd chain && anchor build -- --no-default-features --features mainnet,rollup
 
 # read the live onchain state back
 cd chain && npx tsx scripts/verify-devnet.ts
@@ -167,6 +168,13 @@ reads NO STAKE and escrows nothing, because a bot has no key to escrow with.
 | Clan charter | 250 $MEMPIRE | yes |
 | Merge fee | 100 × level $MEMPIRE | yes |
 | NFT royalties | 5% | on tokenised cards |
+| **Win reward** | **−50 $MEMPIRE, paid to the winner** | yes |
+
+The last row runs the other way, and it is the only emission in the game: a
+settled win pays 50 $MEMPIRE out of a treasury vault, on chain, in the same
+instruction that pays the pot. That is how a new player gets their first
+currency without a faucet, a purchase or an airdrop — nothing on mainnet drips
+$MEMPIRE, so it has to be won.
 
 Every line above is shipping today, not roadmap. Two honest notes on the merge
 fee, because "you can't buy power" would be too strong a claim: levelling needs
@@ -212,20 +220,26 @@ problem, not a fixing problem.
    token gets a Dexscreener listing, and the creator earns **1% of all trading
    volume forever, in SOL**. This replaces deploying our own AMM (1.96 SOL plus
    liquidity to seed) with something that pays instead of costs.
-3. **v2 — real pots, +3.2 SOL.** The lean build: the whole game, escrowed PvP,
-   the 36-asset roster. Small tiers only (0.05 SOL cap). Nearly all of that 3.2
-   is *recoverable rent* — closing the program returns it.
-4. **v3 — everything, +4.8 SOL.** NFT cards and the MagicBlock rollup (VRF
-   chests, on-chain play log), added in place with `solana program extend` and
-   funded out of rake rather than out of pocket.
+3. **v2 — real pots, +4.2 SOL.** The whole game, escrowed PvP, the 36-asset
+   roster, small tiers only (0.05 SOL cap) — with settlement delegated to a
+   **MagicBlock ephemeral rollup**, so the version that first touches real money
+   is also the one that proves the rollup on mainnet. Dropping the rollup saves
+   0.90 and ships the same game on base layer alone; `MAINNET.md` argues against
+   it. Nearly all of the 4.2 is *recoverable rent* — closing the program returns
+   it, so the real spend is around 0.05 SOL of fees.
+4. **v3 — everything, +3.84 SOL.** NFT cards in the core program, plus the
+   separate `mempire_rollup` deploy that adds VRF-rolled chests, the
+   play-by-play log, PER sealing and session keys. Grown in place with
+   `solana program extend` and funded out of rake rather than out of pocket.
 5. **Then** — clan tournaments with rake-funded prizes, the Android wrapper
    (keystore already cut), a third-party audit, higher tiers.
 
 ### Revenue is shipping, not planned
 
 Rake on every pot, card mints, chest skips and slots, shop purchases and paid
-rerolls, clan charters. $MEMPIRE has sinks before it has emissions, which is the
-right order — and none of it depends on anyone locking up an asset.
+rerolls, clan charters. $MEMPIRE has six sinks against a single emission — 50
+per win, from a vault the treasury fills — which is the right ratio and the
+right order, and none of it depends on anyone locking up an asset.
 
 ### KPIs that decide the next phase
 
@@ -286,7 +300,7 @@ byte-identical across every prompt, keeps the set coherent.
 
 - **Everything verified so far is devnet.** The programs are deployed and the
   92-item plan passes against the live product, but mainnet execution waits on
-  funding (`MAINNET.md`, ~3.2 SOL).
+  funding (`MAINNET.md`, ~4.2 SOL).
 - **The programs are not third-party audited.** Compensating controls: small
   stake tiers cap exposure, and the settlement design voids rather than pays
   when the two seats disagree — a cheat costs the cheater the match, it cannot

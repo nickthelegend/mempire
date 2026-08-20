@@ -12,21 +12,33 @@ Programs on devnet:
 | `mempire_rollup` (hot state) | `3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N` |
 
 **Which build this describes.** Devnet runs the full build, so everything below
-is live there. Mainnet will not start on the same binary. `nft` and `rollup` are
-cargo features — on by default, switched off with `--no-default-features` — and
-the lean build is what launches: 463,456 bytes against 704,432 for the full one,
-which is 3.23 SOL of deploy rent instead of 4.90. That rent is a refundable
-deposit, not a spend; `solana program close` returns it. `mempire_rollup`, the
-program carrying the play log, the seal and the chest rolls, is a further 3.07
-SOL and is not deployed at launch at all. Those are measured byte counts from
-this repo's own builds; the full table is in `MAINNET.md`.
+is live there. Mainnet starts smaller, and exactly *how* much smaller is the one
+budget decision in this document.
 
-What the lean build costs is stated in each section below. What it does not cost
-is settlement. `end_match_log` compiles in both builds with the same accounts bar
+`nft` and `rollup` are cargo features — on by default, switched off with
+`--no-default-features`. Measured from this repo's own builds:
+
+| Build | Bytes | Deploy rent |
+|---|---|---|
+| `mainnet` (lean) | 469,736 | 3.27 SOL |
+| `mainnet,rollup` | 599,040 | 4.17 SOL |
+| `mainnet,nft,rollup` | 710,304 | 4.94 SOL |
+| `mempire_rollup` (its own program) | 441,432 | 3.07 SOL |
+
+That rent is a refundable deposit, not a spend; `solana program close` returns
+it. **The launch target is `mainnet,rollup` at 4.17** — the lean build strips
+MagicBlock out entirely, and the 0.90 SOL between them is the difference between
+an integration that is live on mainnet and one that is only live on devnet.
+`mempire_rollup` — the play log, the seal, the chest rolls — is a further 3.07
+and waits for v3.
+
+What the rollup build costs is stated in each section below. What no build
+costs is settlement. `end_match_log` compiles in both with the same accounts bar
 the two magic ones, `claimResultEr` writes a seat's claim wherever the log
 actually is, and `settle_from_log` reads both claims off the base-layer account
 either way. A match escrows, settles and times out identically with or without a
-rollup — which is the whole reason the rollup can be deferred.
+rollup — which is what makes the rollup deferrable, and also what makes deferring
+it a presentation decision rather than a functional one.
 
 ---
 
@@ -51,9 +63,10 @@ lamports beyond its own rent. Escrow and payout stay in `mempire` on base layer,
 so a stalled rollup costs latency and degrades to `claim_timeout` — it can never
 strand a pot.
 
-**Without it (the lean build):** no per-play log exists, because there is no
-`mempire_rollup` to write one. The match still runs the same deterministic
-lockstep sim and the server still referees a desync; the plays are simply
+**Without it (v1 and v2, which do not deploy `mempire_rollup`):** no per-play
+log exists, because there is no `mempire_rollup` to write one. The match still
+runs the same deterministic lockstep sim and the server still referees a
+desync; the plays are simply
 relayed rather than recorded on chain, which is exactly the property this
 section exists to buy back later.
 
@@ -94,8 +107,8 @@ ER copy's presence.
   `mut`. Settlement must never gain a new way to fail, so `end_log` keeps the
   four accounts it always had and does not depend on the permission at all.
 
-**Without it (the lean build):** there is no sealed log because there is no log
-— the relay carries the plays, and the relay is a party both players have to
+**Without it (v1 and v2):** there is no sealed log because there is no log —
+the relay carries the plays, and the relay is a party both players have to
 trust. That is precisely the trust this section exists to delete, which is why
 the rollup is deferred rather than dropped.
 
@@ -135,7 +148,7 @@ erroring, permissionless timeout recovery, and commit refused while a request is
 outstanding so a callback can never be sent to an account that has left the
 rollup.
 
-**Without it (the lean build):** every chest takes the local-seed path below —
+**Without it (v1 and v2):** every chest takes the local-seed path below —
 seeded with `crypto.getRandomValues`, recorded, and derivable by anyone holding
 the seed, but attested by nobody. The UI marks that by withholding the 🎲. The
 odds are the same numbers; what is missing is the proof they were rolled fairly,
@@ -279,10 +292,10 @@ names them.
 | **Price / liquidity oracle** | Admin-written — `register_coin` / `set_price`. Devnet values are a mock; mainnet's come from Jupiter's verified list plus DexScreener reads, written the same way. Feeds the mint eligibility gate and nothing else — it no longer sets a card's level, and nothing does but merging a duplicate | `chain/programs/mempire/src/lib.rs` |
 | **Match seed** | Matchmaker-derived (`fnv(matchId) ^ fnv(deckA) ^ fnv(deckB)`), order-independent but **server-trusted**. Not commit-reveal | `server/matchmaker.js` |
 | **SOL balance in Guest mode** | Simulated, stated on the Empire screen | `screens/Empire.tsx` |
-| **cNFT card layer** | Not implemented, and not the plan any more. Cards are PDAs; `tokenize_card` mints a Metaplex 1-of-1 on top of one, in builds carrying the `nft` feature. The lean launch build does not compile that instruction at all | `chain/programs/mempire/src/lib.rs`, `components/CardDetail.tsx` |
+| **cNFT card layer** | Not implemented, and not the plan any more. Cards are PDAs; `tokenize_card` mints a Metaplex 1-of-1 on top of one, in builds carrying the `nft` feature. Builds without `nft` — which includes the v2 launch build — do not compile that instruction at all | `chain/programs/mempire/src/lib.rs`, `components/CardDetail.tsx` |
 | **AMM on the rollup** | The pool has delegate/commit instructions, but swaps run on base layer: the vault ATAs are not delegated through eSPL, so an ER swap would fail at the token CPI | `programs/mempire-amm` |
 | **PER on the pool** | Not built. The design follows the sealed-auction split — public pool so reserves stay auditable, private per-trader orders so size cannot be front-run | — |
-| **Mainnet** | Devnet only. And when it launches it launches lean: `mempire_rollup` is not deployed on day one, so none of the ER, PER or VRF above is live on mainnet until it is. Chests roll from a local seed until then, and the UI says so by withholding the 🎲 | `MAINNET.md` |
+| **Mainnet** | Devnet only so far. At launch the split is uneven and worth stating precisely: v2 builds `mainnet,rollup`, so **ER delegation and commit of the settlement log are live** — but `mempire_rollup` is a separate program that is not deployed on day one, so the per-play log, PER sealing and VRF chests are not. Chests roll from a local seed until v3, and the UI says so by withholding the 🎲 | `MAINNET.md` |
 
 The lockstep hash check is what actually protects a match, not the seed: a
 divergence voids it and refunds both wagers.

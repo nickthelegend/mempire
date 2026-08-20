@@ -951,7 +951,8 @@ result card told the truth about what happened).
   opened 1 after the late grant).
 
 Mainnet launch itself is deliberately not performed: it spends real money.
-The budget has since dropped to ~3.2 SOL (run 11) — MAINNET.md is the runbook.
+The budget dropped to ~3.2 SOL in run 11 and settled at ~4.2 in run 12, once it
+was clear the cheapest build carried no MagicBlock — MAINNET.md is the runbook.
 
 # Run 11 — the pivot: no staking, and a launch that costs 3.2 SOL
 
@@ -1029,3 +1030,112 @@ not been separately re-run end to end. It differs only by compiling out the NFT
 mint and the rollup trip, and its settlement path — claims written on base
 layer — is the same code the full build already runs whenever a log is not
 delegated.
+
+# Run 12 — the currency earns itself, the market moves off-chain, MagicBlock gets repriced
+
+Three things shipped, and one number changed meaning.
+
+## A win pays 50 $MEMPIRE — on chain, and it cannot strand a pot
+
+Run 11 left one real hole: the pivot deleted staking, mainnet has no faucet, and
+every sink in the game — merging at 100 × level, chest skips, the shop, clan
+charters — prices in $MEMPIRE. A new mainnet player would have arrived with none
+and no way to earn any.
+
+So `settle_from_log` now pays `WIN_REWARD` (50 $MEMPIRE) from a `[b"rewards"]`
+PDA-owned ATA in the same instruction that pays the pot.
+
+Two design constraints, both discovered rather than planned:
+
+- **It is a `const`, not a `Config` field.** `Config::SIZE` is exact, so widening
+  the struct would orphan the live devnet config account and change
+  `init_config`'s signature. A constant costs a redeploy to tune and breaks
+  nothing.
+- **All three reward accounts are `Option`.** An unfunded, missing or emptied
+  vault must never be able to block a settlement — the pot is the player's money
+  and the bonus is ours. Omitted, settlement pays the pot and skips the bonus.
+
+Deployed `4f3YPfVpqNsZRmRd…`, vault funded with 2,000, and proven by match #78:
+
+      winner   6,165 → 6,215        (+50)
+      vault    2,000 → 1,950        (−50)
+      SettleFromLog  aPfRy88tePp2fz…
+
+## Bags replaces the AMM we were going to deploy
+
+`mempire_amm` was 281,952 bytes / 1.96 SOL plus discretionary liquidity to seed
+a pool nobody had asked for. Bags runs on Meteora's Dynamic Bonding Curve: the
+token trades against a virtual pool from launch, graduates into a real DAMM
+pool, gets a Dexscreener listing, and pays the creator 1% of volume forever.
+That deletes a line item instead of deferring one.
+
+The key never touches the browser. `server/bags.js` holds it and exposes three
+routes; `app/src/chain/market.ts` only ever talks to our own origin.
+
+Verified against the deployed relay, and the interesting assertions are the
+negative ones:
+
+      GET /api/market        {"configured": false, "venue": "bags", "mint": null}
+      GET /api/market/quote  503   ← refuses rather than inventing a price
+      swap screen            falls back to the local pool matching this cluster
+
+The last one matters: on devnet, where Bags has nothing, the screen correctly
+uses the AMM pool that *does* exist here, and refuses with a reason only when
+neither venue does. Absent is a state, not an error.
+
+## `navigator.vibrate` — eight console errors, and a try/catch that never could work
+
+Verifying the swap screen surfaced eight of these per session:
+
+      Blocked call to navigator.vibrate because user hasn't tapped on the frame yet
+
+`buzz()` already wrapped the call in a try/catch. That was never going to help:
+browsers *refuse* the call and log an intervention rather than throwing, so
+there is no exception to catch. Any buzz fired by the game rather than by a tap
+— a match starting, a chest landing — printed an error nobody could act on.
+
+Haptics now wait for a real gesture, tracked by one-shot `pointerdown` /
+`keydown` / `touchend` listeners that retire themselves. Re-verified in a
+**fresh** tab (the console buffer persists across navigations, so the first
+re-check was measuring history): every screen, two info lines, zero errors.
+
+## The launch number changed meaning: 3.2 → 4.2 SOL
+
+Run 11's table is still what those builds measured. It is no longer what the
+launch costs, for two independent reasons.
+
+The reward code grew every binary slightly, and — the real finding — **the lean
+build contains no MagicBlock at all.** Shipping it would have put the ER
+integration on devnet only, at exactly the moment the MagicBlock accelerator is
+the goal. Remeasured from current source:
+
+| build | bytes | SOL | adds |
+|---|---|---|---|
+| `mainnet` (lean) | 469,736 | 3.27 | the whole game, **no MagicBlock** |
+| `mainnet,nft` | 580,496 | 4.04 | Metaplex 1-of-1 cards |
+| **`mainnet,rollup`** | **599,040** | **4.17** | **ER delegation + commit — the launch target** |
+| `mainnet,nft,rollup` | 710,304 | 4.94 | both |
+| `mempire_rollup` | 441,432 | 3.07 | VRF, play log, PER, sessions (v3) |
+
+MagicBlock's mainnet fleet was re-checked live through the status API rather
+than assumed: `er`, `rpc_router`, `pricing_oracle` and `vrf_oracle` all up in
+asia, europe and usa. The `tee` region publishes no `rpc_router` — that reads
+like an outage in the raw JSON and is not one; PER talks to the TEE ER endpoint
+directly, and its `er` and `vrf_oracle` are up.
+
+Because rent is refundable, the recommendation costs 0.90 SOL of *locked*
+capital and roughly nothing consumed. MAINNET.md, README, ROADMAP, PRODUCT,
+AUDIT, MAGICBLOCK and AFTER_HACKATHON were all repriced to match; MAGICBLOCK.md
+in particular had claimed no ER on mainnet at launch, which v2 makes false.
+
+## Honest limits, carried forward
+
+The 4.17 build is measured and compiles from this verified source but has not
+been separately re-run end to end; it differs from devnet's binary only by
+compiling out the NFT mint. `mempire_rollup` is not part of v2, so the
+per-play log, PER sealing and VRF chests stay devnet-only until v3 — chests roll
+from a local seed on mainnet and the UI withholds the 🎲 to say so.
+
+Bags is verified in its *unconfigured* state only, because $MEMPIRE has not been
+launched. The quote and swap paths against a live market are unexercised, and
+claiming creator fees is not wired at all — there is nothing to claim yet.

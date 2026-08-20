@@ -39,13 +39,13 @@ Shipped and verified, not aspirational:
   popups for the rest of it.
 - **Clans** are a full stack — 48-assertion API suite, browse/found/join, the
   lend loop, crown ladder, roles and leader succession.
-- **Mainnet is costed rather than hypothetical.** The lean build
-  (`--no-default-features`, 463,456 bytes) deploys for 3.23 SOL, and that is a
-  refundable rent deposit, not spend. `nft` (Metaplex 1-of-1 cards) and `rollup`
-  (ER + VRF chests) are cargo features that can be added later with
-  `solana program extend`; the full build is 704,432 bytes / 4.90 SOL.
-  Settlement behaves identically with or without the rollup. `MAINNET.md` has
-  the sequence.
+- **Mainnet is costed rather than hypothetical.** The launch build
+  (`--features mainnet,rollup`, 599,040 bytes) deploys for 4.17 SOL, and that is
+  a refundable rent deposit, not spend. Stripping `rollup` saves 0.90 but takes
+  MagicBlock off mainnet entirely, which `MAINNET.md` argues against. `nft`
+  (Metaplex 1-of-1 cards) can be added later with `solana program extend`; the
+  full build is 710,304 bytes / 4.94 SOL. Settlement behaves identically with or
+  without the rollup. `MAINNET.md` has the sequence.
 
 Not built: a marketplace, a launchpad, and everything else in this document.
 
@@ -190,7 +190,7 @@ token metadata. A brand-new coin needs zero new art.
 ## Phase 4 — Mainnet
 
 Mainnet for the base game is no longer a cost question — `MAINNET.md` prices the
-lean build at ~3.2 SOL, nearly all of it recoverable rent. What gates it is the
+launch build at ~4.2 SOL, nearly all of it recoverable rent. What gates it is the
 list below, and everything in this document adds money paths that make that list
 stricter rather than shorter:
 
