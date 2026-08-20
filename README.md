@@ -118,7 +118,7 @@ cd chain && npx tsx scripts/e2e-rollup.ts
 ## Run it
 
 ```bash
-# app (mock-chain demo, judge-ready)
+# app — reads the live devnet program; guest mode needs no wallet
 cd app && npm install && npm run dev
 
 # sim determinism check
@@ -127,8 +127,14 @@ cd app && npx tsx scripts/sim-test.ts
 # program (already live at BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP)
 cd chain && anchor build
 
-# devnet seed: 12 meme coins + config + mock oracle prices (resumable on 429)
+# devnet seed: coin registry + config (resumable on 429)
 cd chain && npx tsx scripts/seed-devnet.ts
+
+# build the mainnet roster from Jupiter-verified identities (read-only, free)
+cd chain && node build-mainnet-registry.mjs
+
+# the lean launch build — 463 KB, ~3.2 SOL to deploy (see MAINNET.md)
+cd chain && anchor build -- --no-default-features --features mainnet
 
 # read the live onchain state back
 cd chain && npx tsx scripts/verify-devnet.ts
@@ -143,9 +149,11 @@ cd server && node test-clans.mjs && node seed-clans.mjs
 cd server && npm install && npm run dev
 ```
 
-The demo runs fully on seeded/simulated devnet data — no funded wallet needed,
-and a bot opponent means no second human either. Balances, opponents, and the
-settlement feed in the mock build are simulated and labeled as such in-app.
+Everything above talks to the real deployed program on devnet — cards, matches,
+escrow and settlement are signed transactions, not a mock. You can play with no
+wallet installed (guest mode is a real keypair in the browser) and with no
+holdings at all. A bot fills in when nobody is queued, and says so: a bot match
+reads NO STAKE and escrows nothing, because a bot has no key to escrow with.
 
 ## Fees (the business)
 
@@ -240,7 +248,7 @@ byte-identical across every prompt, keeps the set coherent.
 - [x] Wallet picker (Phantom/Backpack/Solflare + Guest), error boundary
 - [x] Generated art + audio set wired in
 - [x] Anchor program: registry, cards, merge-to-level, escrow, settle, timeouts
-- [x] Devnet seed script (12 coins, mock oracle, eligibility gate demo)
+- [x] Devnet seed script (coin registry + config, resumable)
 - [x] Official Solana wallet adapters with real logos
 - [x] Chests, Gems, card inspector with live pump.fun market data
 - [x] MongoDB persistence, model compression (46MB → 1.7MB), loading screen

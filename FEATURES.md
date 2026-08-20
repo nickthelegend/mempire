@@ -6,11 +6,15 @@ the roadmap a judge can see is real.
 
 Every feature obeys three rules:
 
-1. **It never sells power directly.** Whales already buy an edge by staking; a
-   second paid power lever would collapse matchmaking and the game dies. Money
-   buys *access, speed, cosmetics, and information* — never stats.
-2. **It rides the rails we already built.** Cards, stake vaults, match pots and
-   the rake exist. Most of these are a new reason to touch them.
+1. **It cannot sell a level.** Power comes from playing and from nowhere else:
+   win a match, earn a chest, open it, and a duplicate merges into a level on
+   the card you keep. There is no priced upgrade anywhere in the product — no
+   button that turns money into stats — so "what happens when a whale arrives"
+   has a structural answer rather than a promise. He buys the same timers,
+   slots and skins as everyone else and still has to win the matches. Money
+   buys *time, inventory, choice and identity* — never stats.
+2. **It rides the rails we already built.** Cards, match escrow, the chest rail
+   and the rake exist. Most of these are a new reason to touch them.
 3. **The fee is stated where it applies.** A hidden cut is a one-time revenue
    event; a visible one is a business.
 
@@ -18,11 +22,21 @@ Every feature obeys three rules:
 
 ## The core loop already earns
 
+Every line in this table ships.
+
 | Source | Rate | Notes |
 |---|---|---|
-| Battle rake | **10%** of every pot (5% on a draw) | The engine. Scales with player count and stake tier. |
-| Card mint | **0.02 SOL** | Every card ever created. |
-| Unstake | **2%** | Discourages stake-farming, charges the exit. |
+| Battle rake | **10%** of every pot (5% on a draw) | The engine. Scales with player count and wager tier. |
+| Card mint | **0.02 SOL** | Every card ever created. Holding the coin is not required, so the fee is open to every player rather than to holders. |
+| Chest timer skip | **25 $MEMPIRE** | The impatience line. |
+| Extra chest | **100 $MEMPIRE** | A golden chest bought outright; it lands whether or not a slot is free. |
+| Shop card | **up to 250 $MEMPIRE**, or SOL | Four offers a day. |
+| Shop reroll | **35 $MEMPIRE** | After the one free reroll. |
+| Clan charter | **250 $MEMPIRE** | Founding a clan, once. |
+| NFT royalty | **5%** | Every secondary sale of a tokenised card, forever. |
+
+The $MEMPIRE lines are plain SPL transfers to the treasury, so the take is
+readable on chain instead of asserted here.
 
 At 1,000 daily matches averaging the 0.25 SOL tier, the rake alone is
 **50 SOL/day**. Everything below either raises that number or adds a second
@@ -33,50 +47,66 @@ curve on top of it.
 ## Tier 1 — build for the hackathon
 
 ### 1. Chests (the compounding loop) ⭐
-Win a battle, earn a chest. Chests hold cards, coin dust, and Gems. They unlock
-on a **real-time timer** (15 min → 3 h → 8 h), and you can hold only four.
+Win a battle, earn a chest. Chests pay **cards**, not currency — and a card for
+a coin you already own is a duplicate, which merges into a level. They unlock on
+a **real-time timer** (15 min → 3 h → 8 h), and you can hold only four.
 
-**Why it earns:** the timer is the product. Players pay Gems to skip it, and
+**Why it earns:** the timer is the product. Players pay $MEMPIRE to skip it, and
 they pay *because they want to keep playing right now*. This is the single
 highest-grossing mechanic in the genre and it costs us nothing to run.
 
 - Silver (15 min) · Golden (3 h) · Magic (8 h) · Legendary (12 h)
-- Skip cost scales with time remaining, shown before you pay
-- **Revenue: Gem sinks.** Also the reason players return on a schedule.
+- Skip: **25 $MEMPIRE**, stated in the confirmation dialog before it is charged
+- Buy a golden chest outright for **100 $MEMPIRE** — a paid chest always lands,
+  even when all four slots are full
+- **Revenue: the two lines above.** Also the reason players return on a schedule.
 
-### 2. Gems — the one hard currency ⭐
-A single premium token bought with SOL. Gems skip chest timers, enter tournaments,
-reroll shop offers, and buy cosmetics. **Gems never buy stats.**
+This is the retention loop and the progression at once: merging a duplicate is
+the only thing that raises a level, and chests are where duplicates come from.
 
-- Bundles: 80 / 500 / 1,200 / 2,500 Gems
-- Bought with SOL at a published rate; the treasury takes the spread
-- **Revenue: direct sale.** The backbone every other feature draws on.
+### 2. $MEMPIRE — the one currency ⭐
+One SPL token, priced in whole units, with no second currency sitting beside it.
+It skips chest timers, buys chests and shop offers, rerolls the shop and charters
+a clan. **It never buys stats.**
+
+- Acquired on the AMM: a real constant-product pool against USDC, 0.30% to LPs
+- Every price is a plain SPL transfer to the treasury — no custom instruction,
+  so anyone can read the token account and see exactly what the game has taken
+- When the balance is short, the confirmation dialog says so and offers the swap
+- **Revenue: every sink in this document.** The backbone the rest draws on.
+
+There was a second, offchain currency here until recently. It went because the
+counter players actually watched turned out to be the one that did not exist.
 
 ### 3. The Shop — daily card offers ⭐
-Four coin-cards a day, priced in Gems and SOL, rotating every 24 h. One free
-reroll, further rerolls cost Gems.
+Four cards a day, priced in **$MEMPIRE** and in SOL, rotating every 24 h. One
+free reroll; after that a reroll is **35 $MEMPIRE**.
 
-**Why it earns:** it converts *wanting a specific coin* into a purchase. A player
-who holds no $BONK but wants the $BONK card has no other route.
+**Why it earns:** it converts *wanting a specific fighter today* into a purchase.
+Anyone can mint any card in the roster for 0.02 SOL, so the Shop is not selling
+access — it is selling the named card in front of you, at a fixed price, against
+a clock. The rotation is the same four offers for everybody and it turns over
+daily, which is what makes the visit a habit.
 
-- **Revenue: Gem sink + mint fee + a margin on the card.**
+- A purchase mints a real card on chain; nothing is granted until the transfer
+  confirms, so the shop never hands out a card it was not paid for
+- **Revenue: token sink + reroll + the mint fee underneath it.**
 
 ### 4. Card detail sheet with live market data ⭐
-Tap any card: the coin's real pump.fun art, live price, FDV, 24 h change,
-liquidity, holder count, plus its battle stats at current level and what the
-next level costs.
+Tap any card: the asset's real art, live price, FDV, 24 h change, liquidity,
+holder count, plus its battle stats at its current level.
 
 **Why it earns:** it isn't a fee — it's the *reason the other fees convert*.
-Seeing "$PNUT is up 12% today, your card is level 4, level 5 costs $100" is what
-makes someone stake. It also makes Mempire a genuinely useful meme-coin browser,
-which is a retention story on its own.
+Seeing "$PNUT is up 12% today and I do not have that fighter yet" is what sends
+someone to the Shop. It also makes Mempire a genuinely useful browser for coins,
+stocks and crypto, which is a retention story on its own.
 
 ### 5. Tournaments — entry fee, prize pool, our cut ⭐
-Player-created brackets. Creator sets the entry fee (SOL or Gems) and the size;
-we take **8%** of the pool and charge Gems to create a private one.
+Player-created brackets. Creator sets the entry fee (SOL or $MEMPIRE) and the
+size; we take **8%** of the pool and charge $MEMPIRE to create a private one.
 
 - Open tournaments: free to join, sponsored prize, we take a listing fee
-- Private: creator pays Gems, invites their community
+- Private: creator pays $MEMPIRE, invites their community
 - **Revenue: 8% of every pool + creation fees.** Scales without us running anything.
 
 ---
@@ -85,7 +115,7 @@ we take **8%** of the pool and charge Gems to create a private one.
 
 ### 6. Season Pass
 A 10-week ladder of rewards on two tracks: free, and paid (a flat SOL price).
-Paid unlocks a cosmetic arena skin, bonus chest slots, and Gem drops.
+Paid unlocks a cosmetic arena skin, bonus chest slots, and $MEMPIRE drops.
 
 **Revenue: recurring seasonal purchase** — the most predictable line on the sheet.
 
