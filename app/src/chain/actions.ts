@@ -225,6 +225,7 @@ export async function tokenizeCardTx(
   const signature = await program.methods
     .tokenizeCard(ticker.replace(/^\$+/, '').toUpperCase())
     .accounts({
+      config: configPda(),
       card: cardPda(cardId),
       nftMint,
       mintAuthority: PublicKey.findProgramAddressSync(

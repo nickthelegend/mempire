@@ -5,7 +5,7 @@ use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 #[cfg(feature = "nft")]
 use anchor_spl::metadata::{
     create_metadata_accounts_v3, CreateMetadataAccountsV3, Metadata,
-    mpl_token_metadata::types::DataV2,
+    mpl_token_metadata::types::{Creator, DataV2},
 };
 #[cfg(feature = "rollup")]
 use ephemeral_rollups_sdk::anchor::{commit, delegate, ephemeral};
@@ -403,7 +403,25 @@ pub mod mempire {
                 symbol: "MEMFTR".to_string(),
                 uri: format!("{}{}.json", METADATA_BASE_URI, lower),
                 seller_fee_basis_points: 500,
-                creators: None,
+                /*
+                 * A royalty percentage with no creators array is a fee nobody
+                 * receives. Metaplex takes the *rate* from
+                 * `seller_fee_basis_points` and the *recipients* from
+                 * `creators`; with `None` here marketplaces computed 5% and had
+                 * no address to send it to, so the royalty line in the fee
+                 * table was uncollectible on every card ever tokenised.
+                 *
+                 * Unverified is correct at mint: verification requires the
+                 * creator to sign, and the treasury is not a signer on a
+                 * transaction the card's owner sends. Marketplaces route
+                 * payment on the address regardless; `verify_creator` can add
+                 * provenance later without reminting.
+                 */
+                creators: Some(vec![Creator {
+                    address: ctx.accounts.config.treasury,
+                    verified: false,
+                    share: 100,
+                }]),
                 collection: None,
                 uses: None,
             },
@@ -1595,6 +1613,12 @@ pub struct MintCard<'info> {
 #[cfg(feature = "nft")]
 #[derive(Accounts)]
 pub struct TokenizeCard<'info> {
+    /// Only read, for `treasury` — the royalty recipient. Carried here rather
+    /// than hardcoded so that changing the treasury changes where royalties
+    /// land, instead of silently leaving them addressed to an old wallet.
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+
     #[account(
         seeds = [b"card", card.id.to_le_bytes().as_ref()],
         bump = card.bump,

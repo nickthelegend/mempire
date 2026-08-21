@@ -1474,3 +1474,99 @@ router and fallback ER endpoints both switch on `IS_MAINNET`; the relay picks
 its coin registry from `SOLANA_RPC`; the faucet refuses to register on a mainnet
 RPC (routes 404); `USDC_MINT` never escapes the guarded swap screen; `amm.ts`
 already created its ATAs idempotently.
+
+# Run 16 — following every rupee: does the revenue actually come back?
+
+An audit of every path where value moves, on chain and in the client, asking one
+question of each: does this reach the treasury, and can it be redirected?
+
+## The rake cannot be pointed anywhere else
+
+Every fee-taking instruction pins its destination:
+
+    MintCard        #[account(mut, address = config.treasury)]
+    Settle          #[account(mut, address = config.treasury)]
+    SettleFromLog   #[account(mut, address = config.treasury)]
+    ClaimTimeout    #[account(mut, address = config.treasury)]
+    CancelMatch     #[account(mut, address = config.treasury)]
+    UpgradeCard     constraint = treasury_mempire.owner == config.treasury
+
+A patched client cannot pass its own wallet as the treasury and mint for free.
+`UpgradeCard` also pins `owner_mempire.owner == owner.key()`, so the merge fee
+cannot be paid out of someone else's balance.
+
+## Proven by the chain, not by reading it
+
+The treasury holds **1.48 SOL** and **6,760 $MEMPIRE**. Tracing its recent
+credits shows every settlement shape paying in:
+
+    SettleFromLog   +0.010000 SOL   10% of a 0.1 pot
+    SettleFromLog   +0.005000 SOL   5% — the draw in match #80
+    ClaimTimeout    +0.010000 SOL   an abandoned match still rakes
+
+One `ClaimTimeout` credited **zero**, which looked like a leak and is not:
+`rake = pot × rake_bps / 10_000`, so a rake of zero means a pot of zero — an
+unstaked match, which escrows nothing to rake. Since run 15 bound stake to tier,
+a zero-stake match can no longer be created on chain at all.
+
+The client-side sinks are real transfers, not local counters. `spend.ts` builds
+an SPL transfer to the treasury's account and creates that account idempotently,
+so the first buyer pays its rent and nobody after them does. The clan charter's
+till was already moved to the parent screen, because a till rendered inside the
+sheet that founding unmounts never opens — the code says that is exactly "how
+the charter silently became free" once.
+
+## The leak: a 5% royalty nobody could collect
+
+`README.md` lists "NFT royalties · 5%" as a revenue line. It was not one.
+
+    seller_fee_basis_points: 500,
+    creators: None,
+
+Metaplex takes the *rate* from the first field and the *recipients* from the
+second. With `None`, marketplaces computed 5% of every secondary sale and had no
+address to send it to. Every card tokenised so far carries a royalty that cannot
+be paid to anyone.
+
+`TokenizeCard` had no access to `config`, so it now carries it — royalties
+follow the treasury rather than a hardcoded wallet that would silently outlive a
+treasury change. Unverified is correct at mint: verification requires the
+creator to sign, and the treasury is not a signer on a transaction the card's
+owner sends. Marketplaces route payment on the address regardless.
+
+Deployed (`4MznsN3PbRvJhaPz…`), and read back off a freshly minted card:
+
+    name "Mempire $AMZN"  symbol "MEMFTR"
+    seller_fee_basis_points: 500 (5%)
+    creators: 1
+      2G43VwaAqkdmzmufFDJNb8hJA39na9HDvM9KMh7ZSKNa  verified=false  share=100%
+
+That address is `config.treasury`.
+
+A trap worth recording: the first attempt failed with *"Account discriminator did
+not match what was expected"*. Adding `config` to the context changed the account
+list, and the app bundles its **own copy** of the IDL — `app/src/chain/mempire.idl.json`
+— which anchor's build does not update. The client was still sending the old
+account list. Any future context change needs that file copied across.
+
+## A price quoted at twice what it charges
+
+The Clan screen's "Create new" button rendered `CREATE_COST = 500`, a stale
+constant, while the till charged `PRICES.clanCharter = 250` — which is also what
+`README.md` and the sheet's own body copy say. Players were quoted double.
+The button now reads the same constant the charge does, and `CREATE_COST` is
+gone rather than left lying around as a second price.
+
+## Still earning nothing, by circumstance rather than defect
+
+The Bags creator fee — 1% of all trading volume, forever — is unwired, because
+there is no market until $MEMPIRE launches. `sdk.fee.getAllClaimablePositions`
+is the call; it is the one revenue line that cannot be tested before launch.
+
+## Known, unfixed, harmless
+
+The card sheet offers *Mint as NFT* on a card that already has one, after a
+reload — the sheet tracks the NFT in session state and does not hydrate it from
+chain. The program refuses correctly (the `nftmint` PDA is `init`, so a second
+mint cannot succeed), but the refusal surfaces as `custom program error: 0x0`.
+No money at risk; `nft` is not in the v2 launch build either way.

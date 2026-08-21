@@ -4,6 +4,7 @@ import { ClanCrest } from '../components/ClanCrest';
 import { ClanRow, CrownCount, LendRequest, MemberCount, MemberRow } from '../components/ClanBits';
 import { ClanSheet } from '../components/ClanSheet';
 import { ConfirmSpend } from './../components/ConfirmSpend';
+import { PRICES } from '../chain/spend';
 import { ArchetypeIcon, Pill, Spinner } from '../components/ui';
 import { click, play } from '../lib/audio';
 import { ARCHETYPES } from '../sim/archetypes';
@@ -187,7 +188,7 @@ function Browse({ onFounded }: { onFounded: (name: string) => void }) {
           disabled={busy}
           style={{ fontSize: 18 }}
         >
-          Create new · <TokenAmount amount={CREATE_COST} size={14} />
+          Create new · <TokenAmount amount={PRICES.clanCharter} size={14} />
         </Pill>
       )}
 
@@ -205,8 +206,6 @@ function Browse({ onFounded }: { onFounded: (name: string) => void }) {
     </div>
   );
 }
-
-const CREATE_COST = 500;
 
 // ── in a clan ──────────────────────────────────────────────────────────────
 function Home() {
