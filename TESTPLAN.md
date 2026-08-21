@@ -1570,3 +1570,77 @@ reload — the sheet tracks the NFT in session state and does not hydrate it fro
 chain. The program refuses correctly (the `nftmint` PDA is `init`, so a second
 mint cannot succeed), but the refusal surfaces as `custom program error: 0x0`.
 No money at risk; `nft` is not in the v2 launch build either way.
+
+# Run 17 — the money board could be told the same truth twice
+
+Run 16 followed the revenue in. This run followed the *records* — who is allowed
+to tell the relay what happened, and how often.
+
+## Fabricated cards cannot reach the money, and that holds
+
+Chest contents are derived client-side: `dropCards` calls
+`useCollection.mintCard()`, a local mutation, so a patched client can grant
+itself any card in the registry. That sounds worse than it is, because a local
+card cannot be staked. `onchainDeckIds()` requires all eight deck slots to
+resolve to *on-chain* cards that are not already locked, returns null otherwise,
+and `create_match` then locks those eight accounts and checks ownership. A
+match falls back to unstaked instead — which is what the arena means by
+"7 of your cards are not minted onchain yet · this match counts for rating only".
+
+Verified as a negative result: invented cards inflate a collection display and
+nothing else.
+
+## The bug: chain verification proves a match is real, not that it is new
+
+`/api/match/:address` calls `verifySettledMatch` so an invented payout cannot be
+ranked — the fix that stopped a claimed 999 SOL. But every field it writes is an
+`$inc`, `matchId` is used *only* to look the match up, and the signature on the
+request proves who is asking rather than that they have not asked before. The
+replay guard in `auth.js` is TTL'd on the *signature*, so signing a second,
+fresh request describing the same match sails through.
+
+So a player's one genuine win could be reported as many times as they liked, and
+each report added its real, chain-verified payout to the public money board.
+
+Demonstrated against the live relay with wallet A's own settled match #82:
+
+    netSol before: 0.26
+    attempt 1: 200 {"ok":true}
+    attempt 2: 200 {"ok":true}
+    netSol after : 0.34          ← +0.04 twice, for one match
+
+`match_credits` now claims `${matchId}:${address}` on a unique `_id` *before*
+crediting anything, so the second attempt is a duplicate-key error rather than a
+second `$inc`. Claiming first means a crash between claim and credit loses a
+record instead of double-counting one — the safer direction to fail. Per
+(match, player) because both seats legitimately report the same match from their
+own side.
+
+Re-tested after deploy, on a match not yet credited:
+
+    netSol before: 0.34
+    attempt 1: 200 {"ok":true}
+    attempt 2: 200 {"ok":true,"duplicate":true,"note":"already recorded"}
+    attempt 3: 200 {"ok":true,"duplicate":true,"note":"already recorded"}
+    netSol after : 0.38          ← one credit, not three
+
+The devnet board was then restored to the 0.26 it held before the test, with the
+three test matches and wins backed out. Proving a leaderboard is inflatable and
+leaving it inflated would be a poor trade.
+
+## Still true, and now written down: the ladder is the relay's word
+
+`/api/ladder/:address` takes `outcome` and `opponentTrophies` from the request
+body with no reference to any match at all. That is deliberate — unstaked and
+guest matches have nothing on chain to verify against, and the code says so:
+*"rating is the relay's to keep, money is not."*
+
+It is not a defect today because nothing of value is attached to rating. It
+becomes one the moment something is. The roadmap's **clan tournaments with
+rake-funded prizes** are exactly that moment: the instant a trophy count decides
+who receives SOL, a client-authored trophy count is a money path, and this
+endpoint would be the cheapest way to rob it.
+
+Recorded here rather than fixed, because the fix depends on a decision not yet
+made — either prizes settle on chain-verified results only, or ranked play
+requires an escrowed match to report against.

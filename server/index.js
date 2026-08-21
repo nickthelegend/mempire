@@ -66,6 +66,7 @@ app.use(express.json({ limit: '256kb' }));
  * matters: every route below is registered at module load, and middleware added
  * later would sit behind all of them and never run. This holds the slot.
  */
+let credits = null;
 let limit = null;
 app.use((req, res, next) => (limit ? limit(req, res, next) : next()));
 
@@ -189,6 +190,20 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
      */
     let verified = null;
     if (escrowed && matchId !== null && matchId !== undefined) {
+      /*
+       * Claim this match for this player before crediting anything. A unique
+       * `_id` makes the second attempt a duplicate-key error rather than a
+       * second `$inc`, and doing it first means a crash between the claim and
+       * the credit loses a record rather than double-counting one.
+       */
+      try {
+        await credits.insertOne({ _id: `${matchId}:${address}`, at: new Date() });
+      } catch (e) {
+        if (e?.code === 11000) {
+          return res.json({ ok: true, duplicate: true, note: 'already recorded' });
+        }
+        throw e;
+      }
       verified = await verifySettledMatch(matchId, address).catch(() => null);
     }
     const chainNetSol = verified ? verified.netSol : 0;
@@ -498,6 +513,21 @@ const server = await (async () => {
   players = db.collection('players');
   leaderboard = db.collection('leaderboard');
   ladder = db.collection('ladder');
+  /*
+   * One settled match, counted once.
+   *
+   * `verifySettledMatch` proves a claimed pot really happened on chain, which
+   * stopped invented payouts — but it says nothing about how many times the
+   * same real match has been reported. Every field below is an `$inc`, and the
+   * signature on the request proves identity rather than novelty, so a client
+   * could sign a hundred fresh requests all describing its one genuine win and
+   * add its payout to the money board a hundred times.
+   *
+   * The id is per (match, player) because both seats legitimately report the
+   * same match from their own side.
+   */
+  credits = db.collection('match_credits');
+  await credits.createIndex({ at: 1 }, { expireAfterSeconds: 400 * 24 * 3600 });
   await leaderboard.createIndex({ netSol: -1 });
   // Both the ladder listing and every rank lookup sort on this.
   await ladder.createIndex({ trophies: -1 });
