@@ -98,7 +98,9 @@ export interface TxResult { signature: string }
  * behind a wallet audit meant nobody could field a deck without first
  * acquiring eight specific SPL tokens.
  */
-export async function mintCardTx(adapter: Adapter | null, mint: string): Promise<TxResult> {
+export async function mintCardTx(
+  adapter: Adapter | null, mint: string, payWith: 'sol' | 'mempire' = 'sol',
+): Promise<TxResult> {
   const wallet = requireSigner(adapter);
   const program = getProgram(adapter);
   const owner = wallet.publicKey!;
@@ -120,6 +122,25 @@ export async function mintCardTx(adapter: Adapter | null, mint: string): Promise
   const ata = getAssociatedTokenAddressSync(mintKey, owner);
   const holdsIt = await getConnection().getAccountInfo(ata).catch(() => null);
 
+  /*
+   * Paying in $MEMPIRE waives the lamport fee rather than adding to it. The
+   * program takes one or the other; naming these three accounts is what picks
+   * the token. The amount is the program's constant — the shop used to pass a
+   * price of its own, and a price the payer names is not a price.
+   */
+  const pre: TransactionInstruction[] = [];
+  let ownerMempire: PublicKey | null = null;
+  let treasuryMempire: PublicKey | null = null;
+  if (payWith === 'mempire') {
+    ownerMempire = getAssociatedTokenAddressSync(MEMPIRE_MINT, owner);
+    treasuryMempire = getAssociatedTokenAddressSync(
+      MEMPIRE_MINT, new PublicKey(cfg.treasury), true,
+    );
+    pre.push(createAssociatedTokenAccountIdempotentInstruction(
+      owner, treasuryMempire, new PublicKey(cfg.treasury), MEMPIRE_MINT,
+    ));
+  }
+
   const signature = await program.methods
     .mintCard()
     .accounts({
@@ -127,10 +148,14 @@ export async function mintCardTx(adapter: Adapter | null, mint: string): Promise
       coinInfo: coinPda(mintKey),
       card: cardPda(cfg.nextCardId),
       ownerTokens: holdsIt ? ata : null,
+      ownerMempire,
+      treasuryMempire,
+      tokenProgram: ownerMempire ? TOKEN_PROGRAM_ID : null,
       owner,
       treasury: new PublicKey(cfg.treasury),
       systemProgram: SystemProgram.programId,
     } as any)
+    .preInstructions(pre)
     .rpc();
 
   track('card.mint', { count: 1, mint });

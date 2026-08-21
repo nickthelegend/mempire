@@ -6,7 +6,7 @@ import { fmtSol, fmtUsd } from '../lib/format';
 import { useChain } from '../state/chain';
 import { useCollection } from '../state/collection';
 import { useMempire } from '../state/mempire';
-import { spendMempire } from '../chain/spend';
+import { MINT_PRICE_MEMPIRE, spendMempire } from '../chain/spend';
 import { signer } from '../state/wallet';
 import { FREE_REROLLS, REROLL_COST, useShop } from '../state/shop';
 import { useWallet } from '../state/wallet';
@@ -77,17 +77,26 @@ export function Shop() {
     setPending(mint);
     setError(null);
     try {
-      await spendMempire(signer(), price, wallet.address);
       /*
-       * The paid-for card must survive a reload, which means it must exist
-       * on chain. `grant` alone wrote a local card, and the chain sync
-       * rebuilds the collection as chain cards + seeded starters — so the
-       * purchase was real $MEMPIRE to the treasury for a card that vanished
-       * on the next sync. Real spend, durable card, or neither.
+       * One transaction, one fee, in the currency the button names.
+       *
+       * This used to spend $MEMPIRE here and *then* call `mintCardTx`, which
+       * takes the lamport mint fee unconditionally — so the player who chose
+       * the $MEMPIRE price paid it on top of the SOL one, and the token route
+       * was strictly worse than the SOL route it was offered beside. The
+       * program now takes one or the other, and the amount is its own constant
+       * rather than a number this screen made up.
+       *
+       * The card must also survive a reload, which means existing on chain:
+       * `grant` alone wrote a local card, and the sync rebuilds the collection
+       * from chain cards, so the purchase was real money for a card that
+       * vanished. Real spend, durable card, or neither.
        */
       if (useChain.getState().mode === 'onchain') {
-        await mintCardTx(signer(), mint);
+        await mintCardTx(signer(), mint, 'mempire');
         void useChain.getState().refresh();
+      } else {
+        await spendMempire(signer(), price, wallet.address);
       }
       grant(mint);
       void refreshMempire(wallet.address);
@@ -171,7 +180,14 @@ export function Shop() {
         {offers.map((o) => {
           const coin = coinByMint(o.mint);
           if (!coin) return null;
-          const tokenPrice = Math.round(o.tokenPrice * (1 - o.discountPct / 100));
+          /*
+           * Onchain, the price is the program's constant — discounts computed
+           * here would be quoted and then not charged. They still apply in the
+           * simulated economy, where this screen really is the ledger.
+           */
+          const tokenPrice = chainMode === 'onchain'
+            ? MINT_PRICE_MEMPIRE
+            : Math.round(o.tokenPrice * (1 - o.discountPct / 100));
           const solPrice = +(o.solPrice * (1 - o.discountPct / 100)).toFixed(3);
           const owned = cards.some((c) => c.mint === o.mint);
 

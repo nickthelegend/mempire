@@ -1644,3 +1644,70 @@ endpoint would be the cheapest way to rob it.
 Recorded here rather than fixed, because the fix depends on a decision not yet
 made — either prizes settle on chain-verified results only, or ranked play
 requires an escrowed match to report against.
+
+# Run 18 — the price the player chose, and the price they paid twice
+
+Two defects in the same screen, both found by asking who decides an amount.
+
+## Sound, and worth recording as sound
+
+Before the shop, the card economy's own guards were re-read:
+
+- `upgrade_card` refuses `keep.key() == dupe.key()`, so a card cannot be merged
+  into itself for a free level; requires `keep.coin_mint == dupe.coin_mint`, so
+  a $BTC cannot be fed a $DOGE; refuses locked cards and caps at level 10.
+- `validate_and_lock_deck` requires exactly eight accounts, each owned by the
+  player, none locked, and **no repeated coin** — which is also what stops the
+  same card being passed eight times to make a deck of one.
+- `unlock_deck` deliberately *skips* foreign cards rather than failing, so a
+  caller cannot append one stranger's account to block a settlement.
+
+No changes needed to any of them.
+
+## The shop charged both prices and called them alternatives
+
+The shop offers each card two ways: *250 $MEMPIRE* or *0.02 SOL mint fee*.
+`buyWithToken` spent the $MEMPIRE and then called `mintCardTx`, and `mint_card`
+takes `mint_fee_lamports` **unconditionally**. So the player who chose the token
+price paid it *on top of* the SOL one — the $MEMPIRE route was strictly worse
+than the route it was offered beside, and the README's "Shop purchase · 250
+$MEMPIRE" described a surcharge rather than a price.
+
+`mint_card` now takes one fee or the other. Supplying the three optional
+$MEMPIRE accounts waives the lamport fee and transfers `MINT_FEE_MEMPIRE`
+instead; omitting them keeps the old path exactly. Both directions measured on
+the live program:
+
+    paying in $MEMPIRE   $MEMPIRE −250 · SOL −0.001919   (card rent + tx fees only)
+    paying in SOL        treasury 1.480000 → 1.500000    (+0.02, unchanged)
+
+The second measurement is the one that matters most — a waiver that leaked in
+both directions would have cost more than the bug it fixed.
+
+## And the price came from the browser
+
+`priceOf` takes "a bare number, because the shop's prices are per-offer", the
+offers are generated client-side, and the relay stores whatever the client sends
+(`shop: { offers, day, rerollsUsed }`). Nothing on chain or on the server had an
+opinion about what a card costs in $MEMPIRE, so a patched client could have
+bought at one token — and reset `rerollsUsed` for unlimited free rerolls.
+
+The amount is now `MINT_FEE_MEMPIRE`, a program constant, so the payer no longer
+names it. The shop's per-offer discount still applies in the simulated economy,
+where this screen genuinely is the ledger; on chain it displays the constant,
+because a discount quoted and not charged is the same bug in the other
+direction.
+
+`MINT_PRICE_MEMPIRE` in `spend.ts` mirrors the program constant purely so the
+button can render the figure it will be billed. The two must move together.
+
+## Not closed
+
+The rotating offers themselves are still client-generated and server-stored, so
+a patched client can choose *which* cards it is offered. That is cosmetic now
+that the price is fixed and every card in the registry is mintable at the same
+cost anyway — the shop curates, it does not gate. Recorded rather than fixed.
+
+Free reroll counts (`rerollsUsed`) remain client-authored. A paid reroll is a
+real transfer; a free one is not, so the exposure is bounded by how many free
+rerolls a day is worth.

@@ -977,6 +977,21 @@
           "optional": true
         },
         {
+          "name": "owner_mempire",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "treasury_mempire",
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "token_program",
+          "optional": true,
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
           "name": "owner",
           "writable": true,
           "signer": true

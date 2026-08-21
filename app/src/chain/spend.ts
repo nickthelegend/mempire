@@ -40,6 +40,18 @@ export const PRICES = {
   clanCharter: 250,
 } as const;
 
+/**
+ * A card bought with $MEMPIRE instead of SOL.
+ *
+ * Mirrors `MINT_FEE_MEMPIRE` in the program, which is what actually gets
+ * charged — this constant exists so the shop can *display* the number it will
+ * be billed. The shop used to render a per-offer discounted price and charge
+ * something else entirely; a screen that quotes one figure and takes another is
+ * the bug this pair is here to prevent, so if the program's constant changes,
+ * change this one in the same commit.
+ */
+export const MINT_PRICE_MEMPIRE = 250;
+
 export type SpendKind = keyof typeof PRICES;
 
 /**

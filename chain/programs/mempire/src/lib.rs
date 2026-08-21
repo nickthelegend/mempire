@@ -49,6 +49,21 @@ const UPGRADE_BASE_FEE: u64 = 100_000_000;
 /// already sits behind.
 const WIN_REWARD: u64 = 50_000_000;
 
+/// What a card costs in $MEMPIRE instead of SOL — 250, matching the fee table.
+///
+/// The shop advertised "250 $MEMPIRE" beside "0.02 SOL" as two ways to buy the
+/// same card, and charged the first player *both*: the client paid $MEMPIRE and
+/// then called `mint_card`, which takes `mint_fee_lamports` unconditionally.
+/// The $MEMPIRE route was therefore strictly worse than the SOL one — a
+/// surcharge wearing the label of an alternative — and no player who understood
+/// it would ever have chosen it.
+///
+/// It lives here rather than in the client because the client used to name its
+/// own price: the shop's offers are generated browser-side and `priceOf` takes
+/// "a bare number", so a patched client could have bought at one token. A price
+/// the payer chooses is not a price.
+const MINT_FEE_MEMPIRE: u64 = 250_000_000;
+
 /// The four stake tiers, in lamports: Pauper, Knight, Duke, Emperor.
 ///
 /// These existed only in the client until now. `create_match` took `tier` and
@@ -220,16 +235,46 @@ pub mod mempire {
         // the player's wallet. Power now comes from playing the card, which is
         // a thing anyone can start doing.
 
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.owner.to_account_info(),
-                    to: ctx.accounts.treasury.to_account_info(),
-                },
-            ),
-            cfg.mint_fee_lamports,
-        )?;
+        /*
+         * One fee or the other, never both.
+         *
+         * When the $MEMPIRE accounts are supplied the lamport fee is waived and
+         * `MINT_FEE_MEMPIRE` is taken instead, which is what makes the shop's
+         * two prices genuine alternatives rather than a surcharge stacked on
+         * the mint fee. All three accounts are required together — a payment
+         * missing its token program is not a payment.
+         */
+        match (
+            ctx.accounts.owner_mempire.as_ref(),
+            ctx.accounts.treasury_mempire.as_ref(),
+            ctx.accounts.token_program.as_ref(),
+        ) {
+            (Some(from), Some(to), Some(token_program)) => {
+                token::transfer(
+                    CpiContext::new(
+                        token_program.to_account_info(),
+                        Transfer {
+                            from: from.to_account_info(),
+                            to: to.to_account_info(),
+                            authority: ctx.accounts.owner.to_account_info(),
+                        },
+                    ),
+                    MINT_FEE_MEMPIRE,
+                )?;
+            }
+            _ => {
+                system_program::transfer(
+                    CpiContext::new(
+                        ctx.accounts.system_program.to_account_info(),
+                        system_program::Transfer {
+                            from: ctx.accounts.owner.to_account_info(),
+                            to: ctx.accounts.treasury.to_account_info(),
+                        },
+                    ),
+                    cfg.mint_fee_lamports,
+                )?;
+            }
+        }
 
         let card = &mut ctx.accounts.card;
         card.id = ctx.accounts.config.next_card_id;
@@ -1602,6 +1647,26 @@ pub struct MintCard<'info> {
         constraint = owner_tokens.owner == owner.key(),
     )]
     pub owner_tokens: Option<Account<'info, TokenAccount>>,
+
+    /*
+     * Paying in $MEMPIRE instead of SOL. All three are optional and are only
+     * supplied together; naming them waives the lamport fee and takes
+     * `MINT_FEE_MEMPIRE` from the payer instead.
+     */
+    #[account(
+        mut,
+        constraint = owner_mempire.mint == MEMPIRE_MINT @ MempireError::WrongTreasury,
+        constraint = owner_mempire.owner == owner.key() @ MempireError::NotCardOwner,
+    )]
+    pub owner_mempire: Option<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        constraint = treasury_mempire.mint == MEMPIRE_MINT @ MempireError::WrongTreasury,
+        constraint = treasury_mempire.owner == config.treasury @ MempireError::WrongTreasury,
+    )]
+    pub treasury_mempire: Option<Account<'info, TokenAccount>>,
+    pub token_program: Option<Program<'info, Token>>,
+
     #[account(mut)]
     pub owner: Signer<'info>,
     /// CHECK: validated against config.treasury
