@@ -201,7 +201,14 @@ export function Shop() {
               <span style={{ minWidth: 0, flex: 1 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                   <span className="display display--sm" style={{ fontSize: 15 }}>{tickerOf(coin)}</span>
-                  {o.discountPct > 0 && !o.bought && (
+                  {/*
+                    * Only where it is real. Onchain both prices are fixed —
+                    * the program's $MEMPIRE constant and its lamport mint fee —
+                    * so a discount badge would advertise a reduction that the
+                    * chain does not apply. It still means something in the
+                    * simulated economy, where this screen is the ledger.
+                    */}
+                  {o.discountPct > 0 && !o.bought && chainMode !== 'onchain' && (
                     <span
                       className="label"
                       style={{

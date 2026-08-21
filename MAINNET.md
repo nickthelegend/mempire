@@ -38,7 +38,7 @@ The game itself needs no deploy to be playable — it already runs free at
 play.mempire.fun with the full roster, decks, chests, clans, ladder and bot and
 PvP matches. What a mainnet program buys is real-money pots, and nothing else.
 
-### v2 — real pots, on a rollup · +4.17 SOL
+### v2 — real pots, on a rollup · +4.20 SOL
 
 `--features mainnet,rollup`, 599,040 bytes. Escrowed PvP, cards on chain,
 merge-to-level, timeouts, settlement — and the settlement log delegated to a
@@ -67,7 +67,7 @@ is about 0.05 SOL in transaction fees. Measured from this repo, current code:
 |---|---|---|---|
 | `mainnet` (lean) | 469,736 | 3.27 | the whole game, no MagicBlock |
 | `mainnet,nft` | 580,496 | 4.04 | Metaplex cards |
-| `mainnet,rollup` | 599,640 | 4.17 | **ER delegation + commit** |
+| `mainnet,rollup` | 603,280 | 4.20 | **ER delegation + commit** |
 | `mainnet,nft,rollup` | 710,904 | 4.95 | both |
 | `mempire_rollup` (separate program) | 441,432 | 3.07 | VRF, play log, PER, sessions |
 
@@ -77,14 +77,14 @@ Measured against live rent-exemption minimums, not estimated:
 
 | item | SOL | comes back? |
 |---|---:|---|
-| program rent (599,640 B) | 4.1747 | only by closing the program **forever** |
+| program rent (603,280 B) | 4.2000 | only by closing the program **forever** |
 | 36 coin registrations (66 B each) | 0.0486 | yes, anytime |
 | config PDA (131 B) | 0.0018 | yes, anytime |
 | $MEMPIRE mint account (82 B) | 0.0015 | yes, anytime |
 | reward vault token account (165 B) | 0.0020 | yes, anytime |
 | transaction + priority fees | 0.0500 | no — genuinely spent |
 | Bags launch (fee + Jito tip) | 0.0200 | no — genuinely spent |
-| **total to go live** | **≈4.29** | **98.4% is refundable rent** |
+| **total to go live** | **≈4.32** | **98.4% is refundable rent** |
 
 Only **0.07 SOL is actually consumed**. Everything else is a deposit.
 
@@ -109,7 +109,7 @@ version never migrates data or changes the money path.
 ## Where MagicBlock sits — and what the accelerator would actually see
 
 Short answer: **the lean 3.27 build has no MagicBlock in it, so v2 has to be the
-4.17 build or the integration is devnet-only.**
+4.20 build or the integration is devnet-only.**
 
 MagicBlock appears in this repo in two places, and they cost very differently:
 
@@ -134,13 +134,13 @@ Mainnet fleet checked live today via the status API: `er`, `rpc_router`,
 region publishes no `rpc_router` at all — that is structural, not an outage;
 PER talks to the TEE ER endpoint directly, and its `er` and `vrf_oracle` are up.
 
-**The recommendation.** Ship v2 at 4.17 with `rollup`. Deferring it saves 0.90
+**The recommendation.** Ship v2 at 4.20 with `rollup`. Deferring it saves 0.90
 SOL of refundable deposit and costs the one claim that is hardest to make later
 — that the deployed mainnet program uses MagicBlock. All four products already
 run on devnet, so the integration is demonstrable either way; the question is
 only whether mainnet matches devnet or lags it. If the budget is truly 3.3, ship
 lean and be plain that mainnet is the base-layer subset — but the gap between
-3.27 and 4.17 is the cheapest part of this whole ladder to close later, and the
+3.27 and 4.20 is the cheapest part of this whole ladder to close later, and the
 most expensive story to have to explain.
 
 ## Settled: how a new player gets their first $MEMPIRE
@@ -215,7 +215,7 @@ normally and skips the bonus. Verified on devnet, match #78: winner
    solana program deploy target/deploy/mempire.so \
      --program-id target/deploy/mempire-keypair.json --url <mainnet rpc>
    ```
-   Budget the full 4.17 in the deployer *before* starting: a failed attempt
+   Budget the full 4.20 in the deployer *before* starting: a failed attempt
    strands a buffer, and `solana program close --buffers` reclaims it. Drop
    `,rollup` for the 3.27 lean build, having read *Where MagicBlock sits*.
 
