@@ -145,15 +145,21 @@ pub fn tier_from_randomness(randomness: &[u8; 32]) -> u8 {
 pub fn is_ephemeral_queue(key: &Pubkey) -> bool {
     /*
      * The test queue's fulfiller is documented as usable by anyone — meaning
-     * on mainnet, "verifiable randomness" that anyone can fulfil is chest
-     * tiers chosen by whoever answers first. The mainnet build accepts only
-     * the production oracle queue; dev and localnet keep the test queue
-     * because that is what runs there.
+     * "verifiable randomness" that anyone can fulfil is chest tiers chosen by
+     * whoever answers first.
+     *
+     * This used to gate the *strict* branch behind `mainnet`, which failed
+     * open: `mainnet` is opt-in, this crate's `default` is empty, and no build
+     * or deploy line in the repo passes it for this program — so an ordinary
+     * `anchor build` produced the binary that accepts the open queue, under a
+     * program id registered for mainnet. The polarity is now the other way
+     * round: production is what you get by default, and the test queue is a
+     * deliberate opt-in for localnet and devnet.
      */
-    #[cfg(feature = "mainnet")]
-    { *key == DEFAULT_EPHEMERAL_QUEUE }
-    #[cfg(not(feature = "mainnet"))]
+    #[cfg(feature = "testqueue")]
     { *key == DEFAULT_EPHEMERAL_QUEUE || *key == DEFAULT_EPHEMERAL_TEST_QUEUE }
+    #[cfg(not(feature = "testqueue"))]
+    { *key == DEFAULT_EPHEMERAL_QUEUE }
 }
 
 #[cfg(test)]

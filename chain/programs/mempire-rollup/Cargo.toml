@@ -9,7 +9,10 @@ crate-type = ["cdylib", "lib"]
 name = "mempire_rollup"
 
 [features]
-# Accept only the production VRF oracle queue. See chests.rs.
+# Opt *in* to the openly-fulfillable VRF test queue — localnet and devnet only.
+# Omitting it (the default) accepts the production oracle queue alone, so a
+# plain build is the safe one. See chests.rs.
+testqueue = []
 mainnet = []
 default = []
 cpi = ["no-entrypoint"]

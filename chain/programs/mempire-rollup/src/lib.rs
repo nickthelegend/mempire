@@ -209,7 +209,19 @@ pub mod mempire_rollup {
             &ctx.accounts.payer,
             &[b"log", &match_id.to_le_bytes()],
             DelegateConfig {
-                validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
+                /*
+                 * Router-assigned, never caller-named.
+                 *
+                 * The delegated account's authority is what computes and
+                 * commits its state, so letting the rail's own owner pick the
+                 * validator let them pick who authors `earned`, every slot's
+                 * `tier`, and the randomness behind it — the whole chest
+                 * economy, written by its beneficiary. This repo already
+                 * deleted `delegate_pool` from the AMM for exactly that
+                 * reason, and `mempire::delegate_match_log` already passes
+                 * `DelegateConfig::default()`.
+                 */
+                validator: None,
                 ..Default::default()
             },
         )?;
@@ -1136,7 +1148,8 @@ pub struct DelegateChests<'info> {
     /// CHECK: the rail PDA being delegated; seeds match the account definition.
     #[account(mut, del, seeds = [b"chests", owner.key().as_ref()], bump)]
     pub chests: AccountInfo<'info>,
-    /// CHECK: optional target ER validator, forwarded in DelegateConfig.
+    /// CHECK: accepted for wire compatibility and deliberately ignored — the
+    /// validator is router-assigned. See `delegate_chests`.
     pub validator: Option<UncheckedAccount<'info>>,
 }
 
