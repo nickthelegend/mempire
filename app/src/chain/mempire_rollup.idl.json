@@ -663,6 +663,9 @@
         },
         {
           "name": "validator",
+          "docs": [
+            "validator is router-assigned. See `delegate_chests`."
+          ],
           "optional": true
         },
         {
@@ -1059,6 +1062,70 @@
         225
       ],
       "accounts": [
+        {
+          "name": "match_account",
+          "docs": [
+            "typed account because it belongs to `mempire`, so it is pinned three",
+            "ways instead: owned by that program, at that program's own `match` PDA",
+            "for this `match_id`, and re-checked field-by-field in the handler.",
+            "`init_log` runs on base layer, where this account is readable."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "match_id"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                160,
+                49,
+                186,
+                11,
+                10,
+                37,
+                13,
+                69,
+                63,
+                72,
+                118,
+                178,
+                68,
+                82,
+                39,
+                35,
+                127,
+                217,
+                148,
+                142,
+                94,
+                180,
+                195,
+                204,
+                103,
+                196,
+                76,
+                207,
+                59,
+                133,
+                249,
+                36
+              ]
+            }
+          }
+        },
         {
           "name": "log",
           "writable": true,

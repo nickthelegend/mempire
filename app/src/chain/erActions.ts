@@ -4,6 +4,7 @@ import { Connection, PublicKey, SystemProgram } from '@solana/web3.js';
 import rollupIdl from './mempire_rollup.idl.json';
 import { canSign, getConnection, getProvider } from './provider';
 import { readableChainError } from './actions';
+import { matchPda } from './pdas';
 import {
   closeSession, forgetSession, openSession, sessionFor, sessionProvider,
 } from './session';
@@ -123,9 +124,17 @@ export async function initLogTx(
   const program = baseProgram(adapter);
   const log = matchLogPda(matchId);
 
+  /*
+   * The rollup program now reads the seats out of the escrowed match rather
+   * than believing this argument, so it needs the match account itself. The
+   * two keys are still sent and still have to agree with what the chain says —
+   * a client that disagrees is refused rather than quietly logging a different
+   * match than it meant.
+   */
   const signature = await program.methods
     .initLog(new BN(matchId), [new PublicKey(players[0]), new PublicKey(players[1])])
     .accounts({
+      matchAccount: matchPda(matchId),
       log,
       payer: wallet.publicKey!,
       systemProgram: SystemProgram.programId,

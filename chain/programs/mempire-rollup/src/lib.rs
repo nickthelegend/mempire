@@ -77,6 +77,29 @@ use chests::{
 
 declare_id!("3G4GidvjQd3yQK4bqZfem8Kkmcboygze42RcjrXg5g6N");
 
+/// The money program. Its `MatchAccount` is the only thing that can say who is
+/// actually playing a match, and this program has to ask it rather than take a
+/// caller's word.
+pub const MEMPIRE_PROGRAM_ID: Pubkey = pubkey!("BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP");
+
+/*
+ * Byte offsets into `mempire::MatchAccount`.
+ *
+ * Read raw because the type belongs to the other crate and this one does not
+ * depend on it. That makes these numbers load-bearing, so `init_log` also
+ * checks the `id` it reads against the `match_id` it was given: if the layout
+ * ever shifts, that comparison fails loudly instead of silently authorising
+ * against the wrong bytes. The same offsets are used by `server/chain-verify.js`.
+ *
+ *   8   id: u64          25  players: [Pubkey; 2]      161  state: u8
+ */
+const MATCH_LEN: usize = 188;
+const MATCH_ID_AT: usize = 8;
+const MATCH_PLAYERS_AT: usize = 25;
+const MATCH_STATE_AT: usize = 161;
+/// `mempire::MatchState::Active`
+const MATCH_STATE_ACTIVE: u8 = 1;
+
 /// Generous for 3 minutes plus overtime at roughly one play per two seconds per
 /// player. Fixed at creation: a delegated account must not resize on the rollup.
 pub const MAX_PLAYS: usize = 128;
@@ -128,11 +151,51 @@ pub mod mempire_rollup {
         match_id: u64,
         players: [Pubkey; 2],
     ) -> Result<()> {
+        /*
+         * Who is playing is a fact about the escrowed match, not a parameter.
+         *
+         * This used to take `players` as instruction data and check only that
+         * the payer was one of the two keys they had just supplied. Nothing
+         * tied the log to a real match, so two self-owned wallets could invent
+         * one, "win" it, and mint the chest entitlement that exists precisely
+         * to make a chest cost a win — and, because the seeds are public and
+         * match ids are sequential, could squat the log PDA of a genuine match
+         * and deny it. The sibling handler in the money program,
+         * `mempire::init_match_log`, has always read these from chain state;
+         * this one now does too.
+         */
+        let seats = {
+            let data = ctx.accounts.match_account.try_borrow_data()?;
+            require!(data.len() >= MATCH_LEN, RollupError::NotAPlayer);
+
+            // The offsets are hand-written, so prove them before trusting them.
+            let id = u64::from_le_bytes(
+                data[MATCH_ID_AT..MATCH_ID_AT + 8]
+                    .try_into()
+                    .map_err(|_| error!(RollupError::NotAPlayer))?,
+            );
+            require_eq!(id, match_id, RollupError::NotAPlayer);
+            require!(
+                data[MATCH_STATE_AT] == MATCH_STATE_ACTIVE,
+                RollupError::NotAPlayer
+            );
+
+            let a = Pubkey::try_from(&data[MATCH_PLAYERS_AT..MATCH_PLAYERS_AT + 32])
+                .map_err(|_| error!(RollupError::NotAPlayer))?;
+            let b = Pubkey::try_from(&data[MATCH_PLAYERS_AT + 32..MATCH_PLAYERS_AT + 64])
+                .map_err(|_| error!(RollupError::NotAPlayer))?;
+            [a, b]
+        };
+
+        // The argument survives as a checked assertion rather than a source of
+        // truth: a client that disagrees with the chain fails here instead of
+        // quietly getting a log describing a different match than it meant.
+        require_keys_eq!(players[0], seats[0], RollupError::NotAPlayer);
+        require_keys_eq!(players[1], seats[1], RollupError::NotAPlayer);
         require!(
-            ctx.accounts.payer.key() == players[0] || ctx.accounts.payer.key() == players[1],
+            ctx.accounts.payer.key() == seats[0] || ctx.accounts.payer.key() == seats[1],
             RollupError::NotAPlayer
         );
-        require_keys_neq!(players[0], players[1], RollupError::NotAPlayer);
 
         // The ephemeral permission is created on the rollup, but its rent is
         // paid by this PDA — and a PDA cannot be topped up from inside the
@@ -154,7 +217,7 @@ pub mod mempire_rollup {
 
         let log = &mut ctx.accounts.log;
         log.match_id = match_id;
-        log.players = players;
+        log.players = seats;
         log.plays = Vec::new();
         log.last_tick = 0;
         log.last_hash = 0;
@@ -970,6 +1033,19 @@ impl MatchLog {
 #[derive(Accounts)]
 #[instruction(match_id: u64)]
 pub struct InitLog<'info> {
+    /// CHECK: the escrowed match this log belongs to. Not deserialized as a
+    /// typed account because it belongs to `mempire`, so it is pinned three
+    /// ways instead: owned by that program, at that program's own `match` PDA
+    /// for this `match_id`, and re-checked field-by-field in the handler.
+    /// `init_log` runs on base layer, where this account is readable.
+    #[account(
+        owner = MEMPIRE_PROGRAM_ID,
+        seeds = [b"match", match_id.to_le_bytes().as_ref()],
+        bump,
+        seeds::program = MEMPIRE_PROGRAM_ID,
+    )]
+    pub match_account: UncheckedAccount<'info>,
+
     #[account(
         init,
         payer = payer,

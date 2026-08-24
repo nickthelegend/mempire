@@ -12,8 +12,8 @@ programs remain unaudited in the industry sense of that word.
 | **Method** | `solana-auditor` skill, 9 parallel agents, `--deep` |
 | **Scope** | `mempire` · `mempire-rollup` · `mempire-amm` — 4,573 lines of Rust |
 | **Framework** | Anchor 0.32.1 · MagicBlock ER SDK 0.16.2 · VRF SDK 0.4.1 |
-| **Confirmed and fixed** | 6 |
-| **Confirmed, deferred with reasons** | 5 |
+| **Confirmed and fixed** | 7 |
+| **Confirmed, deferred with reasons** | 4 |
 | **Rejected after verification** | 4 |
 
 ---
@@ -134,21 +134,40 @@ randomness behind it — the chest economy written by its beneficiary.
 **Fixed** — router-assigned, matching `mempire::delegate_match_log`. (The AMM
 deleted its equivalent `delegate_pool` outright for the same reason.)
 
+### 7 · The rollup's match log was not bound to a real match — *critical (v3)*
+
+`mempire_rollup::init_log`
+
+`init_log` took `match_id` and `players` as instruction data and checked only
+that the payer was one of the two keys they had just supplied. Nothing tied the
+log to an escrowed match, so two self-owned wallets could invent one, "win" it,
+and mint the chest entitlement that exists precisely to make a chest cost a win.
+Because the seeds are public and match ids are sequential, the same gap let an
+attacker squat the log PDA of a *genuine* match and deny it.
+
+**Fixed** — the seats are now read from the `mempire` program's own
+`MatchAccount`, pinned three ways: owned by that program, at that program's PDA
+for this `match_id`, and re-checked field by field. The `players` argument
+survives as a checked assertion rather than a source of truth, so a client that
+disagrees with the chain is refused instead of quietly logging a different match.
+The match must also be `Active`. The offsets are hand-written, so the handler
+proves them by checking the `id` it reads against the `match_id` it was given —
+a layout change fails loudly instead of authorising against the wrong bytes.
+
+**Demonstrated** on devnet against a freshly created match #84:
+
+```
+fabricated match #999999, self-chosen seats    REFUSED
+real match, imposter swapped into a seat       REFUSED
+real match, the seats the chain says           ACCEPTED
+```
+
 ---
 
 ## Confirmed, deferred — with reasons
 
 These are real. They are not fixed, and the reasons are stated rather than
 implied.
-
-**The rollup's match log is not bound to a real match.** `mempire_rollup::init_log`
-accepts `match_id` and `players` as instruction data with no reference to the
-escrowed `MatchAccount`, so two self-owned wallets can fabricate a match and mint
-chest entitlements for transaction fees — and can squat the log PDA of a real
-match, denying it. The sibling handler `mempire::init_match_log` does this
-correctly. **Not fixed** because the correct repair is a cross-program account
-read, which is a design change rather than a patch, and `mempire_rollup` is not
-deployed in the v2 launch. **It is a v3 blocker.**
 
 **The win reward is farmable by self-play.** `join_match` rejects the same
 *pubkey*, not the same person, so two wallets can wash-trade a match at a net
