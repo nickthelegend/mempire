@@ -301,7 +301,14 @@ byte-identical across every prompt, keeps the set coherent.
 - **Everything verified so far is devnet.** The programs are deployed and the
   92-item plan passes against the live product, but mainnet execution waits on
   funding (`MAINNET.md`, ~4.2 SOL).
-- **The programs are not third-party audited.** Compensating controls: small
+- **The programs are not third-party audited.** They have had an
+  [AI-assisted security review](SECURITY-REVIEW.pdf) — nine agents over every
+  line of on-chain Rust, six issues fixed including one that let a losing player
+  take the whole pot, and the fixes proven on devnet by running the attack. That
+  is diligence, not a guarantee, and it is not the same thing as a firm signing
+  off; the write-up says so on its cover and lists the five real issues left
+  open with reasons ([SECURITY-REVIEW.md](SECURITY-REVIEW.md)).
+  Compensating controls: small
   stake tiers cap exposure, and the settlement design voids rather than pays
   when the two seats disagree — a cheat costs the cheater the match, it cannot
   pay them. One documented residual (`AUDIT.md` C9): a sore loser can force a
