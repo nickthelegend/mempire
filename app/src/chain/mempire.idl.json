@@ -1630,9 +1630,6 @@
         },
         {
           "name": "settler",
-          "docs": [
-            "Either player may settle; the log says who won."
-          ],
           "signer": true
         },
         {

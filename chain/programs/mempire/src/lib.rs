@@ -844,7 +844,8 @@ pub mod mempire {
              * swap in an empty one to make a dispute look like an absence.
              */
             let log_info = ctx.accounts.match_log.to_account_info();
-            let claims: Option<[u8; 2]> = if log_info.owner == &crate::ID && log_info.data_len() >= 8 {
+            let readable = log_info.owner == &crate::ID && log_info.data_len() >= 8;
+            let claims: Option<[u8; 2]> = if readable {
                 let data = log_info.try_borrow_data()?;
                 MatchLog::try_deserialize(&mut &data[..])
                     .ok()
@@ -853,6 +854,27 @@ pub mod mempire {
             } else {
                 None
             };
+
+            /*
+             * A log we cannot read is not a log that says nothing.
+             *
+             * While delegated, the account is owned by the delegation program,
+             * so the read above yields `None` — the same value as "no log was
+             * ever created". The two were then treated identically and fell
+             * through to "genuine abandonment, either may claim". Under the
+             * `rollup` build that is *every* match where one seat stayed
+             * silent, because `end_match_log` only commits the log home once
+             * both seats have claimed. So the protection written directly
+             * above disabled itself in precisely the case it describes: the
+             * loser who never claims could call this at the deadline and take
+             * the pot.
+             *
+             * Existing but unreadable is therefore treated as a dispute —
+             * refund both, rake nothing. It cannot reward the stall, and it
+             * cannot rob a winner whose opponent genuinely vanished of more
+             * than the upside.
+             */
+            let unreadable = !readable && log_info.data_len() > 0;
 
             /*
              * A seat that recorded a claim proved it was here.
@@ -874,7 +896,7 @@ pub mod mempire {
              *   exactly one spoke      → only that seat may claim
              *   nobody spoke / no log  → genuine abandonment, either may claim
              */
-            let disputed = match claims {
+            let disputed = if unreadable { true } else { match claims {
                 Some([a, b]) if a != 3 && b != 3 && a != b => true,
                 Some([a, b]) if a != 3 && b != 3 => {
                     // An agreed, committed result is a settlement, not an
@@ -902,7 +924,7 @@ pub mod mempire {
                     false
                 }
                 None => false,
-            };
+            } };
 
             if disputed {
                 /*
@@ -1081,7 +1103,6 @@ pub mod mempire {
         let log = &mut ctx.accounts.match_log;
         require!(!log.ended, MempireError::BadMatchState);
         require!((deck_index as usize) < DECK_SIZE, MempireError::BadDeck);
-        require!(log.plays.len() < MAX_PLAYS, MempireError::LogFull);
 
         // Delegation status is routing, never authorization: the ER must enforce
         // the same player check the base layer would.
@@ -1097,6 +1118,23 @@ pub mod mempire {
         // Ticks only move forward, so a replayed or reordered play cannot
         // rewrite history that both sims have already simulated past.
         require!(tick >= log.last_tick, MempireError::StaleTick);
+
+        /*
+         * Half the log each, rather than one shared pool.
+         *
+         * `MAX_PLAYS` was a single budget both seats drew from, so one seat
+         * could spend all 128 entries — at one tick, since the guard below is
+         * non-strict — and every input the opponent made afterwards was
+         * unrecordable. The two seats then necessarily disagreed at the end
+         * and the pot voided, which is a strictly better outcome for whoever
+         * was losing.
+         */
+        let mine = log
+            .plays
+            .iter()
+            .filter(|p| p.player == seat)
+            .count();
+        require!(mine < MAX_PLAYS / 2, MempireError::LogFull);
 
         log.plays.push(PlayEntry {
             tick,
@@ -1123,7 +1161,17 @@ pub mod mempire {
             MempireError::NotAPlayer
         );
         require!(tick >= log.last_tick, MempireError::StaleTick);
-        log.last_tick = tick;
+        /*
+         * Record the hash, but do not advance `last_tick`.
+         *
+         * `play_card` gates on that same field, and `tick` here is unbounded
+         * above — so a seat that was losing could checkpoint at `u32::MAX` and
+         * every subsequent play by *either* seat failed `StaleTick` for the
+         * rest of the match. That converts a lost position into a forced
+         * timeout, which is a payout path rather than a loss. A checkpoint's
+         * job is to attest a state hash; moving the play cursor was never part
+         * of it.
+         */
         log.last_hash = hash;
         log.checkpoints = log.checkpoints.saturating_add(1);
         Ok(())
@@ -2000,7 +2048,22 @@ pub struct SettleFromLog<'info> {
         bump = match_log.bump,
     )]
     pub match_log: Account<'info, MatchLog>,
-    /// Either player may settle; the log says who won.
+    /*
+     * Either *player* may settle — and only a player.
+     *
+     * This said so in a comment and enforced nothing, while the three reward
+     * accounts below are optional and a mismatch on them is skipped rather
+     * than raised. Any stranger could therefore settle a finished match with
+     * the reward omitted: the pot paid out correctly, the state became
+     * `Settled`, and the winner's `WIN_REWARD` became unpayable, because every
+     * settlement path requires `Active`. One transaction to grief, nothing to
+     * gain, and no way back for the winner.
+     */
+    #[account(
+        constraint = settler.key() == match_account.players[0]
+            || settler.key() == match_account.players[1]
+            @ MempireError::NotAPlayer,
+    )]
     pub settler: Signer<'info>,
     /// CHECK: validated against match_account.players[0]
     #[account(mut, address = match_account.players[0])]
