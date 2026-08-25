@@ -177,6 +177,32 @@ export function clampDrop(x: number, z: number): { x: number; z: number } {
   };
 }
 
+/**
+ * How far past your own half a release may still be forgiven, in tiles.
+ *
+ * Inside this band the drop snaps to the line — that is the fat-finger case the
+ * clamp exists for. Beyond it the drop is refused outright.
+ */
+const FORGIVEN_TILES = 1.5;
+
+/**
+ * What a release should actually do: a point to deploy at, or nothing.
+ *
+ * The clamp used to be the whole story — every release deployed, wherever it
+ * landed. The ring under the dragged card turns red on an illegal drop to teach
+ * where the line is, and then releasing over enemy territory deployed anyway at
+ * the clamped edge, so the warning was decoration. A control that says "no" and
+ * then does it is worse than one that never objected.
+ *
+ * Near the line still forgives, because that is a slip rather than an attempt.
+ */
+export function dropDecision(x: number, z: number): { x: number; z: number } | null {
+  if (isLegalDrop(x, z)) return { x, z };
+  const h = ownHalf();
+  const past = Math.max(h.minZ - z, z - h.maxZ, h.minX - x, x - h.maxX);
+  return past <= FORGIVEN_TILES ? clampDrop(x, z) : null;
+}
+
 function SpellMarkers() {
   const root = useRef<THREE.Group>(null);
   const ringGeo = useMemo(() => new THREE.RingGeometry(2.1, 2.5, 32), []);

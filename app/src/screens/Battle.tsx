@@ -10,7 +10,7 @@ import { fmtClock, fmtSol } from '../lib/format';
 import { EASE_SNAP, prefersReducedMotion } from '../lib/motion';
 import { ARCHETYPES } from '../sim/archetypes';
 import { FP, fp } from '../sim/fixed';
-import { BattleScene, clampDrop, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
+import { BattleScene, dropDecision, isLegalDrop, resolveGroundHit } from '../three/BattleScene';
 import type { MatchCard } from '../sim/types';
 import { CHESTS } from '../state/economy';
 import { useEscrow } from '../state/escrow';
@@ -455,7 +455,9 @@ export function Battle() {
         setSelected((s) => (s === drag.handIndex ? null : drag.handIndex));
       } else {
         const g = project(e.clientX, e.clientY);
-        const snapped = g ? clampDrop(g.x, g.z) : null;
+        // Deep in enemy territory this is null and nothing is spent — the red
+        // ring the player was just shown is the reason.
+        const snapped = g ? dropDecision(g.x, g.z) : null;
         if (snapped) { playCard(drag.deckIndex, fp(snapped.x), fp(snapped.z)); buzz(14); }
         setSelected(null);
       }
@@ -565,7 +567,9 @@ export function Battle() {
           perspective={match.perspective}
           onPlace={(x, y) => {
             if (drag || selected === null) return;
-            const snapped = clampDrop(x / FP, y / FP);
+            // Same rule as the drag path — an armed card tapped deep in enemy
+            // territory is refused rather than snapped back to the line.
+            const snapped = dropDecision(x / FP, y / FP);
             if (snapped) {
               playCard(hand[selected].deckIndex, fp(snapped.x), fp(snapped.z));
               setSelected(null);
