@@ -749,7 +749,16 @@ pub mod mempire_rollup {
             &ctx.accounts.owner,
             &[b"chests", ctx.accounts.owner.key.as_ref()],
             DelegateConfig {
-                validator: ctx.accounts.validator.as_ref().map(|v| v.key()),
+                /*
+                 * Router-assigned, never caller-named.
+                 *
+                 * A delegated account's authority is what computes and commits
+                 * its state, so letting the rail's own owner name the validator
+                 * let them pick who authors `earned`, every slot's `tier`, and
+                 * the randomness behind it — the chest economy written by its
+                 * beneficiary.
+                 */
+                validator: None,
                 ..Default::default()
             },
         )?;

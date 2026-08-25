@@ -54,6 +54,26 @@ app.use(cors(process.env.CORS_ORIGIN ? { origin: process.env.CORS_ORIGIN.split('
 app.use(express.json({ limit: '256kb' }));
 
 /*
+ * A body this service could not parse is the caller's mistake, not a fault.
+ *
+ * `express.json` throws a SyntaxError on malformed input, and with no handler
+ * for it that surfaced as a 500 — which tells the caller to retry, tells the
+ * operator something is broken, and puts noise in the error recorder for what
+ * is really just a bad request. Payloads over the limit get the same treatment
+ * for the same reason.
+ */
+app.use((err, _req, res, next) => {
+  if (!err) return next();
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'body too large' });
+  }
+  if (err instanceof SyntaxError && 'body' in err) {
+    return res.status(400).json({ error: 'malformed JSON body' });
+  }
+  return next(err);
+});
+
+/*
  * Rate limiting lives in `ops.js` and is installed at startup, because it needs
  * the database.
  *
