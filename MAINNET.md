@@ -281,9 +281,25 @@ and refuses with the reason when neither exists. All three behaviours verified
 live on the deployed relay.
 
 **To go live:** set `BAGS_API_KEY` (from dev.bags.fm) and `MEMPIRE_MINT` on the
-relay. No rebuild. Creator fees — the 1% of volume, forever — are claimed
-through `sdk.fee.getAllClaimablePositions` in the Bags SDK; that is the one
-piece not yet wired, because there is nothing to claim until the token trades.
+relay. No rebuild.
+
+**The earning half is wired too.** Launching is only the market-making side; the
+creator earns a share of every trade for as long as it trades, and that money
+sits in claimable positions until someone builds and signs a claim:
+
+- `GET /api/market/fees` — lifetime fees this token has earned, in lamports
+- `GET /api/market/claimable?wallet=…` — the positions a wallet can claim now
+- `POST /api/market/claim` — the unsigned transactions that move them
+
+Unsigned, like the swap: the relay never holds a key that could move the money.
+
+**Launching is scripted.** `chain/scripts/launch-on-bags.mjs` uploads the
+metadata, creates the fee-share config and builds the launch transaction, then
+prints the mint and the exact next commands — which removes the one launch-day
+step that was a human retyping a base58 address between two irreversible,
+money-spending operations. It is a dry run unless given `--confirm` *and* a
+`--keypair`, and `--treasury <pubkey> --treasury-bps <n>` makes the game's own
+treasury a fee claimer rather than a manual transfer later.
 
 **Sequencing constraint, and it is load-bearing.** The program bakes
 `MEMPIRE_MINT` in at compile time, so the token has to exist *before* the

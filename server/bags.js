@@ -48,6 +48,21 @@ async function bags(path, init = {}) {
   return body?.response ?? body;
 }
 
+
+/**
+ * The other half of Bags, and the half that pays.
+ *
+ * Launching on a bonding curve is only the market-making side. The creator of a
+ * Bags token earns a share of every trade for as long as it trades, and that
+ * money sits in claimable positions until someone builds and signs a claim. The
+ * integration had the *spending* half — quotes and swaps — and none of the
+ * earning half, so the one revenue line the README calls "forever" was
+ * uncollectable in practice.
+ *
+ * Same shape as the rest of this file: the key stays server-side, the relay
+ * builds, the wallet signs. Claims move real money, so the relay never holds a
+ * key that could move it.
+ */
 export function registerBagsRoutes(app, limit) {
   const gate = limit ?? ((_req, _res, next) => next());
 
@@ -115,6 +130,82 @@ export function registerBagsRoutes(app, limit) {
    * builds and the wallet signs. `requestId` ties it to the exact quote that
    * was shown, which is what stops the fill drifting from the number on screen.
    */
+  /**
+   * What this token has earned, ever.
+   *
+   * Lamports as a string upstream, because it is a u64 — kept as a string here
+   * rather than parsed into a float that would quietly lose precision on a
+   * number this is allowed to grow large.
+   */
+  app.get('/api/market/fees', gate, async (_req, res) => {
+    if (!bagsConfigured()) {
+      return res.status(503).json({ error: 'no market configured', configured: false });
+    }
+    try {
+      const lifetime = await bags(
+        `/token-launch/lifetime-fees?tokenMint=${encodeURIComponent(MEMPIRE_MINT)}`,
+      );
+      res.json({ mint: MEMPIRE_MINT, lifetimeFeeLamports: String(lifetime ?? '0') });
+    } catch (e) {
+      res.status(e.status === 400 ? 400 : 502).json({ error: e.message });
+    }
+  });
+
+  /**
+   * What a wallet can claim right now.
+   *
+   * Positions are per (token, wallet), so this answers for the treasury the
+   * same way it would for anyone. `totalClaimableLamportsUserShare` is the
+   * figure that matters; the rest of the shape is passed through rather than
+   * reduced, because a caller deciding whether a claim is worth its fee wants
+   * to see whether it is still on the curve or already migrated to DAMM.
+   */
+  app.get('/api/market/claimable', gate, async (req, res) => {
+    if (!bagsConfigured()) {
+      return res.status(503).json({ error: 'no market configured', configured: false });
+    }
+    const { wallet } = req.query;
+    if (!wallet) return res.status(400).json({ error: 'wallet is required' });
+    try {
+      const all = await bags(`/token-launch/claimable-positions?wallet=${encodeURIComponent(String(wallet))}`);
+      const rows = Array.isArray(all) ? all : [];
+      // Only this token's positions. A wallet may hold claims on tokens that
+      // have nothing to do with this game, and this endpoint should not be the
+      // thing that tells the caller about them.
+      const mine = rows.filter((p) => p.baseMint === MEMPIRE_MINT);
+      const total = mine.reduce((n, p) => n + Number(p.totalClaimableLamportsUserShare ?? 0), 0);
+      res.json({ mint: MEMPIRE_MINT, positions: mine, totalClaimableLamports: total });
+    } catch (e) {
+      res.status(e.status === 400 ? 400 : 502).json({ error: e.message });
+    }
+  });
+
+  /**
+   * The unsigned transactions that move earned fees into a wallet.
+   *
+   * Returned unsigned, like the swap: the relay decides nothing about whose
+   * money this is. Upstream returns an array, because a position that has
+   * migrated needs both the curve and the DAMM side claimed.
+   */
+  app.post('/api/market/claim', gate, async (req, res) => {
+    if (!bagsConfigured()) {
+      return res.status(503).json({ error: 'no market configured', configured: false });
+    }
+    const { wallet } = req.body ?? {};
+    if (!wallet) return res.status(400).json({ error: 'wallet is required' });
+    try {
+      const txs = await bags('/token-launch/claim-txs/v3', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet, tokenMint: MEMPIRE_MINT }),
+      });
+      const list = Array.isArray(txs) ? txs : (txs?.transactions ?? []);
+      res.json({ transactions: list });
+    } catch (e) {
+      res.status(e.status === 400 ? 400 : 502).json({ error: e.message });
+    }
+  });
+
   app.post('/api/market/swap', gate, async (req, res) => {
     if (!bagsConfigured()) {
       return res.status(503).json({ error: 'no market configured', configured: false });
