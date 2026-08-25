@@ -201,6 +201,10 @@ export async function upgradeCardTx(
       duplicate: cardPda(duplicateCardId),
       ownerMempire: getAssociatedTokenAddressSync(MEMPIRE_MINT, owner),
       treasuryMempire,
+      // Required, not optional: the program refuses to merge away a card whose
+      // 1-of-1 exists, because doing so would leave whoever bought that NFT
+      // holding a token pointing at a closed account.
+      duplicateNftMint: nftMintPda(duplicateCardId),
       owner,
       tokenProgram: TOKEN_PROGRAM_ID,
     } as any)
@@ -217,6 +221,12 @@ export async function upgradeCardTx(
 export const TOKEN_METADATA_PROGRAM_ID = new PublicKey(
   'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s',
 );
+
+/** Where a wallet's rewarded-win count lives. */
+export const rewardCountPda = (player: PublicKey): PublicKey =>
+  PublicKey.findProgramAddressSync(
+    [Buffer.from('rewarded'), player.toBuffer()], PROGRAM_ID,
+  )[0];
 
 export const nftMintPda = (cardId: number): PublicKey => PublicKey.findProgramAddressSync(
   [Buffer.from('nftmint'), new BN(cardId).toArrayLike(Buffer, 'le', 8)],
@@ -559,6 +569,7 @@ export async function settleFromLogTx(
   const vault = getAssociatedTokenAddressSync(MEMPIRE_MINT, rewardAuthority, true);
   let rewardVault: PublicKey | null = null;
   let winnerTokens: PublicKey | null = null;
+  let rewardCount: PublicKey | null = null;
   const pre: TransactionInstruction[] = [];
   if (winner === 0 || winner === 1) {
     const conn = getConnection();
@@ -579,6 +590,21 @@ export async function settleFromLogTx(
     if (vaultHasTokens) {
       rewardVault = vault;
       winnerTokens = dest;
+      /*
+       * The win reward is capped per wallet, and the chain counts it in a PDA
+       * addressed by the winner. It cannot be seeded inside settlement — the
+       * winner is only known once the log is read — so it is opened here in the
+       * same transaction. Idempotent, so a repeat winner just passes theirs.
+       */
+      rewardCount = rewardCountPda(new PublicKey(players[winner]));
+      pre.push(await program.methods
+        .initRewardCount(new PublicKey(players[winner]))
+        .accounts({
+          rewardCount,
+          payer: wallet.publicKey!,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .instruction());
       /*
        * The winner may never have held $MEMPIRE, and on mainnet that is the
        * *normal* case rather than the edge one — there is no faucet, and this
@@ -612,6 +638,7 @@ export async function settleFromLogTx(
       playerB: new PublicKey(players[1]),
       treasury: new PublicKey(cfg.treasury),
       rewardAuthority,
+      rewardCount,
       rewardVault,
       winnerTokens,
       tokenProgram: rewardVault ? TOKEN_PROGRAM_ID : null,

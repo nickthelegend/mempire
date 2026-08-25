@@ -370,6 +370,13 @@
           "signer": true
         },
         {
+          "name": "program",
+          "address": "7tM95L7TooveTGAtmo6nRyJRQpSVADN3DPaagJmSp8CP"
+        },
+        {
+          "name": "program_data"
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
@@ -646,31 +653,36 @@
   "errors": [
     {
       "code": 6000,
+      "name": "NotUpgradeAuthority",
+      "msg": "only the program's upgrade authority may open a pool"
+    },
+    {
+      "code": 6001,
       "name": "FeeTooHigh",
       "msg": "fee above the 1% ceiling"
     },
     {
-      "code": 6001,
+      "code": 6002,
       "name": "Overflow",
       "msg": "arithmetic overflow"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "ZeroAmount",
       "msg": "amount must be greater than zero"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "NoLiquidity",
       "msg": "pool has no liquidity"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "SlippageExceeded",
       "msg": "output below the minimum you asked for"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "InsufficientInitialLiquidity",
       "msg": "first deposit is too small to open a pool"
     }

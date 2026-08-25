@@ -49,6 +49,21 @@ const UPGRADE_BASE_FEE: u64 = 100_000_000;
 /// already sits behind.
 const WIN_REWARD: u64 = 50_000_000;
 
+/// How many wins a wallet is ever paid `WIN_REWARD` for.
+///
+/// The reward exists for one job: mainnet has no faucet, so a new player's
+/// first $MEMPIRE has to be won. It was paid on *every* settled win, and
+/// `join_match` only rejects the same *key* rather than the same person — so
+/// two wallets could agree a winner and mint 50 $MEMPIRE for the cost of the
+/// rake on a pot that was theirs both ways. The comment above claimed this was
+/// "un-farmable by construction"; it was not.
+///
+/// A lifetime count rather than a cooldown, because the purpose is bootstrap
+/// and not income: it pays exactly as long as it is doing that job, and a
+/// farmer's yield per wallet is bounded rather than merely slowed. Sixteen wins
+/// covers several merges; past that a player is earning from pots.
+const REWARDED_WINS_CAP: u16 = 16;
+
 /// What a card costs in $MEMPIRE instead of SOL — 250, matching the fee table.
 ///
 /// The shop advertised "250 $MEMPIRE" beside "0.02 SOL" as two ways to buy the
@@ -329,6 +344,30 @@ pub mod mempire {
         let dupe = &ctx.accounts.duplicate;
 
         require!(keep.key() != dupe.key(), MempireError::SameCard);
+
+        /*
+         * A card whose NFT exists cannot be merged away.
+         *
+         * `tokenize_card` mints a 1-of-1 to the owner and writes nothing back
+         * to the card, and no instruction transfers `Card.owner` — so selling
+         * the NFT conveys no rights, and the seller could then feed that very
+         * card to `upgrade_card`, which closes it. The buyer would hold a token
+         * pointing at an account that no longer exists, and `next_card_id` is
+         * monotonic so the id is never reissued.
+         *
+         * Binding ownership to the token is the real repair and a larger change
+         * than this; refusing to destroy the thing someone else holds a
+         * certificate for is the part that must not wait.
+         *
+         * The mint account is *required* and its address is derived from the
+         * duplicate's own id, so a caller cannot dodge the check by leaving it
+         * out. An un-tokenised card's mint PDA simply does not exist, which is
+         * what `data_is_empty` reads.
+         */
+        require!(
+            ctx.accounts.duplicate_nft_mint.data_is_empty(),
+            MempireError::CardTokenized
+        );
         require!(
             keep.coin_mint == dupe.coin_mint,
             MempireError::DifferentCoins
@@ -1271,6 +1310,81 @@ pub mod mempire {
     /// their laptop can still settle honestly instead of waiting out the
     /// timeout. The log must be back from the ER (owned by this program again)
     /// and sealed, so a match still in the rollup cannot be cashed early.
+    /// Closes a settled match and returns its rent to the player who opened it.
+    ///
+    /// Every terminal path left `MatchAccount` alive at rent — about 0.0022 SOL
+    /// per match, plus 0.0141 for the log — with no instruction able to reclaim
+    /// it. `cancel_match`'s comment even claimed the account "is `close`d to the
+    /// player below anyway", which was never true. On a 0.05 tier that is a
+    /// third of a stake, quietly destroyed on every match ever played.
+    ///
+    /// Closing was held back because `release_cards` needs this account to exist
+    /// to free anything still locked to it. `free_orphaned_cards` below removes
+    /// that dependency, so a card can always be recovered whether or not the
+    /// match it points at is still there.
+    pub fn close_match(ctx: Context<CloseMatch>) -> Result<()> {
+        let m = &ctx.accounts.match_account;
+        require!(
+            m.state == MatchState::Settled as u8,
+            MempireError::BadMatchState
+        );
+        // Rent came from whoever created the match, which is always seat 0.
+        require_keys_eq!(
+            ctx.accounts.creator.key(),
+            m.players[0],
+            MempireError::NotAPlayer
+        );
+        Ok(())
+    }
+
+    /// Frees a card whose match no longer exists.
+    ///
+    /// `locked_by` holds the match's address. Once that account is closed there
+    /// is nothing left to read, so `release_cards` — which takes the match as a
+    /// typed account — cannot help. The address is enough on its own: this
+    /// program is the only thing that ever writes `locked_by`, and the only
+    /// thing that can close a match PDA, so an empty account at exactly that
+    /// address means the match is genuinely gone.
+    pub fn free_orphaned_cards<'info>(
+        ctx: Context<'_, '_, 'info, 'info, FreeOrphanedCards<'info>>,
+    ) -> Result<()> {
+        let gone = ctx.accounts.closed_match.to_account_info();
+        require!(gone.data_is_empty(), MempireError::BadMatchState);
+
+        let owner = ctx.accounts.owner.key();
+        let mut freed: u32 = 0;
+        for acc in ctx.remaining_accounts {
+            if let Ok(mut card) = Account::<Card>::try_from(acc) {
+                if card.owner != owner || card.locked_by != gone.key() {
+                    continue;
+                }
+                card.locked_by = Pubkey::default();
+                card.exit(&crate::ID)?;
+                freed += 1;
+            }
+        }
+        emit!(CardsReleased {
+            match_id: 0,
+            freed
+        });
+        Ok(())
+    }
+
+    /// Opens a wallet's rewarded-win counter. Idempotent, anyone may pay.
+    ///
+    /// Separate from settlement because the winner is only known once the log
+    /// is read, which is after Anchor has resolved accounts — so the counter
+    /// cannot be seeded declaratively there. The client sends this ahead of
+    /// `settle_from_log` in the same transaction.
+    pub fn init_reward_count(ctx: Context<InitRewardCount>, player: Pubkey) -> Result<()> {
+        let rc = &mut ctx.accounts.reward_count;
+        if rc.player == Pubkey::default() {
+            rc.player = player;
+            rc.bump = ctx.bumps.reward_count;
+        }
+        Ok(())
+    }
+
     pub fn settle_from_log<'info>(
         ctx: Context<'_, '_, 'info, 'info, SettleFromLog<'info>>,
     ) -> Result<()> {
@@ -1360,7 +1474,38 @@ pub mod mempire {
                 ctx.accounts.token_program.as_ref(),
             ) {
                 let expected = ctx.accounts.match_account.players[winner as usize];
-                let amount = WIN_REWARD.min(vault.amount);
+
+                /*
+                 * The bootstrap has a lifetime, and the chain has to count it.
+                 *
+                 * Without this the reward paid on every settled win, and
+                 * `join_match` only rejects the same *key* — so one person with
+                 * two wallets could agree a winner and mint 50 $MEMPIRE for the
+                 * cost of the rake on a pot that was theirs both ways. The
+                 * counter is addressed by the winner, so verifying its address
+                 * is verifying whose count it is.
+                 *
+                 * Absent counter means no reward rather than an unbounded one:
+                 * failing open here is what the whole finding was about.
+                 */
+                let under_cap = match ctx.accounts.reward_count.as_mut() {
+                    Some(rc) => {
+                        let (want, _) = Pubkey::find_program_address(
+                            &[b"rewarded", expected.as_ref()],
+                            &crate::ID,
+                        );
+                        require_keys_eq!(rc.key(), want, MempireError::NotAPlayer);
+                        if rc.wins < REWARDED_WINS_CAP {
+                            rc.wins = rc.wins.saturating_add(1);
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    None => false,
+                };
+
+                let amount = if under_cap { WIN_REWARD.min(vault.amount) } else { 0 };
                 if amount > 0 && dest.owner == expected && dest.mint == MEMPIRE_MINT {
                     let bump = ctx.bumps.reward_authority;
                     let seeds: &[&[u8]] = &[b"rewards", &[bump]];
@@ -1463,6 +1608,20 @@ fn unlock_deck<'a>(accounts: &'a [AccountInfo<'a>], match_key: &Pubkey) -> Resul
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
+
+/// How many rewarded wins a wallet has had. One per player, created on the
+/// first win and never closed — it is the only thing standing between the
+/// reward vault and a wash-trading loop.
+#[account]
+pub struct RewardCount {
+    pub player: Pubkey,
+    pub wins: u16,
+    pub bump: u8,
+}
+
+impl RewardCount {
+    pub const SIZE: usize = 8 + 32 + 2 + 1;
+}
 
 #[account]
 pub struct Config {
@@ -1817,6 +1976,12 @@ pub struct UpgradeCard<'info> {
     )]
     pub treasury_mempire: Account<'info, TokenAccount>,
 
+    /// CHECK: the duplicate's 1-of-1 mint, pinned by the duplicate's own id.
+    /// Required rather than optional so the tokenised check cannot be skipped
+    /// by omitting it; for an un-tokenised card this address holds nothing.
+    #[account(seeds = [b"nftmint", duplicate.id.to_le_bytes().as_ref()], bump)]
+    pub duplicate_nft_mint: UncheckedAccount<'info>,
+
     #[account(mut)]
     pub owner: Signer<'info>,
     pub token_program: Program<'info, Token>,
@@ -1866,6 +2031,45 @@ pub struct MigrateCard<'info> {
     pub card: AccountInfo<'info>,
     #[account(mut)]
     pub owner: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct CloseMatch<'info> {
+    #[account(
+        mut,
+        seeds = [b"match", match_account.id.to_le_bytes().as_ref()],
+        bump = match_account.bump,
+        close = creator,
+    )]
+    pub match_account: Account<'info, MatchAccount>,
+    /// The player who opened the match, and paid its rent.
+    #[account(mut)]
+    pub creator: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FreeOrphanedCards<'info> {
+    /// CHECK: verified to be empty — the whole point is that the match it
+    /// names has been closed, so there is nothing left to deserialize. Cards
+    /// are matched against this address, which only this program ever writes.
+    pub closed_match: UncheckedAccount<'info>,
+    pub owner: Signer<'info>,
+}
+
+#[derive(Accounts)]
+#[instruction(player: Pubkey)]
+pub struct InitRewardCount<'info> {
+    #[account(
+        init_if_needed,
+        payer = payer,
+        space = RewardCount::SIZE,
+        seeds = [b"rewarded", player.as_ref()],
+        bump,
+    )]
+    pub reward_count: Account<'info, RewardCount>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -2079,6 +2283,21 @@ pub struct SettleFromLog<'info> {
     pub reward_authority: UncheckedAccount<'info>,
     /// The $MEMPIRE the program can pay out. Optional so a settlement never
     /// depends on a reward account existing — see the payout in the handler.
+    /*
+     * Counts the winner's rewarded wins.
+     *
+     * No `seeds` constraint here on purpose: the winner is decided inside the
+     * handler by reading the log, so it is not known at account resolution.
+     * The handler derives the expected address once it knows who won and
+     * refuses anything else — the address encodes the player, so checking it
+     * is checking the owner.
+     *
+     * Optional, like the rest of the reward group: a settlement must still pay
+     * the pot when it is absent.
+     */
+    #[account(mut)]
+    pub reward_count: Option<Account<'info, RewardCount>>,
+
     #[account(mut, constraint = reward_vault.mint == MEMPIRE_MINT)]
     pub reward_vault: Option<Account<'info, TokenAccount>>,
     /// The winner's $MEMPIRE account. Owner and mint are checked in the
@@ -2191,6 +2410,8 @@ pub enum MempireError {
     BadConfig,
     #[msg("stake does not match a real tier")]
     BadStake,
+    #[msg("that card has been tokenised — its NFT would be left pointing at nothing")]
+    CardTokenized,
     #[msg("ticker is too long")]
     TickerTooLong,
     #[msg("an unstake is already pending")]

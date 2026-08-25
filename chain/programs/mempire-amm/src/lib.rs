@@ -430,6 +430,22 @@ pub struct InitPool<'info> {
     pub quote_vault: Account<'info, TokenAccount>,
     #[account(mut)]
     pub payer: Signer<'info>,
+
+    /*
+     * Only the program's upgrade authority may open a pool.
+     *
+     * The pool PDA is derived from the two mints alone, there is one per pair
+     * forever, and `fee_bps` is fixed at creation with no setter — so the first
+     * caller decided the canonical $MEMPIRE market's fee permanently, and could
+     * lock the deployer out of ever creating it by taking the address first.
+     * `mempire::init_config` was hardened against exactly this ("whoever called
+     * this first owned the rake, the fees and the prices permanently"); this
+     * handler never received the same treatment.
+     */
+    #[account(constraint = program.programdata_address()? == Some(program_data.key()) @ AmmError::NotUpgradeAuthority)]
+    pub program: Program<'info, crate::program::MempireAmm>,
+    #[account(constraint = program_data.upgrade_authority_address == Some(payer.key()) @ AmmError::NotUpgradeAuthority)]
+    pub program_data: Account<'info, ProgramData>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
@@ -527,6 +543,8 @@ pub struct LiquidityRemoved {
 /// one of them lands in the IDL — which is exactly what happened here before.
 #[error_code]
 pub enum AmmError {
+    #[msg("only the program's upgrade authority may open a pool")]
+    NotUpgradeAuthority,
     #[msg("fee above the 1% ceiling")]
     FeeTooHigh,
     #[msg("arithmetic overflow")]

@@ -233,6 +233,74 @@
       "args": []
     },
     {
+      "name": "close_match",
+      "docs": [
+        "Pays the pot from the committed log. Base layer, **one** signer.",
+        "",
+        "The ER log is the onchain record of who won, which is what lets this",
+        "replace the two-signature `settle`: a player whose opponent has closed",
+        "their laptop can still settle honestly instead of waiting out the",
+        "timeout. The log must be back from the ER (owned by this program again)",
+        "and sealed, so a match still in the rollup cannot be cashed early.",
+        "Closes a settled match and returns its rent to the player who opened it.",
+        "",
+        "Every terminal path left `MatchAccount` alive at rent — about 0.0022 SOL",
+        "per match, plus 0.0141 for the log — with no instruction able to reclaim",
+        "it. `cancel_match`'s comment even claimed the account \"is `close`d to the",
+        "player below anyway\", which was never true. On a 0.05 tier that is a",
+        "third of a stake, quietly destroyed on every match ever played.",
+        "",
+        "Closing was held back because `release_cards` needs this account to exist",
+        "to free anything still locked to it. `free_orphaned_cards` below removes",
+        "that dependency, so a card can always be recovered whether or not the",
+        "match it points at is still there."
+      ],
+      "discriminator": [
+        79,
+        174,
+        36,
+        80,
+        233,
+        185,
+        176,
+        239
+      ],
+      "accounts": [
+        {
+          "name": "match_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  116,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "match_account.id",
+                "account": "MatchAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "docs": [
+            "The player who opened the match, and paid its rent."
+          ],
+          "writable": true,
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "create_match",
       "docs": [
         "Player 0 opens a match at a tier, escrowing the stake in the match PDA.",
@@ -584,6 +652,43 @@
       ]
     },
     {
+      "name": "free_orphaned_cards",
+      "docs": [
+        "Frees a card whose match no longer exists.",
+        "",
+        "`locked_by` holds the match's address. Once that account is closed there",
+        "is nothing left to read, so `release_cards` — which takes the match as a",
+        "typed account — cannot help. The address is enough on its own: this",
+        "program is the only thing that ever writes `locked_by`, and the only",
+        "thing that can close a match PDA, so an empty account at exactly that",
+        "address means the match is genuinely gone."
+      ],
+      "discriminator": [
+        136,
+        130,
+        189,
+        163,
+        26,
+        42,
+        132,
+        242
+      ],
+      "accounts": [
+        {
+          "name": "closed_match",
+          "docs": [
+            "names has been closed, so there is nothing left to deserialize. Cards",
+            "are matched against this address, which only this program ever writes."
+          ]
+        },
+        {
+          "name": "owner",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "init_config",
       "discriminator": [
         23,
@@ -752,6 +857,69 @@
         {
           "name": "match_id",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_reward_count",
+      "docs": [
+        "Opens a wallet's rewarded-win counter. Idempotent, anyone may pay.",
+        "",
+        "Separate from settlement because the winner is only known once the log",
+        "is read, which is after Anchor has resolved accounts — so the counter",
+        "cannot be seeded declaratively there. The client sends this ahead of",
+        "`settle_from_log` in the same transaction."
+      ],
+      "discriminator": [
+        230,
+        99,
+        123,
+        125,
+        53,
+        209,
+        27,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "reward_count",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  101,
+                  119,
+                  97,
+                  114,
+                  100,
+                  101,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "player"
+              }
+            ]
+          }
+        },
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "player",
+          "type": "pubkey"
         }
       ]
     },
@@ -1542,15 +1710,6 @@
     },
     {
       "name": "settle_from_log",
-      "docs": [
-        "Pays the pot from the committed log. Base layer, **one** signer.",
-        "",
-        "The ER log is the onchain record of who won, which is what lets this",
-        "replace the two-signature `settle`: a player whose opponent has closed",
-        "their laptop can still settle honestly instead of waiting out the",
-        "timeout. The log must be back from the ER (owned by this program again)",
-        "and sealed, so a match still in the rollup cannot be cashed early."
-      ],
       "discriminator": [
         29,
         97,
@@ -1664,11 +1823,16 @@
           }
         },
         {
-          "name": "reward_vault",
+          "name": "reward_count",
           "docs": [
             "The $MEMPIRE the program can pay out. Optional so a settlement never",
             "depends on a reward account existing — see the payout in the handler."
           ],
+          "writable": true,
+          "optional": true
+        },
+        {
+          "name": "reward_vault",
           "writable": true,
           "optional": true
         },
@@ -2066,6 +2230,34 @@
           "writable": true
         },
         {
+          "name": "duplicate_nft_mint",
+          "docs": [
+            "Required rather than optional so the tokenised check cannot be skipped",
+            "by omitting it; for an un-tokenised card this address holds nothing."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  110,
+                  102,
+                  116,
+                  109,
+                  105,
+                  110,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "duplicate.id",
+                "account": "Card"
+              }
+            ]
+          }
+        },
+        {
           "name": "owner",
           "writable": true,
           "signer": true,
@@ -2146,6 +2338,19 @@
         255,
         56,
         187
+      ]
+    },
+    {
+      "name": "RewardCount",
+      "discriminator": [
+        164,
+        232,
+        29,
+        212,
+        122,
+        51,
+        24,
+        3
       ]
     }
   ],
@@ -2344,106 +2549,111 @@
     },
     {
       "code": 6012,
+      "name": "CardTokenized",
+      "msg": "that card has been tokenised — its NFT would be left pointing at nothing"
+    },
+    {
+      "code": 6013,
       "name": "TickerTooLong",
       "msg": "ticker is too long"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "UnstakePending",
       "msg": "an unstake is already pending"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "NothingToClaim",
       "msg": "nothing to claim"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "CooldownActive",
       "msg": "unstake cooldown still active"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "BadDeck",
       "msg": "deck must be exactly 8 owned, unlocked cards"
     },
     {
-      "code": 6017,
+      "code": 6018,
       "name": "NotCardOwner",
       "msg": "card not owned by player"
     },
     {
-      "code": 6018,
+      "code": 6019,
       "name": "DuplicateCoin",
       "msg": "deck may contain each coin only once"
     },
     {
-      "code": 6019,
+      "code": 6020,
       "name": "BadMatchState",
       "msg": "match is not in the required state"
     },
     {
-      "code": 6020,
+      "code": 6021,
       "name": "SelfMatch",
       "msg": "cannot battle yourself"
     },
     {
-      "code": 6021,
+      "code": 6022,
       "name": "PowerMismatch",
       "msg": "deck power outside the tier band"
     },
     {
-      "code": 6022,
+      "code": 6023,
       "name": "BadWinner",
       "msg": "invalid winner value"
     },
     {
-      "code": 6023,
+      "code": 6024,
       "name": "NotAPlayer",
       "msg": "signer is not a match player"
     },
     {
-      "code": 6024,
+      "code": 6025,
       "name": "TooEarly",
       "msg": "deadline has not passed"
     },
     {
-      "code": 6025,
+      "code": 6026,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6026,
+      "code": 6027,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6027,
+      "code": 6028,
       "name": "MatchNotEnded",
       "msg": "match has not ended on the rollup yet"
     },
     {
-      "code": 6028,
+      "code": 6029,
       "name": "WrongTreasury",
       "msg": "fee account is not the treasury named in config"
     },
     {
-      "code": 6029,
+      "code": 6030,
       "name": "NotUpgradeAuthority",
       "msg": "signer is not the program's upgrade authority"
     },
     {
-      "code": 6030,
+      "code": 6031,
       "name": "BadCardLayout",
       "msg": "card account is not a recognised layout"
     },
     {
-      "code": 6031,
+      "code": 6032,
       "name": "AlreadyClaimed",
       "msg": "this seat has already recorded its result"
     },
     {
-      "code": 6032,
+      "code": 6033,
       "name": "TreasuryUnchanged",
       "msg": "the treasury is already that address"
     }
@@ -2949,6 +3159,31 @@
           {
             "name": "y",
             "type": "i32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RewardCount",
+      "docs": [
+        "How many rewarded wins a wallet has had. One per player, created on the",
+        "first win and never closed — it is the only thing standing between the",
+        "reward vault and a wash-trading loop."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "wins",
+            "type": "u16"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
