@@ -379,8 +379,8 @@ function Home() {
       )}
 
       <p className="fine" style={{ fontSize: 12, textAlign: 'center' }}>
-        Lending is a favour the clan counts, not an onchain transfer — cards are
-        NFTs backed by your staked tokens and only ever move onchain.
+        Lending is a favour the clan counts, not an onchain transfer — a card is
+        an account you own, and nothing here moves it.
       </p>
     </div>
   );

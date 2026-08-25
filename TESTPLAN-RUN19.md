@@ -152,3 +152,166 @@ Legend: **PASS** / **FAIL** / **UNTESTABLE** (with the missing dependency named)
 ---
 
 Total: **82 items.**
+
+---
+
+# Results
+
+Executed 24–26 Aug 2026 against the deployed product on devnet. Every UI item
+was driven through a real browser; every money claim was checked against the
+chain rather than the screen.
+
+## A · Shell, routing, boot — 6/6 PASS
+
+A1 cold load: Arena renders, 81 requests, none ≥400, console clean.
+A2 all five hash routes render their own screen.
+A3 reload on `#/empire` returns there with state rehydrated.
+A4 guest key persists across reloads and tabs.
+A5 preflight refuses a mainnet build with no `VITE_MEMPIRE_MINT` and accepts a
+correct one.
+A6 no `navigator.vibrate` intervention on a fresh tab.
+
+## B · Arena and matchmaking — 8/8 PASS
+
+B1 four tiers at 0.05 / 0.25 / 1 / 5.
+B2 pot tracks 2× stake across tiers; "winner takes 90%" matches rake 1000 bps.
+B3 an incomplete deck reads "deck needs 8 cards" and ranked will not start.
+B4 practice present and escrows nothing.
+B5 queue then cancel: **zero** open or active matches on chain afterwards.
+B6 ranked queue is signed (the harness signs action `queue`; unsigned demotes).
+B7 browser took seat 0, second client seat 1, same match id.
+B8 Emperor tier is `disabled` at a 1.19 SOL balance, desaturated with the price
+in red.
+
+## C · Battle, settlement, recovery — 9 PASS, 1 partial
+
+C1 escrow opened, match account held 2× stake.
+C2 badge ROLLUP LIVE; log owned by the delegation program.
+C3 every legal drop incremented the rollup play count.
+C4 **FAIL → fixed → PASS.** See below.
+C5 both seats claimed; agreement sealed the log.
+C6 winner paid pot − rake; treasury +0.01 per 0.1 pot.
+C7 draw splits with 5% tie rake (observed on match #80: SPLIT, +0.048 each).
+C8 winner +50 $MEMPIRE, vault −50.
+C9 **partial.** The counter is created and increments (0 → 1 → 2) and the payout
+is gated on `wins < REWARDED_WINS_CAP`. The boundary itself was not exercised —
+that needs sixteen settled wins on one wallet. Marked partial rather than PASS.
+C10 Empire surfaced the stranded stake, refused before the deadline ("the
+deadline has not passed yet"), and paid after it.
+
+## D · Cards, collection, shop — 10/10 PASS
+
+D1 18 cards on chain, matching the collection count.
+D2 detail shows stats, archetype, market data and lore.
+D3 mint with SOL → treasury **+0.020000**.
+D4 mint with $MEMPIRE → **−250 $MEMPIRE, treasury SOL unchanged**; the wallet's
+SOL moved only −0.0019 for the new card's rent.
+D5 every offer quotes 250 and charges 250; no discount badge on chain prices.
+D6 free reroll rotates offers and decrements the counter.
+D7 paid reroll → **−35 from the player, +35 to the treasury**.
+D8 merge: level 1 → 2, fee 100 $MEMPIRE, duplicate closed.
+D9 self-merge, mismatched coins and tokenised duplicates all refused (the last
+demonstrated live: "that card has been tokenised").
+D10 tokenise → supply 1, decimals 0, royalty 500 bps, creator = treasury.
+
+## E · Deck — 5/5 PASS
+
+E1 8/8, POWER 8 = Σ levels. E2 one card per coin holds. E3 survives navigation.
+E4 three loadout slots. E5 locked cards are excluded from a stakeable deck —
+observed as the "deck needs 8 cards" gate after a card was removed.
+
+## F · Clan — 7/7 PASS
+
+F1 browse lists clans with member counts. F2 the button quotes **250**, matching
+the till. F3 founding charged 250: player 3650 → 3400, treasury 7260 → 7510.
+F4 cancelling the charter **dissolved the clan and moved no money** — balance
+unchanged at 3650, clan gone from the directory. F5 leave works and persists
+(the UI asks for confirmation first, which is why a single click does nothing).
+F6 crowns reflect recorded matches. F7 a taken name is refused with "that name is
+taken" **before the till opens**.
+
+## G · Empire, leaderboard, analytics — 6/6 PASS
+
+G1 sorted by net SOL, viewer highlighted. G2 money is chain-verified — a claim
+the chain does not support ranks zero. G3 the same settled match reported twice
+credits once (`duplicate: true`). G4 history shows correct results. G5 the
+unsettled panel appears only when a stranded match exists. G6 TVL publishes no
+"staked" figure.
+
+## H · Swap / market — 5/5 PASS
+
+H1 Bags preferred, falls back to the pool matching this cluster. H2 `/api/market`
+reports `configured:false`; quotes 503. H3 the screen states its reason rather
+than inventing a price. H4 a 0.005 USDC quote returned **447.8843 $MEMPIRE**
+against a constant-product expectation of **447.8844** at 30 bps. H5 balances
+read from chain.
+
+## I · Relay API — 10/10 PASS
+
+I1–I3, I7, I9 all 200 with the expected shapes. I4 unsigned mutate → 401.
+I5 the same signature twice → 401 "already used". I6 the same match twice →
+`duplicate: true`, no increment. I8 100 signed POSTs from one wallet → **39
+throttled**. I10 **FAIL → fixed → PASS** (see below).
+
+## J · On-chain money paths — 8/8 PASS
+
+J1 every instruction that moves money to the treasury pins it to
+`config.treasury`; `CancelMatch` has no treasury because it takes no rake.
+J2 stake bound to tier. J3 the joiner escrows the creator's stake. J4 deck rules
+enforced. J5 `close_match` returned **+0.002194 SOL** to the creator of #78.
+J6 `free_orphaned_cards` present. J7 the counter is idempotent and capped.
+J8 `init_pool` requires the upgrade authority.
+
+## K · Audit regressions — 7/7 PASS
+
+All seven hold. K1 was re-demonstrated live during this run: the seat that lost
+1–0 called `claim_timeout` on a delegated log and received **+0.049995** while
+the winner received **+0.050000**, state Settled winner 2 — a void, not a theft.
+K7 was found **still broken** by this plan and fixed (below).
+
+---
+
+# What had to be fixed
+
+**C4 — the red ring said no and the drop happened anyway.** `isLegalDrop` was
+wired only to the marker's colour; the handler called `clampDrop` unconditionally
+and always played the card, so releasing deep in enemy territory deployed at the
+clamped edge. `dropDecision` now returns a point or nothing: legal drops pass,
+releases within 1.5 tiles of your own half still snap to the line, anything
+beyond is refused and costs no elixir. Both entry points use it — the drag path
+and the tap-to-place path, the second of which I missed on the first pass.
+Re-verified live: deep enemy release left elixir at 10 and plays at 0; own-half
+release took them to 7 and 1.
+
+**I10 — malformed bodies returned 500.** `express.json` throws a SyntaxError and
+nothing converted it. Now 400, and oversized bodies 413.
+
+**K7 — `delegate_chests` was never actually fixed.** The earlier commit replaced
+the first occurrence of that pattern, which was `delegate_log`. Both are
+router-assigned now.
+
+**Stale copy.** The Clan screen still told players cards were "NFTs backed by
+your staked tokens" — staking was deleted at the pivot.
+
+# Three failures that were the test's fault, not the product's
+
+Recorded so they are not re-litigated: the leaderboard is a plain array and was
+already sorted; the faucet route is `/api/faucet`; and rate limiting exempts GETs
+by design, so a burst has to be POSTs — my first 110 spread across six egress IPs
+into six separate buckets.
+
+# Honest limits
+
+- **C9's cap boundary is not exercised.** Sixteen settled wins on one wallet.
+- **The mainnet binary itself is unrun** — only its devnet twin, which differs by
+  one constant.
+- **Bags is verified only unconfigured.** There is no market until the token
+  launches; creator-fee claiming is unwired because there is nothing to claim.
+- Everything here is devnet. No mainnet action was taken and no real money spent.
+
+# Mocks, stubs, console errors
+
+Zero mocks and zero stubs anywhere in the tested surface: every balance above was
+read from the chain, every relay call hit the deployed relay against MongoDB,
+every match escrowed and settled with real signed transactions. Final fresh-tab
+sweep across all six screens: **81 requests, none ≥400, zero console errors.**
