@@ -84,7 +84,18 @@ export function readableChainError(e: unknown): string {
   const logs: string[] = anyErr?.logs ?? [];
   const hit = logs.find((l) => l.includes('Error Message:'));
   if (hit) return hit.split('Error Message:')[1].trim();
-  return msg.slice(0, 120);
+  /*
+   * Never hand back an empty string.
+   *
+   * Something in the rollup path rejects with a value whose `message` is empty,
+   * and this returned that emptiness verbatim — so a failure logged its reason
+   * as nothing at all, which is how lost checkpoints went undiagnosed. If there
+   * is genuinely no text, say what kind of thing was thrown instead.
+   */
+  const trimmed = msg.trim();
+  if (trimmed) return trimmed.slice(0, 120);
+  const kind = anyErr?.name ?? anyErr?.constructor?.name ?? typeof e;
+  return `the network rejected it without a reason (${kind})`;
 }
 
 export interface TxResult { signature: string }

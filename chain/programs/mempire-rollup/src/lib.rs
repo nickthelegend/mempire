@@ -102,6 +102,11 @@ const MATCH_STATE_ACTIVE: u8 = 1;
 
 /// Generous for 3 minutes plus overtime at roughly one play per two seconds per
 /// player. Fixed at creation: a delegated account must not resize on the rollup.
+/// The longest a match can legally run, in sim ticks: 3 minutes plus a minute
+/// of overtime at 20 ticks a second is 4,800, and this leaves headroom rather
+/// than sitting exactly on the boundary.
+pub const MAX_MATCH_TICK: u32 = 12_000;
+
 pub const MAX_PLAYS: usize = 128;
 const DECK_SIZE: u8 = 8;
 
@@ -574,7 +579,25 @@ pub mod mempire_rollup {
         let log = &mut ctx.accounts.log;
         require!(!log.ended, RollupError::AlreadyEnded);
         require!(log.seat_for(&signer, now).is_some(), RollupError::NotAPlayer);
-        require!(tick >= log.last_tick, RollupError::StaleTick);
+        /*
+         * Deliberately not gated on `last_tick`.
+         *
+         * That field is the cursor `play_card` advances, and checkpoints are
+         * produced on a fixed cadence but submitted asynchronously — so a
+         * checkpoint for tick 800 routinely arrived after a card play had
+         * already moved the cursor past it, and was rejected as stale. The
+         * busier the match, the more of them were lost: every checkpoint the
+         * player earned by actually playing was the one most likely to be
+         * stomped by their own next card.
+         *
+         * A checkpoint is a statement about the past — "at tick T the state
+         * hash was H" — not a claim about play ordering, and coupling the two
+         * only ever produced that race. Nothing settles on this value:
+         * `end_match_log` overwrites `last_hash` with the final hash, and
+         * settlement compares the two seats' claimed winners, not their
+         * checkpoints. The bound below just keeps a nonsense tick out.
+         */
+        require!(tick <= MAX_MATCH_TICK, RollupError::StaleTick);
         log.last_tick = tick;
         log.last_hash = hash;
         log.checkpoints = log.checkpoints.saturating_add(1);

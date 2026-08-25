@@ -46,7 +46,11 @@ interface ErMatchState {
   /** Plays accepted by the rollup this match. */
   writes: number;
   /** Plays the rollup refused or dropped. Surfaced, never hidden. */
-  failed: number;
+  /** Card plays that never reached the rollup. The serious one. */
+  playsLost: number;
+  /** State-hash checkpoints that did not land. Thins the audit trail; does
+   *  not affect settlement, which reads the final hash. */
+  marksLost: number;
   /**
    * True when the log is behind an ephemeral permission (PER).
    *
@@ -102,7 +106,8 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   logAddress: null,
   fqdn: null,
   writes: 0,
-  failed: 0,
+  playsLost: 0,
+  marksLost: 0,
   sealed: false,
   sessioned: false,
   lastError: null,
@@ -113,7 +118,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
   begin: async (adapter, matchId, players) => {
     if (!canSign(adapter)) { set({ phase: 'off' }); return; }
     set({
-      phase: 'preparing', matchId, writes: 0, failed: 0, sealed: false, sessioned: false,
+      phase: 'preparing', matchId, writes: 0, playsLost: 0, marksLost: 0, sealed: false, sessioned: false,
       lastError: null, commitSignature: null, seats: players,
       logAddress: matchLogPda(matchId).toBase58(),
     });
@@ -196,7 +201,17 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       const { signature } = await playCardEr(adapter, matchId, tick, deckIndex, x, y);
       set((s) => ({ writes: s.writes + 1, lastSignature: signature }));
     } catch (e) {
-      set((s) => ({ failed: s.failed + 1, lastError: readableChainError(e) }));
+      /*
+       * Say why, out loud.
+       *
+       * The badge counts lost plays and the store kept the reason — and nothing
+       * ever read it, so a play that failed to reach the rollup was a number
+       * with no explanation anywhere. That is the whole reason this went
+       * un-diagnosed: the information existed and had no way out.
+       */
+      const why = readableChainError(e);
+      console.warn(`[er] play lost at tick ${tick}: ${why}`);
+      set((s) => ({ playsLost: s.playsLost + 1, lastError: why }));
     }
   },
 
@@ -207,7 +222,9 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       const { signature } = await checkpointEr(adapter, matchId, tick, hash);
       set({ lastSignature: signature });
     } catch (e) {
-      set((s) => ({ failed: s.failed + 1, lastError: readableChainError(e) }));
+      const why = readableChainError(e);
+      console.warn(`[er] checkpoint lost at tick ${tick}: ${why}`);
+      set((s) => ({ marksLost: s.marksLost + 1, lastError: why }));
     }
   },
 
@@ -265,6 +282,6 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
 
   reset: () => set({
     phase: 'off', matchId: null, logAddress: null, fqdn: null,
-    writes: 0, failed: 0, lastError: null, lastSignature: null, commitSignature: null,
+    writes: 0, playsLost: 0, marksLost: 0, lastError: null, lastSignature: null, commitSignature: null,
   }),
 }));

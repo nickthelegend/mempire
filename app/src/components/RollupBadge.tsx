@@ -22,7 +22,8 @@ export function RollupBadge() {
   const phase = useErMatch((s) => s.phase);
   const sealed = useErMatch((s) => s.sealed);
   const writes = useErMatch((s) => s.writes);
-  const failed = useErMatch((s) => s.failed);
+  const playsLost = useErMatch((s) => s.playsLost);
+  const marksLost = useErMatch((s) => s.marksLost);
   const log = useErMatch((s) => s.logAddress);
 
   // Nothing to say before a rollup is involved at all.
@@ -45,7 +46,17 @@ export function RollupBadge() {
             failed still plays, and claiming privacy it does not have would be
             the one lie this badge exists to prevent. */}
         {phase === 'live' && sealed && ' 🔒'}
-        {failed > 0 && ` · ${failed} lost`}
+        {/*
+            Say which thing was lost.
+            A single counter fed by both card plays and state-hash checkpoints
+            rendered "N lost" beside the play count, so a player whose plays all
+            landed was told two of them had vanished. They are not the same
+            failure: a lost play is missing from the onchain record of the
+            match, while a lost checkpoint only thins the audit trail —
+            settlement reads the final hash, which is written at the end.
+        */}
+        {playsLost > 0 && ` · ${playsLost} lost`}
+        {marksLost > 0 && ` · ${marksLost} unmarked`}
       </span>
     </>
   );
