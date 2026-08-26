@@ -77,7 +77,6 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
    */
   const [market, setMarket] = useState<MarketInfo | null>(null);
   useEffect(() => { void describeMarket().then(setMarket); }, []);
-  const onBags = market?.configured === true;
 
   const address = useWallet((s) => s.address);
   const [pool, setPool] = useState<PoolState | null>(null);
@@ -150,9 +149,22 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
    * configuration — a bundle cut before Bags is configured — so the crash was
    * waiting for launch day rather than for an edge case.
    *
-   * The refusal is unchanged; it just happens after every hook has run.
+   * The refusal is unchanged in shape; it just happens after every hook has run.
+   *
+   * It no longer makes an exception for Bags, either. `onBags` was allowed to
+   * wave the cluster check through on the grounds that Bags would fill the
+   * order — but nothing on this screen has ever routed to Bags. `quote` and
+   * `swap` are imported from `../chain/amm`, and the Bags client in
+   * `../chain/market` exports its own `quote` and `swap` that are imported
+   * nowhere; `describe` is the only thing this screen takes from it. So a
+   * configured Bags market disabled the one guard standing between the player
+   * and a pool baked into `amm.json` for a different cluster, and then traded
+   * against that pool while the screen said the venue was Bags.
+   *
+   * Until the Bags venue is wired to this button, the only venue that can fill
+   * an order here is the local pool, and the guard is about that pool.
    */
-  if (market !== null && !onBags && !AMM_CONFIG_MATCHES_CLUSTER) {
+  if (market !== null && !AMM_CONFIG_MATCHES_CLUSTER) {
     return (
       <div className="panel" style={{ padding: 16 }}>
         <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
