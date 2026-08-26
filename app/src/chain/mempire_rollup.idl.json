@@ -2177,6 +2177,10 @@
             }
           },
           {
+            "name": "funder",
+            "type": "pubkey"
+          },
+          {
             "name": "plays",
             "type": {
               "vec": {

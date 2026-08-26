@@ -89,6 +89,16 @@ export interface ChestSlot {
   readyAt: number;
   unlocking: boolean;
   /**
+   * True while the oracle's answer for this chest is still in flight.
+   *
+   * The tier shown before the oracle replies is a local roll, and the player
+   * could start its timer — which `reconcileNewestChest` refuses to overwrite,
+   * so one tap took whichever of the two rolls they preferred. On the single
+   * outcome the house is supposed to decide, `max(local, vrf)` was available
+   * for free. A rolling chest is not actionable until its roll lands.
+   */
+  rolling?: boolean;
+  /**
    * Where this chest's tier came from.
    *
    * `vrf` means a MagicBlock oracle rolled it and `randomness` holds the bytes
@@ -131,7 +141,7 @@ interface EconomyState {
    * No `roll` parameter: the seed decides both tier and contents by the same
    * rule the program uses, so one recorded input explains the whole chest.
    */
-  awardChest: () => ChestTier | null;
+  awardChest: () => { tier: ChestTier; id: string } | null;
   /**
    * Puts a chest of a stated tier in a free slot, having been paid for.
    *
@@ -152,7 +162,9 @@ interface EconomyState {
    * callback; this is what makes that honest. If the tier changed, the oracle
    * wins — it is the authority — and the chest stops claiming to be local.
    */
-  reconcileNewestChest: (tier: number, randomness: string) => void;
+  reconcileChest: (id: string, tier: number, randomness: string) => void;
+  /** The oracle is not coming — settle this chest on the roll it already has. */
+  settleLocalChest: (id: string) => void;
 }
 
 /**
@@ -198,14 +210,15 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     // before the oracle has answered. If the oracle does answer, `reconcile`
     // replaces both the tier and the seed with its attested pair — a chest is
     // never left with a tier from one source and contents from another.
+    const id = `chest_${get().nextChestId}`;
     set((s) => ({
       chests: [...s.chests, {
-        id: `chest_${s.nextChestId}`, tier, readyAt: 0, unlocking: false,
-        source: 'local', seed: bytesToHex(seed),
+        id, tier, readyAt: 0, unlocking: false,
+        source: 'local', seed: bytesToHex(seed), rolling: true,
       }],
       nextChestId: s.nextChestId + 1,
     }));
-    return tier;
+    return { tier, id };
   },
 
   buyChest: (tier) => {
@@ -300,7 +313,7 @@ export const useEconomy = create<EconomyState>((set, get) => ({
     return { ...def, droppedTickers: dropped, seed: chest.seed, source: chest.source };
   },
 
-  reconcileNewestChest: (tier, randomness) => {
+  reconcileChest: (id, tier, randomness) => {
     const resolved = TIER_ORDER[tier] ?? 'silver';
     // Check the oracle rather than trusting it. The tier the program wrote must
     // be the tier its own randomness produces under the published weights; if it
@@ -319,15 +332,28 @@ export const useEconomy = create<EconomyState>((set, get) => ({
       return;
     }
     set((s) => {
-      if (!s.chests.length) return s;
+      /*
+       * The chest this roll was for, not whichever is newest.
+       *
+       * "Newest" was also wrong on its own terms: a chest bought or won while
+       * the oracle was answering would receive somebody else's randomness.
+       * The roll is bound to an id now, and a rolling chest is not something
+       * the player can have started — so the old `unlocking || readyAt` guard,
+       * which is what made the veto possible, is no longer load-bearing and is
+       * gone.
+       */
+      const i = s.chests.findIndex((c) => c.id === id);
+      if (i === -1) return s;
       const chests = [...s.chests];
-      const last = chests.length - 1;
-      // Only a chest still waiting to be opened can change tier. One already
-      // unlocking has been shown to the player as a specific thing.
-      if (chests[last].unlocking || chests[last].readyAt) return s;
-      chests[last] = { ...chests[last], tier: resolved, source: 'vrf', seed: randomness };
+      chests[i] = {
+        ...chests[i], tier: resolved, source: 'vrf', seed: randomness, rolling: false,
+      };
       return { chests };
     });
   },
+
+  settleLocalChest: (id) => set((s) => ({
+    chests: s.chests.map((c) => (c.id === id ? { ...c, rolling: false } : c)),
+  })),
 
 }));

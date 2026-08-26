@@ -156,7 +156,7 @@ let hashes: number[] = [];
  * already on screen and must never block on it. A session that cannot sign
  * keeps its local roll, honestly labelled.
  */
-async function rollChestOnchain(): Promise<void> {
+async function rollChestOnchain(chestId: string): Promise<void> {
   const adapter = signer();
   if (!canSign(adapter) || useChain.getState().mode !== 'onchain') return;
   try {
@@ -215,12 +215,19 @@ async function rollChestOnchain(): Promise<void> {
       if (filled?.state === 2) {
         const hex = Array.from(filled.randomness)
           .map((b) => b.toString(16).padStart(2, '0')).join('');
-        useEconomy.getState().reconcileNewestChest(filled.tier, hex);
+        useEconomy.getState().reconcileChest(chestId, filled.tier, hex);
         void claimChestEr(adapter, slot).catch(() => { /* slot frees next run */ });
         return;
       }
     }
-  } catch { /* the local roll stands, labelled as local */ }
+    // The oracle never answered. Release the chest on the roll it already has,
+    // labelled `local`, rather than leaving it forever un-startable.
+    useEconomy.getState().settleLocalChest(chestId);
+  } catch {
+    // The local roll stands, labelled as local — but it has to become
+    // actionable again, or a failed roll silently freezes the chest.
+    useEconomy.getState().settleLocalChest(chestId);
+  }
 }
 
 /**
@@ -366,6 +373,14 @@ let humanEscrowSol = 0;
 const TICK_MS = 50;
 /** Opponent rating for the ranked match in flight, so settle can score it. */
 let opponentTrophies = 0;
+/**
+ * The relay's token for this pairing, which a ranked result must cite.
+ *
+ * Held alongside the rating because they arrive together and are used
+ * together: the rating is what the score is computed from, and this is the
+ * evidence that there was a match to score at all.
+ */
+let pairKey: string | null = null;
 /** What the relay said the opponent is playing — held for the chain check. */
 let relayedOpponent: { address: string; deck: MatchCard[] } | null = null;
 /**
@@ -706,6 +721,7 @@ export const useMatch = create<MatchStore>((set, get) => ({
       onMatched: (m) => {
         if (fellBack) return;
         opponentTrophies = Number(m.opponent.trophies) || 0;
+        pairKey = typeof m.pairKey === 'string' ? m.pairKey : null;
         relayedOpponent = { address: String(m.opponent.address), deck: m.opponent.deck as MatchCard[] };
         set({ waitingForHuman: false });
         beginHumanBattle(m, player, tier.stakeSol, deck.tier, rush);
@@ -1561,8 +1577,9 @@ function settle(): void {
   // answers: the result screen must not wait on an async callback, and a chest
   // that silently changes tier a second later is worse than one that arrives
   // already labelled as unverified.
-  const chest = won && !practice ? useEconomy.getState().awardChest() : null;
-  if (chest) void rollChestOnchain();
+  const awarded = won && !practice ? useEconomy.getState().awardChest() : null;
+  const chest = awarded?.tier ?? null;
+  if (awarded) void rollChestOnchain(awarded.id);
   /**
    * Trophies move only on ranked matches, and only against a real opponent's
    * rating. Practice and casual are excluded by construction — a ladder that
@@ -1575,6 +1592,7 @@ function settle(): void {
       wallet.address,
       opponentTrophies,
       draw ? 'draw' : won ? 'win' : 'loss',
+      pairKey ?? undefined,
     )
     : null;
 

@@ -13,6 +13,15 @@ import { wsUrl } from './api';
 
 export interface MatchedPayload {
   matchId: number;
+  /**
+   * A token for this pairing, issued to these two sockets and nobody else.
+   *
+   * A ranked result has to cite it. Without one the relay has no record that
+   * the match happened, and a rating written from a body the winner authored
+   * is not a rating. Optional so an older relay still plays — it just cannot
+   * move trophies.
+   */
+  pairKey?: string;
   role: 0 | 1;
   seed: number;
   startAt: number;

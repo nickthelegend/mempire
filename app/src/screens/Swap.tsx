@@ -182,7 +182,47 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
     setError(null);
     setDone(null);
     try {
-      const sig = await swap(signer(), amountIn, q.minReceived, buying);
+      /*
+       * Price the floor against the pool as it is now, not as it was on mount.
+       *
+       * `refresh()` runs on mount and after a completed swap — no interval, no
+       * re-read on focus, and none at submit. `minReceived` is derived from
+       * those reserves and handed to the program as `min_amount_out`, so the
+       * 0.1%–1% the player picked was being applied to a price that could be
+       * hours old. That is precisely backwards: the guard is meant to bound
+       * how far the price may move *from now*, and instead it was absorbing
+       * all the drift that had already happened. This file's own docstring
+       * promises the opposite — "nothing is estimated and nothing is cached
+       * across a trade".
+       */
+      const fresh = await readPool();
+      if (!fresh) {
+        setError('The pool is unreachable — there is no price to trade against right now.');
+        return;
+      }
+      setPool(fresh);
+      const fq = buying
+        ? quote(amountIn, fresh.reserveQuote, fresh.reserveBase, slippage)
+        : quote(amountIn, fresh.reserveBase, fresh.reserveQuote, slippage);
+      if (!fq) {
+        setError('That amount cannot be quoted against the pool as it stands.');
+        return;
+      }
+      /*
+       * If the world moved more than the tolerance while the screen sat there,
+       * show the new number and make them look at it. Signing silently against
+       * a price they never saw is the thing the tolerance exists to prevent.
+       */
+      if (q.amountOut > 0n) {
+        const drift = fq.amountOut > q.amountOut
+          ? q.amountOut * 10_000n / fq.amountOut
+          : fq.amountOut * 10_000n / q.amountOut;
+        if (10_000n - drift > slippage) {
+          setError('The price moved while this was open — the quote above is updated. Check it and swap again.');
+          return;
+        }
+      }
+      const sig = await swap(signer(), amountIn, fq.minReceived, buying);
       setDone(sig);
       setInput('');
       await refresh();

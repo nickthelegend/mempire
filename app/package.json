@@ -8,7 +8,8 @@
     "build": "node scripts/preflight.mjs && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "preflight": "node scripts/preflight.mjs"
+    "preflight": "node scripts/preflight.mjs",
+    "typecheck": "tsc -b"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",

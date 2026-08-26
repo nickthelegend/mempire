@@ -556,6 +556,8 @@ export async function closeLogTx(
 export async function fetchLog(matchId: number): Promise<{
   plays: number; lastTick: number; lastHash: string; checkpoints: number;
   ended: boolean; winner: number;
+  /** The seat that paid for the account, and the only one `close_log` refunds. */
+  funder: string | null;
 } | null> {
   try {
     const program = baseProgram(null);
@@ -568,6 +570,7 @@ export async function fetchLog(matchId: number): Promise<{
       checkpoints: Number(raw.checkpoints ?? 0),
       ended: Boolean(raw.ended),
       winner: Number(raw.winner ?? 255),
+      funder: raw.funder ? String(raw.funder) : null,
     };
   } catch {
     return null;

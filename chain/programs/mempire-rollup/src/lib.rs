@@ -223,6 +223,7 @@ pub mod mempire_rollup {
         let log = &mut ctx.accounts.log;
         log.match_id = match_id;
         log.players = seats;
+        log.funder = ctx.accounts.payer.key();
         log.plays = Vec::new();
         log.last_tick = 0;
         log.last_hash = 0;
@@ -776,9 +777,12 @@ pub mod mempire_rollup {
     pub fn close_log(ctx: Context<CloseLog>) -> Result<()> {
         let log = &ctx.accounts.log;
         require!(log.ended, RollupError::NotEnded);
-        require!(
-            ctx.accounts.payer.key() == log.players[0]
-                || ctx.accounts.payer.key() == log.players[1],
+        // The refund goes back where the rent came from. Either seat used to
+        // qualify, and `close = payer` pays the signer — so the seat that
+        // funded nothing could sweep the seat that did.
+        require_keys_eq!(
+            ctx.accounts.payer.key(),
+            log.funder,
             RollupError::NotAPlayer
         );
         Ok(())
@@ -1069,6 +1073,20 @@ impl PlayEntry {
 pub struct MatchLog {
     pub match_id: u64,
     pub players: [Pubkey; 2],
+    /*
+     * Whoever paid for this account, which is not necessarily whoever closes
+     * it.
+     *
+     * `init_log` is funded by exactly one seat — its own rent, plus a CPI
+     * transfer of the ephemeral permission's rent into the same PDA — and the
+     * log recorded `players`, `claims` and `session_signers` but never who
+     * paid. `close_log` accepted either seat and Anchor's `close = payer` sent
+     * the whole balance to whoever signed, so the seat that funded nothing
+     * could take roughly 0.015 SOL off the seat that funded it, on every
+     * match, by being quicker to `cleanup`. The money program's `close_match`
+     * gets this right and says why: "Rent came from whoever created the match."
+     */
+    pub funder: Pubkey,
     pub plays: Vec<PlayEntry>,
     pub last_tick: u32,
     pub last_hash: u64,
@@ -1097,7 +1115,7 @@ pub struct MatchLog {
 }
 impl MatchLog {
     pub const SIZE: usize =
-        8 + 8 + 64 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1
+        8 + 8 + 64 + 32 + 4 + (MAX_PLAYS * PlayEntry::SIZE) + 4 + 8 + 2 + 1 + 1 + 1
         + 64  // session_signers
         + 16  // session_expires
         + 2; // claims
@@ -1469,6 +1487,7 @@ mod session_tests {
         MatchLog {
             match_id: 1,
             players: [Pubkey::new_unique(), Pubkey::new_unique()],
+            funder: Pubkey::new_unique(),
             plays: Vec::new(),
             last_tick: 0,
             last_hash: 0,

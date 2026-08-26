@@ -33,6 +33,8 @@ const client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 8000 });
 let players;
 let leaderboard;
 let ladder;
+// Pairings the matchmaker witnessed — what a ladder report has to cite.
+let pairings;
 /**
  * The database handle, at module scope.
  *
@@ -507,40 +509,101 @@ app.get('/api/ladder/:address', async (req, res) => {
 app.post('/api/ladder/:address', requireWallet('ladder.post'), async (req, res) => {
   const { address } = req.params;
   if (badAddress(address)) return res.status(400).json({ error: 'bad address' });
-  const { opponentTrophies, outcome } = req.body ?? {};
+  const { outcome, pairKey } = req.body ?? {};
   if (!['win', 'loss', 'draw'].includes(outcome)) {
     return res.status(400).json({ error: 'bad outcome' });
   }
   try {
-    const doc = await ladder.findOne({ _id: address });
-    const before = doc?.trophies ?? 0;
-    const opp = num(opponentTrophies, 0, 100_000);
-    const { delta, after, floored } = applyMatch(before, opp, outcome);
-    const streak = outcome === 'win' ? (doc?.streak ?? 0) + 1
-      : outcome === 'loss' ? 0
-        : (doc?.streak ?? 0);
-    const now = new Date();
+    /*
+     * A rating change has to correspond to a pairing this relay made.
+     *
+     * The header of this file says the server "is the only party that sees
+     * both sides of a match", and the client repeats it — but the ranked
+     * ladder was written from a body the winner authored: `outcome` and
+     * `opponentTrophies` both came from the caller, with no opponent, no match
+     * reference and no idempotency. Any wallet could walk itself to rank one
+     * without playing. Seeing both sides and writing none of it down is the
+     * same as not seeing it.
+     *
+     * The matchmaker now records each pairing under a token only the two
+     * sockets receive. A report cites it; the opponent's rating is read from
+     * that record rather than the body; and the Elo is applied only once both
+     * seats have reported and their accounts agree — the same "both must say
+     * the same thing" rule settlement uses on chain. One seat cannot move its
+     * own rating, and neither can two seats who disagree.
+     */
+    const pair = pairKey ? await pairings.findOne({ _id: String(pairKey) }) : null;
+    if (!pair) {
+      return res.status(409).json({ error: 'no such pairing — a rating needs a match the relay saw' });
+    }
+    const seat = (pair.seats ?? []).indexOf(address);
+    if (seat === -1) return res.status(403).json({ error: 'you did not play in that match' });
+    if (pair.reports?.[String(seat)]) {
+      return res.json({ ok: true, duplicate: true, note: 'already reported' });
+    }
 
-    await ladder.updateOne(
-      { _id: address },
-      {
-        $set: {
-          trophies: after,
-          best: Math.max(doc?.best ?? 0, after),
-          streak,
-          bestStreak: Math.max(doc?.bestStreak ?? 0, streak),
-          updatedAt: now,
+    await pairings.updateOne({ _id: pair._id }, { $set: { [`reports.${seat}`]: outcome } });
+    const mine = outcome;
+    const theirs = pair.reports?.[String(1 - seat)] ?? null;
+    if (!theirs) {
+      // First to report. Nothing moves until the other seat agrees.
+      return res.json({ ok: true, pending: true, note: 'waiting for your opponent to report' });
+    }
+    const agreed = (mine === 'win' && theirs === 'loss')
+      || (mine === 'loss' && theirs === 'win')
+      || (mine === 'draw' && theirs === 'draw');
+    if (!agreed) {
+      await pairings.updateOne({ _id: pair._id }, { $set: { disputed: true } });
+      return res.status(409).json({ error: 'the two players reported different results — no rating change' });
+    }
+
+    /*
+     * Score both seats, not just whoever spoke second.
+     *
+     * The agreement is what makes the result real, and it becomes true on the
+     * second report — so scoring only the caller left the seat that reported
+     * first with no rating at all. Their own report is the one that had to
+     * wait; it should not also be the one that goes unpaid.
+     */
+    const now = new Date();
+    const scoreSeat = async (who, theirOutcome, oppRating) => {
+      const d = await ladder.findOne({ _id: who });
+      const was = d?.trophies ?? 0;
+      const r = applyMatch(was, num(oppRating, 0, 100_000), theirOutcome);
+      const st = theirOutcome === 'win' ? (d?.streak ?? 0) + 1
+        : theirOutcome === 'loss' ? 0
+          : (d?.streak ?? 0);
+      await ladder.updateOne(
+        { _id: who },
+        {
+          $set: {
+            trophies: r.after,
+            best: Math.max(d?.best ?? 0, r.after),
+            streak: st,
+            bestStreak: Math.max(d?.bestStreak ?? 0, st),
+            updatedAt: now,
+          },
+          $inc: {
+            wins: theirOutcome === 'win' ? 1 : 0,
+            losses: theirOutcome === 'loss' ? 1 : 0,
+            draws: theirOutcome === 'draw' ? 1 : 0,
+            matches: 1,
+          },
+          $setOnInsert: { createdAt: now },
         },
-        $inc: {
-          wins: outcome === 'win' ? 1 : 0,
-          losses: outcome === 'loss' ? 1 : 0,
-          draws: outcome === 'draw' ? 1 : 0,
-          matches: 1,
-        },
-        $setOnInsert: { createdAt: now },
-      },
-      { upsert: true },
-    );
+        { upsert: true },
+      );
+      return { doc: d, ...r, streak: st };
+    };
+
+    // Both are scored against the ratings the relay recorded at pairing time,
+    // so neither depends on the order the two reports happened to arrive in.
+    const mineScored = await scoreSeat(address, mine, pair.trophies?.[1 - seat]);
+    await scoreSeat(pair.seats[1 - seat], theirs, pair.trophies?.[seat]);
+    await pairings.updateOne({ _id: pair._id }, { $set: { settled: true } });
+
+    const { doc } = mineScored;
+    const { delta, after, floored, streak } = mineScored;
 
     const above = await ladder.countDocuments({ trophies: { $gt: after } });
     res.json({
@@ -614,6 +677,7 @@ const server = await (async () => {
   players = db.collection('players');
   leaderboard = db.collection('leaderboard');
   ladder = db.collection('ladder');
+  pairings = db.collection('ladder_pairings');
   /*
    * One settled match, counted once.
    *
@@ -706,7 +770,7 @@ const server = await (async () => {
 
   console.log(`mongo connected → ${MONGODB_DB}`);
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
-  registerMatchmaker(httpServer);
+  registerMatchmaker(httpServer, db);
   return httpServer;
 })().catch((e) => {
   console.error(`startup failed: ${e?.message ?? e}`);

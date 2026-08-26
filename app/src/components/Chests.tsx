@@ -353,6 +353,27 @@ function Slot({ chest, onOpened, onSkipRequest, onBuyRequest }: {
             {PRICES.chestSkip} $M
           </span>
         </button>
+      ) : chest.rolling ? (
+        /*
+         * No START while the oracle is still deciding.
+         *
+         * The tier on screen at this moment is a local roll, and starting the
+         * timer used to freeze it — `reconcile` refused to overwrite a chest
+         * that had been started. So one tap took whichever of the two rolls
+         * the player preferred, on the single outcome the house is supposed to
+         * decide. A few seconds of "rolling" costs nothing and closes it.
+         */
+        <div
+          aria-label="waiting for the chest roll"
+          style={{
+            ...ACTION,
+            background: 'var(--recess)', border: '2px solid var(--ink)',
+            boxShadow: 'var(--bevel-in)', color: 'var(--dim)',
+            fontSize: 12, fontWeight: 800, letterSpacing: '.04em',
+          }}
+        >
+          ROLLING…
+        </div>
       ) : (
         <button
           onClick={() => { click(); startUnlock(chest.id); }}

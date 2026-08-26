@@ -311,6 +311,17 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
     const { phase, matchId } = get();
     if (phase !== 'committed' || matchId === null || !canSign(adapter)) return;
     try {
+      /*
+       * Only the seat that paid can reclaim it, so only that seat should ask.
+       *
+       * `close_log` refunds the account's whole balance to its funder now
+       * rather than to whoever calls first. Both seats reach `committed` and
+       * both run this, so without the check the non-funder sends a
+       * transaction that is certain to be refused and pays the fee for it.
+       */
+      const log = await fetchLog(matchId);
+      const me = (adapter?.publicKey ?? getProvider(adapter).wallet.publicKey)?.toBase58();
+      if (log?.funder && me && log.funder !== me) return;
       await closeLogTx(adapter, matchId);
     } catch {
       // Rent recovery is best-effort; the log is harmless if it lingers.

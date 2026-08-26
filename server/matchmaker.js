@@ -65,7 +65,22 @@ function fnv(s) {
 
 let nextMatchId = 1;
 
-export function registerMatchmaker(server) {
+export function registerMatchmaker(server, db) {
+  /*
+   * What the relay saw, written down so the ladder can be checked against it.
+   *
+   * The header above claims "the server is the authority: it is the only party
+   * that sees both sides of a match", and the ranked ladder was written from a
+   * body the winner authored — no opponent, no match reference, no idempotency.
+   * Seeing both sides and never recording it is the same as not seeing it. A
+   * pairing row is the record: who was paired, at what ratings, under a token
+   * neither client can guess.
+   */
+  const pairings = db ? db.collection('ladder_pairings') : null;
+  if (pairings) {
+    // A pairing is only interesting until both seats have reported.
+    pairings.createIndex({ at: 1 }, { expireAfterSeconds: 3600 }).catch(() => {});
+  }
   /*
    * Bound what one socket can make this process hold.
    *
@@ -334,15 +349,35 @@ export function registerMatchmaker(server) {
             waiting.ws.matchId = id;
             ws.matchId = id;
 
+            /*
+             * A token for this pairing, which only these two sockets receive.
+             *
+             * It is what a ladder report has to cite. Random rather than the
+             * match id, because the id is a counter a client could guess and
+             * the whole point is that a rating change must correspond to a
+             * pairing this relay actually made.
+             */
+            const pairKey = randomBytes(16).toString('hex');
+            if (pairings) {
+              pairings.insertOne({
+                _id: pairKey,
+                seats: [waiting.address, msg.address],
+                trophies: [waiting.trophies ?? 0, trophies],
+                ranked: Boolean(msg.ranked) && Boolean(waiting.ranked),
+                reports: {},
+                at: new Date(),
+              }).catch(() => { /* the ladder simply refuses reports it cannot verify */ });
+            }
+
             send(waiting.ws, {
-              t: 'matched', matchId: id, role: 0, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
+              t: 'matched', matchId: id, pairKey, role: 0, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
               opponent: {
                 address: msg.address, name: msg.name ?? null,
                 power: msg.power ?? 0, deck: msg.deck, trophies,
               },
             });
             send(ws, {
-              t: 'matched', matchId: id, role: 1, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
+              t: 'matched', matchId: id, pairKey, role: 1, seed: seed || 0x9e3779b9, startAt, serverNow, inputDelayTicks, format,
               opponent: {
                 address: waiting.address, name: waiting.name ?? null,
                 power: waiting.power ?? 0, deck: waiting.deck, trophies: waiting.trophies ?? 0,

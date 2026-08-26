@@ -45,7 +45,7 @@ interface LadderState {
   load: (address: string) => Promise<void>;
   loadTop: () => Promise<void>;
   /** Applies a ranked result locally, then reconciles with the server. */
-  record: (address: string, opponentTrophies: number, outcome: Outcome) => TrophyChange;
+  record: (address: string, opponentTrophies: number, outcome: Outcome, pairKey?: string) => TrophyChange;
   clearChange: () => void;
   reset: () => void;
 
@@ -96,7 +96,7 @@ export const useLadder = create<LadderState>((set, get) => ({
     } catch { /* leaderboard is decoration when offline */ }
   },
 
-  record: (address, opponentTrophies, outcome) => {
+  record: (address, opponentTrophies, outcome, pairKey) => {
     const change = applyMatch(get().trophies, opponentTrophies, outcome);
     set((s) => ({
       trophies: change.after,
@@ -112,7 +112,9 @@ export const useLadder = create<LadderState>((set, get) => ({
     if (address) {
       // Signed: the server rejects an unsigned ladder update, and rightly —
       // an unauthenticated one let anyone set anyone's rating.
-      void apiPost(`/api/ladder/${address}`, 'ladder.post', { opponentTrophies, outcome })
+      // `opponentTrophies` is still sent for older relays; the current one
+      // reads it from its own pairing record and ignores the body's copy.
+      void apiPost(`/api/ladder/${address}`, 'ladder.post', { opponentTrophies, outcome, pairKey })
         .then((r) => (r?.ok ? r.json() : null))
         .then((d) => {
           // The server sees both sides, so it is the authority. Reconcile quietly.
