@@ -58,10 +58,33 @@ export function savePlayer(address: string, state: SavedState): void {
   }, SAVE_DEBOUNCE_MS);
 }
 
-/** Records a settled match for the leaderboard. Never blocks the result screen. */
-export function recordMatch(address: string, result: MatchResult): void {
+/**
+ * Records a settled match for the leaderboard. Never blocks the result screen.
+ *
+ * Retried while the relay says `pending`, because the report and the money it
+ * describes do not arrive together. A client posts the instant its match ends;
+ * settlement is a separate transaction sent after both seats agree, so the
+ * chain read the relay does to verify the pot routinely finds nothing yet. The
+ * relay counts the win immediately and keeps the money owed — this is the half
+ * that comes back for it. Without it the one column that is chain-verified is
+ * the one column that stays zero.
+ */
+export function recordMatch(address: string, result: MatchResult, attempt = 0): void {
   if (!address) return;
   void apiPost(`/api/match/${address}`, 'match.post', result as unknown as Record<string, unknown>)
+    .then(async (r) => {
+      if (!r?.ok) { online = false; return; }
+      const body = await r.json().catch(() => null);
+      // Six tries over roughly five minutes, which comfortably outlasts a
+      // settlement that is merely slow. A match that never settles stops
+      // asking rather than retrying forever.
+      if (body?.pending === true && attempt < 5) {
+        setTimeout(
+          () => recordMatch(address, result, attempt + 1),
+          15_000 * (attempt + 1),
+        );
+      }
+    })
     .catch(() => { online = false; });
 }
 

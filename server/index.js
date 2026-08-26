@@ -230,16 +230,47 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
        * `_id` makes the second attempt a duplicate-key error rather than a
        * second `$inc`, and doing it first means a crash between the claim and
        * the credit loses a record rather than double-counting one.
+       *
+       * But the claim and the *money* are two different debts, and collapsing
+       * them cost honest winners their pot on the board. A client reports the
+       * moment its match ends, which is before settlement has landed on chain
+       * — `settle_from_log` is a separate transaction, sent after both seats
+       * agree. So `verifySettledMatch` routinely finds nothing, `netSol` goes
+       * in as zero, and the slot is spent: every later attempt is a duplicate
+       * and the money is never credited at all. The one column that is
+       * chain-verified was the one column guaranteed to be wrong.
+       *
+       * So the row records that W/L was counted, and separately whether the
+       * money was. A repeat post is still refused a second W/L — but if the
+       * money is still owed, it is allowed to settle that and nothing else.
        */
+      const creditId = `${mid}:${address}`;
       try {
-        await credits.insertOne({ _id: `${mid}:${address}`, at: new Date() });
+        await credits.insertOne({ _id: creditId, at: new Date(), moneyCredited: false });
       } catch (e) {
-        if (e?.code === 11000) {
+        if (e?.code !== 11000) throw e;
+        const prior = await credits.findOne({ _id: creditId });
+        if (prior?.moneyCredited) {
           return res.json({ ok: true, duplicate: true, note: 'already recorded' });
         }
-        throw e;
+        const late = await verifySettledMatch(mid, address).catch(() => null);
+        if (!late) {
+          return res.json({
+            ok: true, duplicate: true, pending: true,
+            note: 'counted; the chain has not shown this settlement yet',
+          });
+        }
+        await credits.updateOne(
+          { _id: creditId },
+          { $set: { moneyCredited: true, creditedAt: new Date() } },
+        );
+        await leaderboard.updateOne({ _id: address }, { $inc: { netSol: late.netSol } });
+        return res.json({ ok: true, duplicate: true, credited: late.netSol });
       }
       verified = await verifySettledMatch(mid, address).catch(() => null);
+      if (verified) {
+        await credits.updateOne({ _id: creditId }, { $set: { moneyCredited: true } });
+      }
     }
     const chainNetSol = verified ? verified.netSol : 0;
     await leaderboard.updateOne(
