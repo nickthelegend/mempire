@@ -1860,3 +1860,43 @@ A read taken at `confirmed` immediately after `claim_timeout` reported 16 cards
 still locked, and I took that at face value. Re-read at `finalized`: zero. The
 decks are released correctly whenever they are passed as remaining accounts;
 match #92 stayed locked only because that call passed none.
+
+## Run 23 — the rest of the sweep
+
+Everything the run-22 audit confirmed and left open, closed out. Each fix was
+checked against a live relay or a real chain read rather than argued for.
+
+| Severity | What was wrong | Proof |
+|---|---|---|
+| high | **The ranked ladder was written from a body the winner authored.** `outcome` and `opponentTrophies` both came from the caller, with no opponent, no match reference and no idempotency — any wallet could walk itself to rank one without playing. The file header claims the opposite ("the server is the only party that sees both sides"), so this was a claimed guarantee, not a trade-off. The matchmaker now records each pairing under a token only those two sockets get; the opponent's rating is read from that record; the Elo lands only when both seats report and agree. | `verify-ladder`: no pairKey → 409, invented pairKey → 409, winner reports first → `pending` and nothing moves, loser confirms → winner 32 / loser 0, both claiming the win → 409 and nothing moves, same seat twice → duplicate |
+| med | **The clan charter was a suggestion.** The clan was created first and the browser charged afterwards, with "the founder cancels and we call `leave`" as the undo — code in the same browser that just got its clan. `verifyTokenPayment` now diffs the treasury's pre/post token balances for the cited transaction, checks the payer signed it, and a unique partial index means one payment charters one clan. | `verify-clan-fixes`: no signature → 402, invented signature → 402 |
+| med | **One wallet could be in several clans.** Both create and join read `clanOf` and then wrote to a *different* document, and no filter on one clan can see the others. A `clan_membership` row keyed on the address makes it a database invariant. | two concurrent joins to two tags → one 409, one 200, wallet on exactly one roster |
+| med | **`close_log` refunded the log's whole balance to whichever seat called first**, not the seat that funded its rent plus the ephemeral permission's. Both seats reach `committed` and both run `cleanup`. `MatchLog` records its funder now. | rollup redeployed `31QGXBJi9…`; the client only asks when it is the funder |
+| med | **The chest roll could be vetoed with one tap.** The local roll is shown with a START button during the whole window before the oracle answers, and `reconcile` refused to overwrite a started chest — so `max(local, vrf)` was free. Rolling chests show ROLLING… with no START, and the roll is bound to a chest id rather than "the newest". | |
+| med | **The swap's slippage guard was priced on mount**, so the tolerance absorbed drift that had already happened instead of bounding drift from now. Read at submit; a price that moved past the tolerance shows the new quote and asks again. | |
+| med | **`GET /api/faucet` and `GET /api/analytics/tvl`** were public, unauthenticated and exempt from the limiter, and both spend the RPC quota chain verification needs. Behind a read-counting bucket; the faucet balance cached; TVL shares one in-flight promise so concurrent misses cost one read; its match scan slices the two fields it reads. | |
+| low | **A leader demoting themselves orphaned the clan** — no route could repair it and `leave` could not either. A step-down promotes the most senior remaining member, as leaving does. | step down → 200, one leader remaining (the heir) |
+
+### Two bugs I introduced and the tests caught
+
+`sparse: true` does not exclude an explicit `null`, so writing
+`charterSignature: null` for unpaid clans made the second one a duplicate-key
+error. It is a partial index on `$type: 'string'` now and the field is omitted
+rather than nulled.
+
+The stale-claim recovery meant to stop a crash locking a wallet out of clans
+also defeated the lock: "no roster yet" is exactly what the loser of a real
+race sees. A claim younger than thirty seconds is respected; an older one with
+no roster anywhere is reclaimed.
+
+And the first ladder implementation scored only whoever reported *second*, so
+the seat whose report had to wait was also the seat that went unpaid.
+
+### A correction about method
+
+`npx tsc --noEmit` in `app/` checks nothing: the root tsconfig is
+`"files": []` with project references. Every "typecheck clean" reported in runs
+21 and 22 was vacuous. `npm run build` runs `tsc -b` and was the real check
+throughout; re-running it properly surfaced two errors in the chest change.
+Everything passes `tsc -b` now, and `npm run typecheck` exists so the correct
+invocation is the obvious one.
