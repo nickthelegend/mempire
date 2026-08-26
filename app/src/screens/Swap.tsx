@@ -2,11 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PublicKey } from '@solana/web3.js';
 import { Pill, Spinner } from '../components/ui';
 import {
-  AMM_CONFIG_MATCHES_CLUSTER, MEMPIRE_MINT, POOL, UNIT, USDC_MINT,
+  AMM_CONFIG_MATCHES_CLUSTER, MEMPIRE_MINT, POOL, USDC_MINT,
   quote, readPool, swap, tokenBalance, type PoolState,
 } from '../chain/amm';
-import { IS_MAINNET, canSign, explorerUrl } from '../chain/provider';
-import { describe as describeMarket, type MarketInfo } from '../chain/market';
+import { IS_MAINNET, canSign, explorerUrl, getConnection } from '../chain/provider';
+import {
+  describe as describeMarket, quote as marketQuote, swap as marketSwap,
+  type MarketInfo,
+} from '../chain/market';
 import { useWallet } from '../state/wallet';
 import { signer } from '../state/wallet';
 
@@ -23,11 +26,39 @@ import { signer } from '../state/wallet';
 /** Slippage the swap will tolerate before the program reverts it. */
 const SLIPPAGE_CHOICES = [10n, 50n, 100n] as const; // 0.1%, 0.5%, 1%
 
-const fmt = (raw: bigint, dp = 6): string => {
+/**
+ * A quote, reduced to what this screen actually promises.
+ *
+ * The pool computes one locally and the Bags market returns one over the
+ * relay; they carry different extras, and the render should not have to know
+ * which it is looking at. `fee` is null where the venue folds it into the
+ * price rather than reporting it separately, and `requestId` is what binds a
+ * Bags swap to the exact numbers that were shown.
+ */
+interface ScreenQuote {
+  amountOut: bigint;
+  minReceived: bigint;
+  priceImpact: number;
+  fee: bigint | null;
+  requestId: string | null;
+}
+
+/*
+ * Amounts, at whatever precision the side of the trade actually uses.
+ *
+ * These assumed six decimals throughout, which was true while the only pair
+ * was USDC/$MEMPIRE. The Bags market prices against wrapped SOL at nine, so a
+ * hardcoded `UNIT` would render every SOL figure a thousand times too large
+ * and parse every typed one a thousand times too small.
+ */
+const pow10 = (d: number): bigint => 10n ** BigInt(d);
+
+const fmt = (raw: bigint, decimals: number, dp = 6): string => {
+  const unit = pow10(decimals);
   const neg = raw < 0n;
   const v = neg ? -raw : raw;
-  const whole = v / UNIT;
-  const frac = (v % UNIT).toString().padStart(6, '0').slice(0, dp).replace(/0+$/, '');
+  const whole = v / unit;
+  const frac = (v % unit).toString().padStart(decimals, '0').slice(0, dp).replace(/0+$/, '');
   return `${neg ? '-' : ''}${whole.toLocaleString()}${frac ? `.${frac}` : ''}`;
 };
 
@@ -40,32 +71,25 @@ const fmt = (raw: bigint, dp = 6): string => {
  * and the whole screen just stopped responding. Only above a thousand, which
  * is why it survived — every test balance was smaller.
  */
-const plain = (raw: bigint): string => {
+const plain = (raw: bigint, decimals: number): string => {
+  const unit = pow10(decimals);
   const neg = raw < 0n;
   const v = neg ? -raw : raw;
-  const frac = (v % UNIT).toString().padStart(6, '0').replace(/0+$/, '');
-  return `${neg ? '-' : ''}${v / UNIT}${frac ? `.${frac}` : ''}`;
+  const frac = (v % unit).toString().padStart(decimals, '0').replace(/0+$/, '');
+  return `${neg ? '-' : ''}${v / unit}${frac ? `.${frac}` : ''}`;
 };
 
 /** Parses a typed amount into base units without going through a float. */
-function parseAmount(text: string): bigint {
+function parseAmount(text: string, decimals: number): bigint {
   // Grouping separators are stripped rather than rejected: a pasted amount
   // from anywhere else in the app, or from a block explorer, carries them.
-  const m = text.trim().replace(/,/g, '').match(/^(\d*)(?:\.(\d{0,6}))?$/);
+  const m = text.trim().replace(/,/g, '').match(new RegExp(`^(\\d*)(?:\\.(\\d{0,${decimals}}))?$`));
   if (!m) return 0n;
   const whole = m[1] ? BigInt(m[1]) : 0n;
-  const frac = (m[2] ?? '').padEnd(6, '0');
-  return whole * UNIT + BigInt(frac || '0');
+  const frac = (m[2] ?? '').padEnd(decimals, '0');
+  return whole * pow10(decimals) + BigInt(frac || '0');
 }
 
-/**
- * The swap itself, with no page around it.
- *
- * Lives apart from the screen because it is reached two ways: as a route, and
- * as a sheet from the + on the $MEMPIRE balance. A trade started from the
- * balance should be the *same* trade, against the same pool with the same
- * guards — not a simplified one that happens to look similar.
- */
 export function SwapPanel({ compact = false }: { compact?: boolean }) {
   /*
    * Where $MEMPIRE actually trades.
@@ -84,7 +108,14 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   const [buying, setBuying] = useState(true); // USDC -> MEMPIRE
   const [input, setInput] = useState('');
   const [slippage, setSlippage] = useState<bigint>(50n);
-  const [balances, setBalances] = useState({ usdc: 0n, mempire: 0n });
+  /*
+   * Named for their side of the trade, not for a token.
+   *
+   * These were `usdc` and `mempire`, which stopped being true the moment the
+   * quote side could be SOL. `quote` is whatever this venue prices against;
+   * `base` is always $MEMPIRE.
+   */
+  const [balances, setBalances] = useState({ quote: 0n, base: 0n });
   /**
    * Whether the balances above are an answer or just their initial value.
    *
@@ -100,16 +131,75 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
+  /*
+   * Which venue this screen is actually trading against.
+   *
+   * Everything below is written once and parameterised by this, rather than
+   * forked: the two venues differ in the mint on the quote side, its decimals,
+   * how a quote is obtained and how a swap is signed — but not in what the
+   * screen shows or what it promises. `describeMarket` decides; before it
+   * answers there is no venue and nothing quotes, which is the honest state.
+   *
+   * The Bags market prices against wrapped SOL; the local pool against USDC.
+   * That is why the labels and decimals come from here and not from constants.
+   */
+  const venue = useMemo(() => {
+    if (!market) return null;
+    if (market.configured && market.mint) {
+      return {
+        kind: 'bags' as const,
+        quoteMint: market.quoteMint,
+        quoteLabel: 'SOL',
+        quoteDecimals: 9,
+        baseMint: market.mint,
+        baseLabel: '$MEMPIRE',
+        baseDecimals: 6,
+      };
+    }
+    if (!AMM_CONFIG_MATCHES_CLUSTER) return null;
+    return {
+      kind: 'amm' as const,
+      quoteMint: USDC_MINT.toBase58(),
+      quoteLabel: 'USDC',
+      quoteDecimals: 6,
+      baseMint: MEMPIRE_MINT.toBase58(),
+      baseLabel: '$MEMPIRE',
+      baseDecimals: 6,
+    };
+  }, [market]);
+
+  const inDecimals = buying ? (venue?.quoteDecimals ?? 6) : (venue?.baseDecimals ?? 6);
+  const outDecimals = buying ? (venue?.baseDecimals ?? 6) : (venue?.quoteDecimals ?? 6);
+
   const refresh = useCallback(async () => {
-    const p = await readPool();
-    setPool(p);
-    setPoolFailed(p === null);
+    if (!venue) return;
+    // The local pool is only meaningful for the local pool. On Bags there is
+    // no reserve to read and the price comes from the quote itself.
+    if (venue.kind === 'amm') {
+      const p = await readPool();
+      setPool(p);
+      setPoolFailed(p === null);
+    } else {
+      setPool(null);
+      setPoolFailed(false);
+    }
     if (address) {
       try {
         const owner = new PublicKey(address);
+        /*
+         * On Bags the quote side is native SOL, not a token account.
+         *
+         * Reading it with `tokenBalance` would have found no ATA and reported
+         * zero, which the balance guard treats as "you cannot afford this" —
+         * so the button would have been dead for every wallet, including ones
+         * holding plenty.
+         */
+        const quoteBal = venue.kind === 'bags'
+          ? BigInt(await getConnection().getBalance(owner))
+          : await tokenBalance(owner, new PublicKey(venue.quoteMint));
         setBalances({
-          usdc: await tokenBalance(owner, USDC_MINT),
-          mempire: await tokenBalance(owner, MEMPIRE_MINT),
+          quote: quoteBal,
+          base: await tokenBalance(owner, new PublicKey(venue.baseMint)),
         });
         setBalancesRead(true);
       } catch {
@@ -117,21 +207,94 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         setBalancesRead(true);
       }
     }
-  }, [address]);
+  }, [address, venue]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const amountIn = parseAmount(input);
-  const q = useMemo(() => {
-    if (!pool || amountIn <= 0n) return null;
-    return buying
-      ? quote(amountIn, pool.reserveQuote, pool.reserveBase, slippage)
-      : quote(amountIn, pool.reserveBase, pool.reserveQuote, slippage);
-  }, [pool, amountIn, buying, slippage]);
+  const amountIn = parseAmount(input, inDecimals);
 
-  const held = buying ? balances.usdc : balances.mempire;
+  /*
+   * One quote shape, whichever venue produced it.
+   *
+   * The pool's quote is arithmetic this client can do; the Bags quote is a
+   * round trip through the relay and carries a `requestId` that binds a swap
+   * to the exact numbers shown. Rather than fork the render on that, both are
+   * resolved into the same object here, asynchronously, so the screen has one
+   * thing to read and one loading state.
+   */
+  const [q, setQ] = useState<ScreenQuote | null>(null);
+  const [quoting, setQuoting] = useState(false);
+
+  useEffect(() => {
+    if (!venue || amountIn <= 0n) { setQ(null); setQuoting(false); return undefined; }
+
+    if (venue.kind === 'amm') {
+      if (!pool) { setQ(null); return undefined; }
+      const raw = buying
+        ? quote(amountIn, pool.reserveQuote, pool.reserveBase, slippage)
+        : quote(amountIn, pool.reserveBase, pool.reserveQuote, slippage);
+      setQ(raw && {
+        amountOut: raw.amountOut,
+        minReceived: raw.minReceived,
+        priceImpact: raw.priceImpact,
+        fee: raw.fee,
+        requestId: null,
+      });
+      return undefined;
+    }
+
+    /*
+     * Debounced, and the late answer is discarded.
+     *
+     * Each keystroke would otherwise be a request through the relay to Bags on
+     * our own paid key, and answers can land out of order — showing a price
+     * for an amount the field no longer holds. `live` is what makes a stale
+     * reply harmless.
+     */
+    let live = true;
+    setQuoting(true);
+    const t = setTimeout(() => {
+      const inMint = buying ? venue.quoteMint : venue.baseMint;
+      const outMint = buying ? venue.baseMint : venue.quoteMint;
+      void marketQuote(inMint, outMint, amountIn, Number(slippage))
+        .then((mq) => {
+          if (!live) return;
+          setQ(mq && {
+            amountOut: mq.outAmount,
+            minReceived: mq.minOutAmount,
+            // Bags reports impact as a percentage; this screen works in 0–1.
+            priceImpact: Number(mq.priceImpactPct ?? 0) / 100,
+            // The curve's fee is already inside the quote, and inventing a
+            // separate figure for it would be a number nobody could check.
+            fee: null,
+            requestId: mq.requestId,
+          });
+        })
+        .finally(() => { if (live) setQuoting(false); });
+    }, 350);
+    return () => { live = false; clearTimeout(t); };
+  }, [venue, pool, amountIn, buying, slippage]);
+
+  const heldRaw = buying ? balances.quote : balances.base;
+  /*
+   * Leave enough SOL behind to pay for the swap.
+   *
+   * On Bags the input side is native SOL, and the whole balance is not
+   * spendable: the transaction itself costs a fee, and the wrapped-SOL account
+   * the swap opens needs rent. "Max" meaning "every lamport you have" produces
+   * a transaction that cannot pay for itself — the one number on this screen a
+   * player is most likely to trust without checking.
+   */
+  const SOL_HEADROOM = 10_000_000n; // 0.01 SOL, comfortably over fee + ATA rent
+  const spendable = buying && venue?.kind === 'bags'
+    ? (heldRaw > SOL_HEADROOM ? heldRaw - SOL_HEADROOM : 0n)
+    : heldRaw;
+  const held = spendable;
   const overBalance = balancesRead && amountIn > held;
-  const canSwap = !!q && !busy && amountIn > 0n && !overBalance && canSign(signer());
+  // `quoting` counts as busy: on Bags the quote is a round trip, and a button
+  // that is live while the number beside it is still resolving invites a click
+  // on a price that has not arrived.
+  const canSwap = !!q && !busy && !quoting && amountIn > 0n && !overBalance && canSign(signer());
 
   /*
    * The one state where quoting at all would be a lie: no venue can fill an
@@ -164,7 +327,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
    * Until the Bags venue is wired to this button, the only venue that can fill
    * an order here is the local pool, and the guard is about that pool.
    */
-  if (market !== null && !AMM_CONFIG_MATCHES_CLUSTER) {
+  if (market !== null && !venue) {
     return (
       <div className="panel" style={{ padding: 16 }}>
         <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
@@ -177,11 +340,31 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   }
 
   async function onSwap() {
-    if (!q) return;
+    if (!q || !venue) return;
     setBusy(true);
     setError(null);
     setDone(null);
     try {
+      /*
+       * Bags builds the transaction, the wallet signs it, and `requestId` is
+       * what stops the fill drifting from the number on screen.
+       *
+       * Nothing here re-quotes: the whole point of the request id is that the
+       * venue honours the quote it issued, and asking again would produce a
+       * *different* id and a different price than the one displayed.
+       */
+      if (venue.kind === 'bags') {
+        if (!q.requestId) {
+          setError('That quote has expired — change the amount and try again.');
+          return;
+        }
+        const sig = await marketSwap(signer(), q.requestId);
+        setDone(sig);
+        setInput('');
+        await refresh();
+        return;
+      }
+
       /*
        * Price the floor against the pool as it is now, not as it was on mount.
        *
@@ -213,7 +396,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
        * show the new number and make them look at it. Signing silently against
        * a price they never saw is the thing the tolerance exists to prevent.
        */
-      if (q.amountOut > 0n) {
+      if (q.amountOut > 0n && fq.amountOut > 0n) {
         const drift = fq.amountOut > q.amountOut
           ? q.amountOut * 10_000n / fq.amountOut
           : fq.amountOut * 10_000n / q.amountOut;
@@ -255,18 +438,31 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
     display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', minWidth: 0,
   } as const;
 
-  const inLabel = buying ? 'USDC' : '$MEMPIRE';
-  const outLabel = buying ? '$MEMPIRE' : 'USDC';
+  // Whatever this venue actually prices against — SOL on Bags, USDC on the
+  // local pool. Hardcoding 'USDC' would have mislabelled every Bags figure.
+  const inLabel = buying ? (venue?.quoteLabel ?? 'USDC') : (venue?.baseLabel ?? '$MEMPIRE');
+  const outLabel = buying ? (venue?.baseLabel ?? '$MEMPIRE') : (venue?.quoteLabel ?? 'USDC');
 
   return (
     <div style={{ ...NARROW, gap: compact ? 11 : 14 }}>
       {!compact && (
         <header>
           <h1 style={{ margin: 0 }}>SWAP</h1>
+          {/*
+            The subtitle describes whichever venue is live.
+
+            "reading the pool…" is a sentence about the local AMM, and on Bags
+            there is no pool to read — it sat there permanently, describing
+            something that was never going to load.
+          */}
           <p className="fine" style={{ color: 'var(--dim)', margin: '2px 0 0' }}>
-            {pool && pool.reserveBase > 0n
-              ? `1 $MEMPIRE = $${pool.price.toFixed(8)} · pool ${fmt(pool.reserveQuote, 2)} USDC`
-              : 'reading the pool…'}
+            {venue?.kind === 'bags'
+              ? (q && amountIn > 0n
+                ? `1 SOL = ${fmt((q.amountOut * pow10(inDecimals)) / amountIn, outDecimals, 4)} $MEMPIRE`
+                : 'live from the Bags market')
+              : pool && pool.reserveBase > 0n
+                ? `1 $MEMPIRE = $${pool.price.toFixed(8)} · pool ${fmt(pool.reserveQuote, venue?.quoteDecimals ?? 6, 2)} USDC`
+                : 'reading the pool…'}
           </p>
         </header>
       )}
@@ -291,7 +487,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         "get more $MEMPIRE" a dead end. Saying where the token comes from is
         the difference between a broken screen and an errand.
       */}
-      {!IS_MAINNET && buying && balances.usdc === 0n && (
+      {!IS_MAINNET && venue?.kind === 'amm' && buying && balances.quote === 0n && (
         <p
           className="fine"
           style={{
@@ -323,13 +519,13 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
           <span className="label">You pay</span>
           <button
             type="button"
-            onClick={() => setInput(plain(held))}
+            onClick={() => setInput(plain(held, inDecimals))}
             className="fine"
             style={{
               background: 'none', border: 0, color: 'var(--dim)', cursor: 'pointer', padding: 0,
             }}
           >
-            balance {fmt(held, 4)} {inLabel} · max
+            balance {fmt(held, inDecimals, 4)} {inLabel} · max
           </button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -376,26 +572,42 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
             className="display"
             style={{ flex: 1, minWidth: 0, fontSize: 26, color: q ? 'var(--text)' : 'var(--dim)' }}
           >
-            {q ? fmt(q.amountOut, 4) : '0.0'}
+            {q ? fmt(q.amountOut, outDecimals, 4) : (quoting ? '…' : '0.0')}
           </span>
           <span className="display" style={{ fontSize: 16 }}>{outLabel}</span>
         </div>
       </div>
 
       {/* ── the costs, stated ──────────────────────────────────────────── */}
-      {q && (
+      {/*
+        `amountIn > 0n` is not redundant with `q`.
+        The quote used to be a `useMemo` over `amountIn`, so clearing the field
+        recomputed it to null in the same render. It is state set from an
+        effect now — the Bags quote is a round trip — which leaves one render
+        where the input has been cleared and the old quote is still here. The
+        rate below divides by `amountIn`, and BigInt division by zero throws,
+        which the error boundary catches as "Division by zero" and replaces the
+        whole screen with. Clearing the field after a successful swap did it
+        every time.
+      */}
+      {q && amountIn > 0n && (
         <div className="well" style={{ ...NARROW, padding: 12, borderRadius: 10, gap: 5 }}>
           <Row label="Rate">
-            1 {inLabel} = {fmt((q.amountOut * UNIT) / amountIn, 6)} {outLabel}
+            1 {inLabel} = {fmt((q.amountOut * pow10(inDecimals)) / amountIn, outDecimals, 6)} {outLabel}
           </Row>
-          <Row label="Fee (0.30%)">{fmt(q.fee, 6)} {inLabel}</Row>
+          {/* The pool charges a fee this client can compute and name. The Bags
+              curve folds its own into the price it quotes, and inventing a
+              separate figure for it would be a number nobody could check. */}
+          {q.fee !== null && (
+            <Row label="Fee (0.30%)">{fmt(q.fee, inDecimals, 6)} {inLabel}</Row>
+          )}
           <Row
             label="Price impact"
             warn={q.priceImpact > 0.05}
           >
             {(q.priceImpact * 100).toFixed(2)}%
           </Row>
-          <Row label="Minimum received">{fmt(q.minReceived, 4)} {outLabel}</Row>
+          <Row label="Minimum received">{fmt(q.minReceived, outDecimals, 4)} {outLabel}</Row>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 4 }}>
             <span className="fine" style={{ color: 'var(--dim)' }}>Slippage</span>
             {SLIPPAGE_CHOICES.map((bps) => (
@@ -462,10 +674,23 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
         </p>
       )}
 
+      {/* Say which venue filled this, because the two price against different
+          things and a trader comparing to an outside chart needs to know
+          which. */}
       <p className="fine" style={{ color: 'var(--dim)', margin: 0 }}>
-        {IS_MAINNET ? 'Mainnet.' : 'Devnet.'} Quoted in Circle&apos;s USDC ({USDC_MINT.toBase58().slice(0, 4)}…
-        {USDC_MINT.toBase58().slice(-4)}), constant product, 0.30% to liquidity
-        providers. Pool {POOL.toBase58().slice(0, 4)}…{POOL.toBase58().slice(-4)}.
+        {IS_MAINNET ? 'Mainnet.' : 'Devnet.'}{' '}
+        {venue?.kind === 'bags' ? (
+          <>
+            Quoted by Bags against wrapped SOL, on a Meteora bonding curve.
+            $MEMPIRE {venue.baseMint.slice(0, 4)}…{venue.baseMint.slice(-4)}.
+          </>
+        ) : (
+          <>
+            Quoted in Circle&apos;s USDC ({USDC_MINT.toBase58().slice(0, 4)}…
+            {USDC_MINT.toBase58().slice(-4)}), constant product, 0.30% to liquidity
+            providers. Pool {POOL.toBase58().slice(0, 4)}…{POOL.toBase58().slice(-4)}.
+          </>
+        )}
       </p>
     </div>
   );
