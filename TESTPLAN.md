@@ -1711,3 +1711,31 @@ cost anyway — the shop curates, it does not gate. Recorded rather than fixed.
 Free reroll counts (`rerollsUsed`) remain client-authored. A paid reroll is a
 real transfer; a free one is not, so the exposure is bounded by how many free
 rerolls a day is worth.
+
+## Run 20 — the 0xScratch catalogue, mapped and repaired
+
+The catalogue is 191 Solidity findings in 16 classes, so literal matching is
+meaningless against a Solana program. It was walked as *mistake shapes*: one
+hunter per class over the whole surface, then adversarial verifiers. 106 raw
+claims came back; every one accepted below was re-derived against real source
+before it was believed, and every fix was proven live rather than reasoned
+about. Programs: mempire slot-deployed `2dRtjgj9…`, rollup `fLm3fcznn…`.
+
+| # | What was wrong | Proof |
+|---|---|---|
+| 1 | **The deck commitment compared two different hashes.** `validate_and_lock_deck` stores `SHA-256(coin_mint‖level × 8)`; the client compared it against FNV-1a-32 over joined `coinId` strings, zero-padded to 32 bytes. Never equal, and the one caller that compares them voids the match — so every staked human match voided, and the deck-swap attack the commitment exists to catch was never actually checked. | `verify-deck-commitment` / `verify-deck-live`: created match #91, program stored `bb3dec62…`, new client hash `bb3dec62…` **identical**, old FNV `878285fd0000…` — PASS |
+| 2 | Under it, **the level a card fought at and the level it staked at were unrelated numbers.** `useCollection` is a local mirror that starts every card at level 1 and never refreshes; levels are only created by `upgrade_card` on chain. `buildDecks` now plays the on-chain level. | the #91 deck included a level-10 card the local mirror called level 1; the commitment only matches with the chain level |
+| 3 | **The rollup program never got either log-freeze fix.** `play_card` had a tick floor and no ceiling — one play at `u32::MAX` pinned the cursor and froze the log for both seats; and `MAX_PLAYS` was one pool, so a seat could spend all 128. Both were fixed in `mempire::play_card` and not copied to the copy that actually runs while a match is delegated. `checkpoint` had the same shape: the paragraph explaining why it must not advance `last_tick` was copied over, the assignment was left behind. | `verify-rollup-guards` on match #92: tick `u32::MAX` → REFUSED `StaleTick`, tick 20 still accepted after; seat A capped at exactly 64 plays; seat B still played — PASS |
+| 4 | **`claim_timeout` paid the whole pot to the first caller when no log was ever created.** Delegated-but-unreadable was already closed; never-created was not, and it was the cheaper cheat, because creating the log is the caller's own job. A losing seat only had to never create it and watch the clock. | `verify-timeout-nolog` on match #92: seat B called naming *itself* winner → A +0.050000, B +0.049995 (its own stake, less fee), treasury +0.000000, winner 2 — PASS |
+| 5 | **The relay's "one settled match, counted once" guard keyed on the raw body value** while the chain read canonicalised with `Number()`. Six spellings of one id walked past it six times. | `verify-matchid-idem`: before, `555`/`" 555"`/`"555.0"`/`"555e0"`/`"0x22b"` each credited (5 of 6); after, 1 credited, 5 duplicate — PASS |
+| 6 | **The WebSocket server took `ws`'s 100 MiB default `maxPayload`** with no authentication in front of it. | `verify-relay-guards`: 2 MiB frame → closed, code 1009 — PASS |
+| 7 | **The match seed mixed only inputs the players choose.** `deckHash` is a string nothing validates, so either side could resend a queue message until the seed dealt a hand they liked. | `verify-relay-guards`: identical player input three times → seeds 3749855915, 655186228, 2689840681 — PASS |
+
+Recovery paths re-exercised in passing: `close_match` + `free_orphaned_cards`
+released all 16 decks locked to the voided #92, and `cancel_match` refunded #91.
+
+Not fixed, recorded deliberately: `POST /api/ladder/:address` still takes the
+caller's own `outcome` and `opponentTrophies` with no match reference. That is
+the documented trade in `index.js` — "rating is the relay's to keep, money is
+not" — and the money column is chain-verified. The clan charter's 250 $MEMPIRE
+is still charged by the browser with no server-side proof of payment.
