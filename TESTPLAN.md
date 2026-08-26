@@ -1805,3 +1805,58 @@ vs the 3822324258 recorded) while agreeing on the winner, because each ends the
 sim on its own clock. Settlement compares claimed winners, not hashes, so no
 payout depends on it — but nothing should start trusting `final_hash` until it
 does.
+
+## Run 22 — seat 1, played for the first time
+
+Run 21 proved the win path from seat 0. This one asked the question that had
+never been asked: what happens when the browser is seat 1?
+
+Getting there required the sparring client to be able to take role 0, which it
+refused outright — `if (m.role === 0) return`. That refusal is why seat 1 had
+never been exercised by a real client, and why the finding below survived every
+previous run. It now creates the match and relays `stage: 'opened'` like any
+seat 0, so queueing it *first* puts the browser in seat 1.
+
+**What that immediately found.** `escrow.join` recorded both seats from a match
+it read moments earlier — and the check three lines above requires
+`m.state === 0`, an open match, which by definition nobody has joined. So
+`m.players[1]` was always the default pubkey and seat 1 stored itself as
+`111…111`. That array is what `beginRollupLog` hands to `init_log`, which
+asserts it against the seats on chain and refuses it. Seat 1 never left
+`phase: 'off'`; `play` returns early unless the phase is live; **not one of
+seat 1's cards had ever been written to the on-chain log.**
+
+Three runs to pin it, because the failure was silent — `begin`'s catch set a
+state field the badge does not render. It logs now.
+
+| Match | Setup | Result |
+|---|---|---|
+| #95 | first role-0 run | `ROLLUP DOWN` — AnchorError from mempire-rollup, no log created |
+| #96 | with the failure logged | same, now named: `init_log` refused the seats it was given |
+| #97 | with `join` recording the real seat 1 | `ROLLUP LIVE 🔒`, and the live ER state reads `plays: 3 -> seats [1,1,1]`, checkpoints 8 |
+
+Seat 1 also **won** #97 on both sims (`winner 1`), and the result screen was
+honest about what that did and did not mean: *"YOU WIN (UNPAID) +0.09 SOL —
+settlement needs both players to report, and your opponent has not. If it stays
+unpaid, reclaim it from Empire once the match times out."* The pot was not paid
+because the sparring client does not create the mempire log that
+`settle_from_log` reads — a harness limitation, not a product one; #94 in run 21
+paid a winner in full through that path. Reclaiming it refunded both seats and
+took no rake, which is what run 20's `claim_timeout` change specifies when there
+is no log to read.
+
+### Also fixed this run
+
+| Severity | What | Where |
+|---|---|---|
+| med | `recover` returned `'nothing'` from its catch — the same value as "already settled" and "not your match" — so a claim the chain *refused* was reported as "Nothing to claim on this match", on the one screen whose job is recovering a stranded stake. | `app/src/state/escrow.ts:409` |
+| med | `verifySettledMatch` ended in a bare `else { netSol = -stake }`, so `cancel_match` — winner 3, a full refund of a match nobody joined — was published on the money leaderboard as a full-stake loss that never happened. Every value the program writes is handled now; an unset winner reports nothing rather than a guess. | `server/chain-verify.js:86` |
+| med | `settle_from_log` spent one of sixteen lifetime rewards while *deciding* whether to pay, before either the empty-vault or the destination check — both of which the code documents as ordinary skips. | `chain/programs/mempire/src/lib.rs:1533` |
+| low | A boot failure in the relay surfaced as a bare top-level-await rejection: raw stack, exit 1, nothing naming which step failed. It now names the cause, and says so for the two likely ones (Mongo unreachable, a file the image did not ship). Verified with a deliberately bad `MONGODB_URI`. | `server/index.js:587` |
+
+### Corrected from earlier in this session
+
+A read taken at `confirmed` immediately after `claim_timeout` reported 16 cards
+still locked, and I took that at face value. Re-read at `finalized`: zero. The
+decks are released correctly whenever they are passed as remaining accounts;
+match #92 stayed locked only because that call passed none.
