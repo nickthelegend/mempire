@@ -30,12 +30,19 @@ ENV NODE_ENV=production
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --chown=node:node package.json ./
 COPY --chown=node:node *.js ./
-# The seeded coin registry the faucet hands out from, and the deployed AMM
+# The seeded coin registries the faucet hands out from, and the deployed AMM
 # addresses the TVL reader prices the pool against. Neither is code, so neither
 # is caught by the *.js copy above, and the server refuses to start without
 # them — a data file added beside a new module is the easy half of the change
 # to forget.
-COPY --chown=node:node devnet-coins.json amm.json ./
+#
+# Which is exactly what happened: `mainnet-coins.json` was missing from this
+# line while `index.js` picks the registry by cluster —
+# `readFileSync(isMainnetRpc ? './mainnet-coins.json' : './devnet-coins.json')`.
+# Devnet was fine because devnet's file was here; the mainnet image would have
+# thrown ENOENT at boot and crash-looped, and the first anyone would have
+# learned of it is launch day. BOTH registries ship, always.
+COPY --chown=node:node devnet-coins.json mainnet-coins.json amm.json ./
 
 # `wget` is in busybox already, so the healthcheck costs no extra layer.
 # Mongo may take a moment on cold start, hence the generous start period.

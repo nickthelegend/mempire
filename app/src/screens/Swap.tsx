@@ -61,25 +61,6 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   useEffect(() => { void describeMarket().then(setMarket); }, []);
   const onBags = market?.configured === true;
 
-  /*
-   * The one state where quoting at all would be a lie: no venue can fill an
-   * order. Either Bags has no market yet (before $MEMPIRE is launched) or
-   * this build's cluster disagrees with the pool baked into amm.json — a
-   * mainnet bundle cut before the mainnet pool existed, or the reverse.
-   * Refuse with the reason rather than show a price nobody can trade at.
-   */
-  if (market !== null && !onBags && !AMM_CONFIG_MATCHES_CLUSTER) {
-    return (
-      <div className="panel" style={{ padding: 16 }}>
-        <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
-          {market.note} There is no market for $MEMPIRE on this cluster yet, and
-          quoting one you cannot trade against would be worse than saying so.
-          Everything else in the game works; swaps arrive with the market.
-        </p>
-      </div>
-    );
-  }
-
   const address = useWallet((s) => s.address);
   const [pool, setPool] = useState<PoolState | null>(null);
   const [poolFailed, setPoolFailed] = useState(false);
@@ -134,6 +115,36 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
   const held = buying ? balances.usdc : balances.mempire;
   const overBalance = balancesRead && amountIn > held;
   const canSwap = !!q && !busy && amountIn > 0n && !overBalance && canSign(signer());
+
+  /*
+   * The one state where quoting at all would be a lie: no venue can fill an
+   * order. Either Bags has no market yet (before $MEMPIRE is launched) or
+   * this build's cluster disagrees with the pool baked into amm.json — a
+   * mainnet bundle cut before the mainnet pool existed, or the reverse.
+   * Refuse with the reason rather than show a price nobody can trade at.
+   *
+   * This sat directly under `market`'s own hooks, above the fourteen that
+   * follow — so the first render (with `market` still null) called eighteen
+   * hooks and the render after `describeMarket()` resolved called four and
+   * returned. React counts hooks per render and throws "rendered fewer hooks
+   * than expected", which is not a caught error: it takes the whole app down,
+   * not just this screen. And the branch is precisely the shipping mainnet
+   * configuration — a bundle cut before Bags is configured — so the crash was
+   * waiting for launch day rather than for an edge case.
+   *
+   * The refusal is unchanged; it just happens after every hook has run.
+   */
+  if (market !== null && !onBags && !AMM_CONFIG_MATCHES_CLUSTER) {
+    return (
+      <div className="panel" style={{ padding: 16 }}>
+        <p className="fine" style={{ color: 'var(--dim)', margin: 0, lineHeight: 1.5 }}>
+          {market.note} There is no market for $MEMPIRE on this cluster yet, and
+          quoting one you cannot trade against would be worse than saying so.
+          Everything else in the game works; swaps arrive with the market.
+        </p>
+      </div>
+    );
+  }
 
   async function onSwap() {
     if (!q) return;

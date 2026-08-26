@@ -33,7 +33,7 @@ process.on('unhandledRejection', (e) => {
   console.log('spar-full: unhandled rejection (staying up) —', String(e).slice(0, 110));
 });
 
-const WS = 'wss://mempire-relay-production.up.railway.app/ws';
+const WS = process.env.WS ?? 'wss://mempire-relay-production.up.railway.app/ws';
 const RPC = 'https://api.devnet.solana.com';
 const PROGRAM = new PublicKey('BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP');
 const HOLD_MS = Number(process.env.HOLD_MS ?? 420000);
@@ -56,18 +56,16 @@ const configPda = () => pda(Buffer.from('config'));
 const matchPda = (id) => pda(Buffer.from('match'), le(id));
 const cardPda = (id) => pda(Buffer.from('card'), le(id));
 
-/** FNV-1a over the deck's mints, in order — byte-identical to the client. */
-function deckHashBytes(mints) {
-  const out = new Uint8Array(32);
-  let h = 0x811c9dc5;
-  const text = mints.join(',');
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  for (let i = 0; i < 32; i += 1) { out[i] = h & 0xff; h = Math.imul(h, 0x01000193) >>> 0; }
-  return out;
-}
+/*
+ * The `deck_hash` argument, which the program ignores.
+ *
+ * `create_match` and `join_match` take it as `_deck_hash` and derive the real
+ * commitment themselves in `validate_and_lock_deck`, from the cards actually
+ * locked. This used to claim to be "byte-identical to the client", which was
+ * true of a client that was also computing the wrong thing. Send zeroes and
+ * let the chain speak for itself.
+ */
+const IGNORED_DECK_HASH = new Uint8Array(32);
 
 const DEFAULT = PublicKey.default.toBase58();
 
@@ -89,19 +87,28 @@ const byCoin = new Map();
 for (const c of owned) {
   if (c.account.lockedBy.toBase58() !== DEFAULT) continue;
   const mint = c.account.coinMint.toBase58();
-  if (!byCoin.has(mint)) byCoin.set(mint, c.account.id.toNumber());
+  if (!byCoin.has(mint)) byCoin.set(mint, { id: c.account.id.toNumber(), level: c.account.level });
 }
-const deckIds = [...byCoin.values()].slice(0, 8);
-const deckMints = [...byCoin.keys()].slice(0, 8);
+const picked = [...byCoin.entries()].slice(0, 8);
+const deckIds = picked.map(([, v]) => v.id);
 if (deckIds.length < 8) {
   console.log(`spar-full: only ${deckIds.length} free distinct coins — need 8`);
   process.exit(1);
 }
-console.log('spar-full: deck', deckIds.join(','));
+console.log('spar-full: deck', picked.map(([, v]) => `${v.id}(L${v.level})`).join(','));
 
-// The relay wants the coin mints the browser will render, so send the real ones.
-const relayDeck = deckMints.map((m, i) => ({
-  coinId: m, name: `S${i}`, archetype: i % 6, level: 1,
+/*
+ * Relay the deck we actually staked — levels included.
+ *
+ * `level: 1` was hardcoded here while `create_match` commits to
+ * `(coin_mint, level)` for the cards it locks. A card of any other level made
+ * the relayed deck disagree with the onchain commitment, and the opposing
+ * client is supposed to void a match when those disagree. So this stub was
+ * itself the deck-swap the commitment exists to catch — it just happened to be
+ * swapping *down*. A real client relays what it staked; so does this one.
+ */
+const relayDeck = picked.map(([m, v], i) => ({
+  coinId: m, name: `S${i}`, archetype: i % 6, level: v.level,
 }));
 
 let joined = false;
@@ -385,7 +392,7 @@ ws.on('message', async (raw) => {
     if (!open) { console.log('spar-full: waiting for their CreateMatch…'); continue; }
     try {
       const sig = await program.methods
-        .joinMatch(Array.from(deckHashBytes(deckMints)))
+        .joinMatch(Array.from(IGNORED_DECK_HASH))
         .accounts({
           config: configPda(),
           matchAccount: matchPda(open.id),

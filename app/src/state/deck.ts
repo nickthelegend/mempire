@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useCollection } from './collection';
+import { useChain } from './chain';
 
 export const TIERS = [
   { crowns: 1, stakeSol: 0.05, name: 'Pauper' },
@@ -64,8 +65,31 @@ export const useDeck = create<DeckState>((set, get) => ({
     }),
 
   isComplete: () => get().active.length === 8,
+  /*
+   * Power the chain will agree with.
+   *
+   * This summed `useCollection`'s levels — a local mirror that starts every
+   * card at level 1 and is never refreshed — while `validate_and_lock_deck`
+   * sums the levels on the card accounts it actually locks. The two numbers
+   * are unrelated the moment anyone merges a duplicate, and three things
+   * consume this one: the power shown on the deck, the `power` sent to the
+   * matchmaker, and therefore who a player is paired against. `join_match`
+   * then checks the *chain* power against `config.power_band` — so the relay
+   * would pair two decks it believed were both power 8, seat 0's stake would
+   * commit, and seat 1's join would be refused with `PowerOutOfBand` on a
+   * match that had already taken money.
+   *
+   * The chain card is the authority when there is one, exactly as in
+   * `buildDecks`. Local levels survive only for play that never touches chain.
+   */
   power: () => {
     const cards = useCollection.getState().cards;
-    return get().active.reduce((sum, id) => sum + (cards.find((c) => c.id === id)?.level ?? 0), 0);
+    const chainCards = useChain.getState().cards;
+    return get().active.reduce((sum, id) => {
+      const c = cards.find((x) => x.id === id);
+      if (!c) return sum;
+      const onchain = chainCards.find((k) => k.mint === c.mint && !k.inMatch);
+      return sum + (onchain ? onchain.level : c.level);
+    }, 0);
   },
 }));

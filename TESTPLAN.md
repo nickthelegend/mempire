@@ -1739,3 +1739,69 @@ caller's own `outcome` and `opponentTrophies` with no match reference. That is
 the documented trade in `index.js` — "rating is the relay's to keep, money is
 not" — and the money column is chain-verified. The clan charter's 250 $MEMPIRE
 is still charged by the browser with no server-side proof of payment.
+
+## Run 21 — a staked human match, played and paid
+
+The point of this run was one question the previous run could not answer:
+does a staked match now actually pay a winner? Run 20 proved the deck
+commitment reproduces the chain's hash in isolation. This plays two real
+seats through the whole thing.
+
+Setup: local relay against the production Mongo, local Vite build (the fix is
+not deployed to play.mempire.fun yet), wallet A in the browser as the guest
+identity, wallet B driven by `spar-full.mjs`. Both stakes real, on devnet.
+
+**Match #93 — the draw path.** Both seats escrowed 0.05. Neither felled a
+tower (the drag-to-place inputs did not register; see below), sim ran the full
+4801 ticks, both claimed `winner 2`. Settled: `state 2, winner 2`, 5% tie rake,
+0.048 SOL returned to each. **A tie rake is the tell** — a void takes none, so
+this was a real settlement and not the void every staked match used to produce.
+
+**Match #94 — the win path.** Tap-to-place worked where drag did not. Fourteen
+plays recorded, twenty-two checkpoints, `ROLLUP LIVE 🔒` throughout, one tower
+felled at 0:58 under double elixir.
+
+    match #94   state 2 (Settled)   winner 0 (wallet A)   power 8,8
+    rollup log  claims 0,0 (both seats agreed)  winner 0  plays 14  checkpoints 22
+    mempire log claims 0,0  plays 0  checkpoints 0
+    reward count for A: wins 6 / 16 cap     ← the $MEMPIRE win reward paid
+
+The client showed POT SECURED · pot 0.1 · house rake 10% · **+0.09 SOL**, +8
+trophies, and a card. Before run 20's commitment fix this match voided.
+
+Incidental, and worth keeping: plays and checkpoints land on the **rollup**
+program's log (14 / 22) and never on mempire's (0 / 0), which is the direct
+confirmation that the guards missing from the rollup copy were missing from the
+half that runs.
+
+### Fixed during this run
+
+| Severity | What | Where |
+|---|---|---|
+| critical | The mainnet relay could not boot. `index.js` picks its coin registry by cluster — `isMainnetRpc ? './mainnet-coins.json' : './devnet-coins.json'` — and the Dockerfile copied only the devnet file. Devnet worked, so nothing ever surfaced it; the mainnet image would have thrown ENOENT at boot and crash-looped on launch day. The line's own comment warns about exactly this class of miss. | `server/Dockerfile:45` |
+| critical | The Swap screen crashed the whole app on a mainnet build. Four hooks ran, then a conditional `return`, then fourteen more. `market` starts `null` so the first render called eighteen and the render after `describeMarket()` resolved called four — React throws "rendered fewer hooks than expected", which is not catchable and takes the app down, not just the screen. The branch is precisely the shipping configuration: a mainnet bundle cut before Bags is configured. Refusal unchanged, moved below every hook. | `app/src/screens/Swap.tsx:71` |
+| critical | A won match could be lost to one dropped packet. Recording this seat's result was a single `.rpc()` with no retry; on any transient failure the seat never claimed, `settle_from_log` (which needs both claims) became unreachable, and at the deadline `claim_timeout` correctly paid the *only* seat that spoke — the opponent. The seat that dropped the transaction cannot call `claim_timeout` itself, so there was no way back. Now retried six times with backoff, treating `AlreadyClaimed` as the success it is. | `app/src/state/escrow.ts:225` |
+| med | `useDeck.power()` summed the local collection mirror while the chain sums the levels on the cards it locks. The relay pairs on this number and `join_match` checks the *chain* power against `config.power_band` — so the relay could pair two decks it believed were both power 8, seat 0's stake would commit, and seat 1's join would be refused with `PowerOutOfBand` on a match that had already taken money. | `app/src/state/deck.ts:67` |
+| — | The harness itself was relaying `level: 1` for every card while staking the real ones — the deck-swap the commitment exists to catch, swapping down. It now relays what it stakes, and sends zeroes for the `_deck_hash` argument the program ignores. | `app/spar-full.mjs` |
+
+### Correction to run 20
+
+Run 20 said the played level and the staked level were "unrelated numbers".
+That was overstated. `useChainSync` does map `level: c.level` from the chain
+into the collection, so in the steady state they agree; the `buildDecks` change
+is defensive (it resolves the same card `onchainDeckIds` locks, by mint, which
+is strictly more correct) rather than load-bearing. The SHA-256-vs-FNV
+mismatch was unconditional and is unaffected by this correction.
+
+### Known, not fixed
+
+Drag-to-place records no play — the same taps work through the tap-to-place
+path, so synthetic pointer drags do not reach `dropDecision`. Worth confirming
+against a real mouse before deciding whether it is a harness artifact.
+
+`final_hash` is written to the match account without either seat verifying it
+against the other: #93's two seats reported different final hashes (3417912655
+vs the 3822324258 recorded) while agreeing on the winner, because each ends the
+sim on its own clock. Settlement compares claimed winners, not hashes, so no
+payout depends on it — but nothing should start trusting `final_hash` until it
+does.

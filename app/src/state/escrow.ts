@@ -222,10 +222,43 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
     if (matchId === null || phase === 'none' || phase === 'failed') return;
     set({ phase: 'claiming' });
     try {
-      const { signature, committed } = await claimResultEr(
-        adapter, matchId, winnerSeat, finalHash,
-      );
-      set({ phase: 'claimed', lastSignature: signature });
+      /*
+       * Keep trying to record the claim. Giving up here loses the pot.
+       *
+       * This was a single `.rpc()`. One transient failure — an expired
+       * blockhash, an RPC hiccup, the rollup briefly unreachable — and this
+       * seat never recorded a claim at all. `settle_from_log` requires both
+       * claims, so it becomes unreachable; at the deadline `claim_timeout`
+       * sees exactly one seat that spoke and, correctly, pays only that seat.
+       * The opponent takes the entire pot, and the seat that dropped the
+       * transaction cannot even call `claim_timeout` itself — the program
+       * refuses a claimer that never spoke. A won match, lost to one dropped
+       * packet, with no way back.
+       *
+       * Retrying is safe because the program refuses a second claim from the
+       * same seat (`claims[seat] == 3` is required), so a duplicate is an
+       * `AlreadyClaimed` error, which means the claim we wanted is already on
+       * chain — success, not failure.
+       */
+      const ALREADY = 'already recorded its result';
+      let claim: { signature: string; committed: boolean } | null = null;
+      let lastClaimError: unknown = null;
+      for (let attempt = 0; attempt < 6 && !claim; attempt += 1) {
+        try {
+          claim = await claimResultEr(adapter, matchId, winnerSeat, finalHash);
+        } catch (e) {
+          if (String((e as Error)?.message ?? e).includes(ALREADY)) {
+            claim = { signature: '', committed: false };
+            break;
+          }
+          lastClaimError = e;
+          set({ lastError: `recording the result — retry ${attempt + 1}/6` });
+          await new Promise((r) => { setTimeout(r, 2000 * (attempt + 1)); });
+        }
+      }
+      if (!claim) throw lastClaimError ?? new Error('could not record the result');
+      const { signature, committed } = claim;
+      set({ phase: 'claimed', lastSignature: signature, lastError: null });
 
       /**
        * Wait for the agreement, then settle.
