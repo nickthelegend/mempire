@@ -87,7 +87,17 @@ async function readTvl(programId, amm) {
       filters: [{ dataSize: CARD.SIZE }],
       dataSlice: { offset: CARD.STAKED_MICRO_USD, length: 8 },
     }),
-    conn.getProgramAccounts(program, { filters: [{ dataSize: MATCH.SIZE }] }),
+    /*
+     * Two fields, not the whole account.
+     *
+     * The card scan next to this one already slices; this one downloaded every
+     * match account in full to read a `u64` at 17 and a `u8` at 161. The slice
+     * spans exactly those, and the reads below are relative to its start.
+     */
+    conn.getProgramAccounts(program, {
+      filters: [{ dataSize: MATCH.SIZE }],
+      dataSlice: { offset: MATCH.STAKE_LAMPORTS, length: MATCH.STATE - MATCH.STAKE_LAMPORTS + 1 },
+    }),
     conn.getTokenAccountBalance(new PublicKey(amm.baseVault)).catch(() => null),
     conn.getTokenAccountBalance(new PublicKey(amm.quoteVault)).catch(() => null),
     treasury
@@ -104,9 +114,10 @@ async function readTvl(programId, amm) {
   let openMatches = 0;
   let activeMatches = 0;
   for (const { account } of matches) {
-    const state = account.data.readUInt8(MATCH.STATE);
+    // Offsets are relative to the slice above, which starts at STAKE_LAMPORTS.
+    const state = account.data.readUInt8(MATCH.STATE - MATCH.STAKE_LAMPORTS);
     if (state === MATCH_STATE_SETTLED) continue;
-    const stake = account.data.readBigUInt64LE(MATCH.STAKE_LAMPORTS);
+    const stake = account.data.readBigUInt64LE(0);
     if (state === 0) { openMatches += 1; escrowLamports += stake; } else { activeMatches += 1; escrowLamports += stake * 2n; }
   }
 
@@ -173,11 +184,29 @@ async function readTvl(programId, amm) {
   };
 }
 
-export function registerTvlRoutes(app, { programId, amm }) {
-  app.get('/api/analytics/tvl', async (_req, res) => {
+/*
+ * The read that is currently happening, if one is.
+ *
+ * The TTL check reads `cached` before the await and `cached` is only assigned
+ * after `readTvl` resolves, so every request arriving during one cold window
+ * ran its own full scan — seven RPC calls each, two of them
+ * `getProgramAccounts` over the whole program. A TTL bounds *sequential*
+ * misses and does nothing about concurrency, which is the shape an abusive
+ * client actually has. Sharing the in-flight promise makes N concurrent misses
+ * cost exactly one chain read.
+ */
+let inflight = null;
+
+export function registerTvlRoutes(app, { programId, amm }, gate) {
+  // Public, unauthenticated, and it spends the same RPC quota that chain
+  // verification needs to establish who was paid what. The shared limiter
+  // exempts GETs by default, so this route asks for one that does not.
+  const guard = gate ?? ((_req, _res, next) => next());
+  app.get('/api/analytics/tvl', guard, async (_req, res) => {
     if (cached && Date.now() - cached.at < TTL_MS) return res.json(cached.body);
     try {
-      const body = await readTvl(programId, amm);
+      inflight ??= readTvl(programId, amm).finally(() => { inflight = null; });
+      const body = await inflight;
       cached = { at: Date.now(), body };
       res.json(body);
     } catch (e) {

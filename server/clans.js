@@ -1,4 +1,6 @@
 import { requireWallet } from './auth.js';
+import { readFileSync } from 'node:fs';
+import { verifyTokenPayment, treasuryAddress } from './chain-verify.js';
 /**
  * Clans.
  *
@@ -123,6 +125,23 @@ function feedEntry(kind, address, extra = {}) {
  */
 export function registerClanRoutes(app, db) {
   const clans = db.collection('clans');
+  /*
+   * One row per wallet that is in a clan, so "one clan per wallet" is a fact
+   * the database can enforce.
+   *
+   * It was enforced by reading `clanOf(address)` and then writing to a
+   * *different* document — a new clan, or the target clan. The join's filter
+   * guards the member cap and the same-clan duplicate atomically, and the
+   * comment there says exactly why; but no filter on one clan can see the
+   * others, so two concurrent joins to two different tags both passed the read
+   * and both committed. Everything downstream then reads one arbitrary row of
+   * several: `clanOf`, `/api/clans/mine`, and `leave`'s disband-or-promote
+   * logic, which only ever looks at the tag it was handed.
+   *
+   * A unique `_id` on the address turns the second concurrent write into a
+   * duplicate-key error instead of a success.
+   */
+  const membership = db.collection('clan_membership');
 
   const ready = (async () => {
     // Unique on name so two clans cannot share one; case-insensitive via collation.
@@ -133,13 +152,111 @@ export function registerClanRoutes(app, db) {
     await clans.createIndex({ 'members.address': 1 });
     await clans.createIndex({ crowns: -1 });
     await clans.createIndex({ region: 1, crowns: -1 });
+    /*
+     * One charter payment, one clan — and only for clans that have one.
+     *
+     * `sparse` is not enough here: it skips documents where the field is
+     * *missing*, not ones where it is present and null, so every clan founded
+     * without a payment (the no-mint-configured case) would collide with the
+     * next on `null`. A partial index keyed on the field actually being a
+     * string is the version that means what this wants.
+     */
+    await clans.dropIndex('charterSignature_1').catch(() => {});
+    await clans.createIndex({ charterSignature: 1 }, {
+      unique: true,
+      partialFilterExpression: { charterSignature: { $type: 'string' } },
+    });
   })();
+
+  /*
+   * The charter fee, and the promise that it was actually paid.
+   *
+   * Mirrors the client's `PRICES.clanCharter`. A signature may found exactly
+   * one clan: it is stored on the clan document under a unique index, so
+   * replaying one payment to found a second clan is a duplicate-key error
+   * rather than a free clan.
+   */
+  const CHARTER_TOKENS = 250;
+  const charterMint = () => process.env.MEMPIRE_MINT
+    || JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')).mempireMint;
+  const charterDecimals = () => Number(
+    JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')).mempireDecimals ?? 6,
+  );
+
+  async function requireCharter(address, signature) {
+    const mint = charterMint();
+    if (!mint) {
+      // No token on this cluster yet: there is nothing to charge, and refusing
+      // every clan would be worse than charging none.
+      return { ok: true, skipped: 'no $MEMPIRE mint configured' };
+    }
+    if (!signature) {
+      return { ok: false, reason: `the charter costs ${CHARTER_TOKENS} $MEMPIRE — pay it, then send the signature` };
+    }
+    if (await clans.findOne({ charterSignature: String(signature) })) {
+      return { ok: false, reason: 'that payment has already chartered a clan' };
+    }
+    const min = BigInt(CHARTER_TOKENS) * (10n ** BigInt(charterDecimals()));
+    const treasury = await treasuryAddress();
+    const paid = await verifyTokenPayment(signature, address, mint, treasury, min);
+    if (!paid.ok) return { ok: false, reason: paid.reason };
+    return { ok: true, signature: String(signature) };
+  }
 
   const badAddress = (a) => !a || !ADDRESS.test(a);
 
   const fail = (res, code, error) => res.status(code).json({ error });
 
-  /** The clan this wallet belongs to, or null. */
+  /**
+   * Claim this wallet for `tag`, or fail if it already belongs somewhere.
+   *
+   * Returns true when the claim is ours to keep. The caller must release it
+   * again if the roster write that follows does not land, so a failed join
+   * never locks a wallet out of clans entirely.
+   */
+  async function claimMembership(address, tag) {
+    try {
+      await membership.insertOne({ _id: address, tag, at: new Date() });
+      return true;
+    } catch (e) {
+      if (e?.code !== 11000) throw e;
+      /*
+       * A row with no roster behind it is either a live claim or litter, and
+       * only the clock can tell them apart.
+       *
+       * The claim is taken before the write that puts the wallet on a roster,
+       * so a crash in between leaves a row naming a clan the wallet never
+       * joined. Treating that as "already in a clan" would lock the wallet out
+       * of every clan forever with no clan to leave — worse than the race this
+       * exists to prevent. But "no roster yet" is *also* what the loser of a
+       * genuine race sees, because the winner is a few milliseconds from
+       * writing its roster; reclaiming on that alone hands both requests a
+       * clan and defeats the whole lock.
+       *
+       * So: a row younger than the grace period is somebody else's claim in
+       * flight and is respected. An older one with nothing on any roster is
+       * abandoned, and can be taken.
+       */
+      const CLAIM_GRACE_MS = 30_000;
+      const held = await membership.findOne({ _id: address });
+      const age = held?.at ? Date.now() - new Date(held.at).getTime() : Infinity;
+      if (age < CLAIM_GRACE_MS) return false;
+      if (await clanOf(address)) return false;
+      await membership.updateOne({ _id: address }, { $set: { tag, at: new Date() } });
+      return true;
+    }
+  }
+
+  const releaseMembership = (address) => membership.deleteOne({ _id: address }).catch(() => {});
+
+  /**
+   * The clan this wallet belongs to, or null.
+   *
+   * Still answered from the roster, which is the thing every other read uses;
+   * the membership row is the lock, not a second source of truth. Rows left
+   * behind by an older deployment simply do not match any roster and are
+   * cleaned up on the next leave.
+   */
   async function clanOf(address) {
     return clans.findOne({ 'members.address': address });
   }
@@ -227,6 +344,7 @@ export function registerClanRoutes(app, db) {
     await ready;
     const {
       address, name, description, region, crest, requiredPower, joinMode, memberName, power,
+      paymentSignature,
     } = req.body ?? {};
     if (badAddress(address)) return fail(res, 400, 'bad address');
 
@@ -237,6 +355,26 @@ export function registerClanRoutes(app, db) {
       // One clan per wallet. Checked before insert so the error is the useful
       // one ("already in a clan") rather than a duplicate-key surprise.
       if (await clanOf(address)) return fail(res, 409, 'you are already in a clan');
+      /*
+       * The charter is paid before the clan exists, and the chain says so.
+       *
+       * This route used to create the clan and leave the charging to the
+       * browser afterwards, with "the founder cancels and we call leave" as
+       * the undo. That undo runs in the same browser that just got its clan,
+       * so a caller who skipped it founded one for nothing — the fee was a
+       * suggestion, exactly like the leaderboard's money column was before
+       * `chain-verify` existed. It is the same fix: the client sends the
+       * signature of the payment it already made, and the server reads what
+       * actually arrived at the treasury.
+       */
+      const charter = await requireCharter(address, paymentSignature);
+      if (!charter.ok) return fail(res, 402, charter.reason);
+
+      // The tag does not exist yet — it is drawn in the retry loop below — so
+      // the claim is made first and stamped once the clan is real.
+      if (!await claimMembership(address, null)) {
+        return fail(res, 409, 'you are already in a clan');
+      }
 
       const now = new Date();
       const doc = {
@@ -264,6 +402,9 @@ export function registerClanRoutes(app, db) {
           lastSeenAt: now,
         }],
         feed: [feedEntry('founded', address, { name: cleanName })],
+        // Omitted entirely rather than set to null when there was nothing to
+        // charge, so the index above has nothing to key on.
+        ...(charter.signature ? { charterSignature: charter.signature } : {}),
       };
 
       // Tag collisions are possible but rare; retry a few times rather than
@@ -272,15 +413,22 @@ export function registerClanRoutes(app, db) {
         const tag = randomTag();
         try {
           await clans.insertOne({ _id: tag, ...doc });
+          await membership.updateOne({ _id: address }, { $set: { tag } });
           return res.status(201).json(clanDetail({ _id: tag, ...doc }));
         } catch (e) {
           if (e?.code !== 11000) throw e;
           // Duplicate name is a user error and will never resolve by retrying.
-          if (String(e.message).includes('name')) return fail(res, 409, 'that name is taken');
+          if (String(e.message).includes('name')) {
+            await releaseMembership(address);
+            return fail(res, 409, 'that name is taken');
+          }
         }
       }
+      // No clan was created, so the wallet is not in one.
+      await releaseMembership(address);
       return fail(res, 500, 'could not allocate a clan tag');
     } catch (e) {
+      await releaseMembership(address);
       return fail(res, 500, e.message);
     }
   });
@@ -295,6 +443,9 @@ export function registerClanRoutes(app, db) {
 
     try {
       if (await clanOf(address)) return fail(res, 409, 'leave your current clan first');
+      if (!await claimMembership(address, tag)) {
+        return fail(res, 409, 'leave your current clan first');
+      }
       const clan = await clans.findOne({ _id: tag });
       if (!clan) return fail(res, 404, 'clan not found');
       if (clan.joinMode === 'closed') return fail(res, 403, 'this clan is closed');
@@ -331,7 +482,11 @@ export function registerClanRoutes(app, db) {
         },
         { returnDocument: 'after' },
       );
-      if (!result) return fail(res, 409, 'clan filled up — try another');
+      if (!result) {
+        // The roster refused us, so the claim is not ours to hold.
+        await releaseMembership(address);
+        return fail(res, 409, 'clan filled up — try another');
+      }
       res.json(clanDetail(result));
     } catch (e) {
       fail(res, 500, e.message);
@@ -358,6 +513,7 @@ export function registerClanRoutes(app, db) {
       // the most senior remaining member is promoted, so there is always a leader.
       if (!others.length) {
         await clans.deleteOne({ _id: tag });
+        await releaseMembership(address);
         return res.json({ ok: true, disbanded: true });
       }
 
@@ -385,6 +541,7 @@ export function registerClanRoutes(app, db) {
           },
         );
       }
+      await releaseMembership(address);
       res.json({ ok: true, disbanded: false });
     } catch (e) {
       fail(res, 500, e.message);
@@ -459,6 +616,30 @@ export function registerClanRoutes(app, db) {
       }
       if (role === 'leader') return fail(res, 400, 'transfer leadership is not supported yet');
 
+      /*
+       * A leader stepping down must name a successor, exactly as leaving does.
+       *
+       * The rank guard above is switched off when the actor is the target
+       * (`&& address !== target`), which is right for a coleader dropping to
+       * elder. For a leader it is one-way: promotion to `leader` is refused
+       * two lines up, and `RANK <= coleader` gates both this route and the
+       * settings route — so a leader who demoted themselves left a clan that
+       * nobody could ever administer again, and `leave` could not repair it
+       * either, because its heir promotion only runs for a departing leader.
+       *
+       * `leave` treats this invariant as sacred — "there is always a leader" —
+       * and promotes the most senior remaining member. A step-down does the
+       * same thing in the same call.
+       */
+      let heir = null;
+      if (address === target && me.role === 'leader') {
+        const others = (clan.members ?? []).filter((x) => x.address !== address);
+        if (!others.length) {
+          return fail(res, 400, 'you are the only member — use leave to disband the clan');
+        }
+        heir = rankMembers(others)[0];
+      }
+
       const now = new Date();
       await clans.updateOne(
         { _id: tag, 'members.address': target },
@@ -473,6 +654,21 @@ export function registerClanRoutes(app, db) {
           },
         },
       );
+      if (heir) {
+        await clans.updateOne(
+          { _id: tag, 'members.address': heir.address },
+          {
+            $set: { 'members.$.role': 'leader' },
+            $push: {
+              feed: {
+                $each: [feedEntry('promoted', heir.address, { role: 'leader', by: address })],
+                $position: 0,
+                $slice: FEED_MAX,
+              },
+            },
+          },
+        );
+      }
       const after = await clans.findOne({ _id: tag });
       res.json(clanDetail(after));
     } catch (e) {
@@ -510,6 +706,9 @@ export function registerClanRoutes(app, db) {
           },
         },
       });
+      // Kicked out of the roster and out of the membership lock, or they could
+      // never join anywhere again.
+      await releaseMembership(target);
       const after = await clans.findOne({ _id: tag });
       res.json(clanDetail(after));
     } catch (e) {

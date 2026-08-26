@@ -123,3 +123,64 @@ export async function verifySettledMatch(matchId, address) {
   }
   return { netSol, potSol: pot, won, draw, players };
 }
+
+/**
+ * Was `signature` a payment of at least `minTokens` $MEMPIRE from `payer` to
+ * the treasury?
+ *
+ * The clan charter is charged by the browser, and the browser is not evidence.
+ * `POST /api/clans` validated a wallet signature — which proves who is
+ * talking, not that anyone paid — and then created the clan. The undo it
+ * relied on was the *same browser* calling `leave` if the player cancelled, so
+ * a caller that simply never ran that code founded a clan for nothing. This is
+ * the check that makes the fee a fee.
+ *
+ * Balances rather than instructions: `postTokenBalances` minus
+ * `preTokenBalances` for the treasury's account is what actually arrived, and
+ * it cannot be fooled by an unusual instruction shape, a CPI, or a transfer
+ * split across several instructions.
+ *
+ * Returns { ok: true, amount } or { ok: false, reason }.
+ */
+export async function verifyTokenPayment(signature, payer, mint, treasury, minBaseUnits) {
+  if (typeof signature !== 'string' || !/^[1-9A-HJ-NP-Za-km-z]{64,96}$/.test(signature)) {
+    return { ok: false, reason: 'that is not a transaction signature' };
+  }
+  let tx;
+  try {
+    tx = await connection().getParsedTransaction(signature, {
+      maxSupportedTransactionVersion: 0,
+      commitment: 'confirmed',
+    });
+  } catch (e) {
+    return { ok: false, reason: `could not read that transaction: ${String(e?.message ?? e).slice(0, 80)}` };
+  }
+  if (!tx) return { ok: false, reason: 'that transaction is not on chain yet' };
+  if (tx.meta?.err) return { ok: false, reason: 'that transaction failed on chain' };
+
+  // The payer must have signed it, or anyone could cite somebody else's payment.
+  const signers = (tx.transaction?.message?.accountKeys ?? [])
+    .filter((k) => k.signer)
+    .map((k) => String(k.pubkey));
+  if (!signers.includes(String(payer))) {
+    return { ok: false, reason: 'that payment was not signed by this wallet' };
+  }
+
+  const want = String(mint);
+  const to = String(treasury);
+  const sum = (rows) => (rows ?? [])
+    .filter((b) => String(b.mint) === want && String(b.owner) === to)
+    .reduce((n, b) => n + BigInt(b.uiTokenAmount?.amount ?? '0'), 0n);
+  const delta = sum(tx.meta?.postTokenBalances) - sum(tx.meta?.preTokenBalances);
+  if (delta < BigInt(minBaseUnits)) {
+    return { ok: false, reason: `the treasury received ${delta} of the required ${minBaseUnits}` };
+  }
+  return { ok: true, amount: delta.toString() };
+}
+
+/** The treasury the program is currently configured to pay. */
+export async function treasuryAddress() {
+  const info = await connection().getAccountInfo(configPda());
+  if (!info) throw new Error('config account missing');
+  return new PublicKey(info.data.subarray(8 + 32, 8 + 64)).toBase58();
+}

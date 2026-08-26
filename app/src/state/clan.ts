@@ -129,6 +129,8 @@ export interface ClanDraft {
   joinMode: JoinMode;
   memberName?: string;
   power?: number;
+  /** Signature of the charter payment. The server verifies it before founding. */
+  paymentSignature?: string;
 }
 
 /**

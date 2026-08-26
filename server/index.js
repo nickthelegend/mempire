@@ -89,6 +89,17 @@ app.use((err, _req, res, next) => {
 let credits = null;
 let limit = null;
 let bagsLimit = null;
+/*
+ * A bucket for the public GETs that are not free to serve.
+ *
+ * Most reads here are a Mongo lookup and the shared limiter rightly waves them
+ * through. Two are not: the faucet status endpoint and the TVL dashboard both
+ * spend the relay's RPC quota, and that is the same quota `chain-verify` needs
+ * to establish who was paid what. Leaving them on the read exemption meant an
+ * anonymous loop against a status endpoint could throttle our egress IP and
+ * take money verification down with it.
+ */
+let readLimit = null;
 app.use((req, res, next) => (limit ? limit(req, res, next) : next()));
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, Solana pubkey shape
@@ -632,7 +643,9 @@ const server = await (async () => {
   const registryCoins = JSON.parse(
     readFileSync(new URL(isMainnetRpc ? './mainnet-coins.json' : './devnet-coins.json', import.meta.url), 'utf8'),
   ).coins;
-  registerFaucetRoutes(app, db, registryCoins);
+  registerFaucetRoutes(app, db, registryCoins, (req, res, next) => (
+    readLimit ? readLimit(req, res, next) : next()
+  ));
   registerPlayerRoutes(app, db);
   // The $MEMPIRE market. Registers either way — the routes report
   // `configured: false` until BAGS_API_KEY and MEMPIRE_MINT are both set,
@@ -660,13 +673,16 @@ const server = await (async () => {
   registerTvlRoutes(app, {
     programId: 'BnLDCAREDpBGenqZr8BTyQu7BCoVewF9XEtMPFBqFxeP',
     amm: JSON.parse(readFileSync(new URL('./amm.json', import.meta.url), 'utf8')),
-  });
+  }, (req, res, next) => (readLimit ? readLimit(req, res, next) : next()));
 
   // Now that there is a database, the shared limiter can take over from the
   // pass-through installed at module load.
   limit = rateLimiter(db);
   // Tighter, and it counts GETs: every one of these is a call on our Bags key.
   bagsLimit = rateLimiter(db, { capacity: 30, refillPerSec: 1, includeReads: true });
+  // Generous — these are legitimate dashboard polls — but bounded, and reads
+  // count because reads are what costs.
+  readLimit = rateLimiter(db, { capacity: 60, refillPerSec: 2, includeReads: true });
   setWalletLimiter(walletLimiter(db));
 
   // Replay protection: one row per seen signature, expiring shortly after the

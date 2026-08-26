@@ -6,7 +6,7 @@ import { Pill } from './ui';
 import { click, play } from '../lib/audio';
 import { REGIONS, useClan, type JoinMode } from '../state/clan';
 import { useDeck } from '../state/deck';
-import { PRICES, checkSpend } from '../chain/spend';
+import { PRICES, checkSpend, spendMempire } from '../chain/spend';
 import { signer, useWallet } from '../state/wallet';
 
 /**
@@ -65,23 +65,42 @@ export function ClanCreateSheet({ onClose, onFounded }: {
     setCrest((c) => ({ ...c, [key]: (c[key] + step + mod) % mod }));
   };
 
-  /**
-   * Validate everything the server can reject *before* asking for money.
+  /*
+   * Pay, then found.
    *
-   * A charter costs real $MEMPIRE. Discovering the name is taken after the
-   * tokens have moved is the one outcome this flow must never produce, so the
-   * clan is created first and the confirmation dialog only opens once the
-   * server has accepted it.
+   * It used to be the other way round, for a good reason: discovering the name
+   * is taken *after* the tokens have moved is the one outcome this flow must
+   * never produce. But creating first made the fee optional — the server had
+   * no evidence anybody had paid, and the undo it relied on was this browser
+   * choosing to call `leave`. A founder who closed the tab kept the clan free.
+   *
+   * The original concern goes away because a failed attempt does not consume
+   * the payment: the server records a signature only on a clan it actually
+   * creates, and refuses one that has already chartered a clan. A rejected
+   * name therefore leaves the receipt in hand, the next submit reuses it, and
+   * nobody pays twice. `paid` is what holds it.
    */
+  const [paid, setPaid] = useState<string | null>(null);
+
   const submit = async () => {
     if (!nameOk) { setError('name must be at least 3 characters'); return; }
     setError(null);
 
-    // Ask about money before creating anything. A founder who cannot pay should
-    // be told so while the sheet is still theirs to edit, not after a clan
-    // exists in their name that they are about to lose again.
-    const afford = await checkSpend(signer(), 'clanCharter', address);
-    if (!afford.affordable) { setError(afford.blocker); play('error'); return; }
+    let signature = paid;
+    if (!signature) {
+      // Ask about money before spending any, so somebody who cannot afford it
+      // is told while the sheet is still theirs to edit.
+      const afford = await checkSpend(signer(), 'clanCharter', address);
+      if (!afford.affordable) { setError(afford.blocker); play('error'); return; }
+      try {
+        signature = await spendMempire(signer(), 'clanCharter', address);
+        setPaid(signature);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'the charter payment did not go through');
+        play('error');
+        return;
+      }
+    }
 
     const err = await create(address, {
       name: name.trim(),
@@ -91,9 +110,15 @@ export function ClanCreateSheet({ onClose, onFounded }: {
       requiredPower,
       joinMode,
       power,
+      paymentSignature: signature,
     });
-    if (err) { setError(err); play('error'); return; }
-    // The clan exists; the screen above now charges for the charter.
+    if (err) {
+      // Still paid, still unspent — say so, so a retry does not read as
+      // "pay again".
+      setError(`${err} — your charter is paid; pick another name and try again.`);
+      play('error');
+      return;
+    }
     onFounded(name.trim());
   };
 

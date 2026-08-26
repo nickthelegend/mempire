@@ -80,7 +80,9 @@ function faucetKeypair() {
   }
 }
 
-export function registerFaucetRoutes(app, db, coins) {
+export function registerFaucetRoutes(app, db, coins, gate) {
+  // The GET below spends a shared RPC quota, so it counts reads.
+  const readGate = gate ?? ((_req, _res, next) => next());
   if (IS_MAINNET_RPC) {
     // Skip registration, don't crash the relay: everything else it does —
     // matchmaking, clans, ladder — is cluster-agnostic and must keep running.
@@ -97,9 +99,30 @@ export function registerFaucetRoutes(app, db, coins) {
   // which of sixty-six they happen to have been given.
   const starters = coins.slice(0, STARTER_COINS);
 
-  app.get('/api/faucet', async (_req, res) => {
+  /*
+   * The faucet's balance, at most once every twenty seconds.
+   *
+   * This called `getBalance` on every request, unauthenticated and unlimited —
+   * the shared limiter exempts GETs unless asked otherwise. Each hit spent one
+   * request from the relay's RPC quota, and that quota is the same one
+   * `chain-verify` uses to establish who was paid what for a settled match. So
+   * an anonymous loop against a status endpoint could get the relay's egress
+   * IP throttled and take money verification down with it. The balance moves
+   * only when somebody claims; a few seconds of staleness costs nothing.
+   */
+  let balanceCache = null;
+  const BALANCE_TTL_MS = 20_000;
+  let balanceInflight = null;
+
+  app.get('/api/faucet', readGate, async (_req, res) => {
     if (!kp) return res.json({ available: false, reason: 'faucet not configured' });
-    const sol = await conn.getBalance(kp.publicKey).catch(() => 0);
+    if (!balanceCache || Date.now() - balanceCache.at > BALANCE_TTL_MS) {
+      balanceInflight ??= conn.getBalance(kp.publicKey)
+        .catch(() => 0)
+        .finally(() => { balanceInflight = null; });
+      balanceCache = { at: Date.now(), sol: await balanceInflight };
+    }
+    const sol = balanceCache.sol;
     res.json({
       available: sol > DRIP_SOL * LAMPORTS_PER_SOL * 2,
       address: kp.publicKey.toBase58(),

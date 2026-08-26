@@ -3,7 +3,6 @@ import { ClanCreateSheet } from '../components/ClanCreate';
 import { ClanCrest } from '../components/ClanCrest';
 import { ClanRow, CrownCount, LendRequest, MemberCount, MemberRow } from '../components/ClanBits';
 import { ClanSheet } from '../components/ClanSheet';
-import { ConfirmSpend } from './../components/ConfirmSpend';
 import { PRICES } from '../chain/spend';
 import { ArchetypeIcon, Pill, Spinner } from '../components/ui';
 import { click, play } from '../lib/audio';
@@ -426,15 +425,17 @@ export function Clan() {
   const connected = useWallet((s) => s.connected);
   const address = useWallet((s) => s.address);
   const openPicker = useWallet((s) => s.openPicker);
-  const { mine, loadMine, clear, leave } = useClan();
-  /**
-   * The clan just founded whose charter has not been paid yet.
+  const { mine, loadMine, clear } = useClan();
+  /*
+   * Founding no longer owes anything.
    *
-   * Held here, above the `mine ? Home : Browse` switch, because founding flips
-   * that switch — a till rendered inside Browse is unmounted by the very event
-   * that should open it, and the charter silently costs nothing.
+   * This used to hold "the clan just founded whose charter has not been paid
+   * yet", and render a till for it after the fact. The server now refuses to
+   * found a clan without the signature of a payment it can see on chain, so by
+   * the time this switch flips the charter is already paid — there is nothing
+   * left to collect, and nothing to undo by quietly calling `leave` if the
+   * player declines.
    */
-  const [charterFor, setCharterFor] = useState<string | null>(null);
 
   useEffect(() => {
     if (connected && address) void loadMine(address);
@@ -480,24 +481,7 @@ export function Clan() {
         />
       </header>
 
-      {charterFor !== null && (
-        <ConfirmSpend
-          kind="clanCharter"
-          title="Charter your clan"
-          detail={`${charterFor} is founded. The charter fee goes to the treasury — cancel and the clan is dissolved again.`}
-          onCancel={() => {
-            // A real undo: the founder is the only member, and leaving as the
-            // last member disbands the clan server-side. Without this, founding
-            // and walking away is free, and a price anyone can decline is not
-            // a price.
-            void leave(address);
-            setCharterFor(null);
-          }}
-          onDone={() => { play('reward'); setCharterFor(null); }}
-        />
-      )}
-
-      {mine ? <Home /> : <Browse onFounded={setCharterFor} />}
+      {mine ? <Home /> : <Browse onFounded={() => play('reward')} />}
     </div>
   );
 }
