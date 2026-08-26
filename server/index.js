@@ -240,7 +240,18 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
           // counting it unconditionally made this column a running total of
           // money that never existed — a guest's unstaked wins included.
           netSol: chainNetSol,
-          crowns: Array.isArray(crowns) ? Number(crowns[0]) || 0 : 0,
+          /*
+           * Bounded, because three towers is all there are.
+           *
+           * A side has two princess towers and a king, so a match can yield at
+           * most three crowns. The clan route already clamps this exact value
+           * to 0..3; this one took it straight from the body, so the same
+           * number was bounded in one place and unbounded in the other and a
+           * client could report `crowns: [999999]` to inflate its column on the
+           * public board. Money on that board is chain-verified — this is the
+           * one column that was not.
+           */
+          crowns: Array.isArray(crowns) ? num(crowns[0], 0, 3) : 0,
         },
         $set: { updatedAt: now },
         $setOnInsert: { createdAt: now },
