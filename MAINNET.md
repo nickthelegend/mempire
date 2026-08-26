@@ -177,10 +177,39 @@ normally and skips the bonus. Verified on devnet, match #78: winner
 - [x] Both binaries build and were byte-verified to carry their own mint.
 - [x] MagicBlock mainnet fleet re-checked live: ER, router, pricing oracle and
       VRF oracle all up across asia/europe/usa.
-- [x] The Bags market is wired end to end (`server/bags.js` holds the key,
-      `app/src/chain/market.ts` calls our own origin) and reports
-      `configured: false` until the token exists. Nothing to build at launch —
-      set `BAGS_API_KEY` and `MEMPIRE_MINT` on the relay and it goes live.
+- [x] The Bags market is wired end to end — including the swap button, which
+      it was not. This box was ticked while `Swap.tsx` imported `quote` and
+      `swap` from `../chain/amm` and only `describe` from `market.ts`: the
+      relay half was real, the client half traded against the local pool no
+      matter what the relay said. Both halves now route to the venue that
+      quoted, and the screen labels, decimals and balances follow it.
+
+      To go live, set on the relay:
+
+      ```
+      BAGS_API_KEY=<key from dev.bags.fm>
+      MEMPIRE_MINT=<the mint Bags returned>
+      ```
+
+      Both are required — `bagsConfigured()` is `BAGS_KEY && MEMPIRE_MINT`, and
+      with either missing every `/api/market/*` route answers
+      `configured: false` and the swap screen falls back to the local pool (or
+      refuses honestly if that pool is for another cluster). Nothing needs a
+      rebuild of the app; the venue is decided at runtime from `/api/market`.
+
+      To exercise it *before* the key exists, `server/bags.js` reads its
+      upstream from `BAGS_API`:
+
+      ```
+      node app/bags-stub.mjs                       # a stand-in on :8899
+      BAGS_API=http://localhost:8899 BAGS_API_KEY=stub-key \
+        MEMPIRE_MINT=<any mint> npm run dev --prefix server
+      ```
+
+      The stub impersonates only Bags — the relay and the client under test
+      both run for real — and returns a genuinely signable transaction, so the
+      quote → sign → send → confirm path is exercised rather than asserted
+      about. That is how the wiring above was verified.
 - [x] A win pays `WIN_REWARD` (50 $MEMPIRE) from a `[b"rewards"]` PDA vault.
       **Create and fund that vault at launch.** It is the associated token
       account of the `[b"rewards"]` PDA, so it does not exist until someone
