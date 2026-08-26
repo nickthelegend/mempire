@@ -399,6 +399,25 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
   },
 
   withdraw: async (adapter) => {
+    /*
+     * Wait out a stake that is still being taken.
+     *
+     * `refundEscrow` calls this in exactly two phases, `waiting` and
+     * `opening`, and this guard accepted `waiting` and `failed` — so the
+     * `opening` case, the one where a transaction is in flight, fell straight
+     * through and returned. It had to: during `opening` there is no
+     * `matchId` yet, because `create_match` assigns it on confirmation. But
+     * "there is nothing to cancel yet" is not "there is nothing to cancel";
+     * a moment later the stake is on chain in an `Open` match, and by then
+     * nobody is calling this any more. The player walked away mid-stake and
+     * the money stayed behind, recoverable only by hunting it down on the
+     * Empire screen.
+     *
+     * So let the open finish, then cancel what it created.
+     */
+    for (let i = 0; i < 20 && get().phase === 'opening'; i += 1) {
+      await new Promise((r) => { setTimeout(r, 500); });
+    }
     const { matchId, deckCardIds, phase } = get();
     if (matchId === null || (phase !== 'waiting' && phase !== 'failed')) return;
     try {

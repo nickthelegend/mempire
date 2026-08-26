@@ -213,8 +213,35 @@ export function registerFaucetRoutes(app, db, coins) {
         tx.feePayer = kp.publicKey;
         tx.sign(kp);
         const signature = await conn.sendRawTransaction(tx.serialize());
-        await conn.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+        /*
+         * Recorded on send, not on confirm.
+         *
+         * This sat after `confirmTransaction`, and a confirmation that times
+         * out on a transaction which actually landed is the ordinary devnet
+         * failure, not an exotic one. On the first batch — the one carrying
+         * the entire drip of SOL — that left `signatures` empty, the catch
+         * below read it as "nothing was sent", and it deleted the
+         * one-claim-ever record for SOL that had already gone out. Claim,
+         * time out, claim again: the faucet pays every time and the ledger
+         * says it never paid at all.
+         *
+         * A signature in hand means the network has the transaction. Whether
+         * it confirms is a separate question, and the answer to it must not
+         * decide whether the claim is released.
+         */
         signatures.push(signature);
+        const confirmed = await conn.confirmTransaction(
+          { signature, blockhash, lastValidBlockHeight }, 'confirmed',
+        );
+        /*
+         * And a confirmed transaction can still have failed. `confirmTransaction`
+         * resolves with the error rather than throwing it, so discarding the
+         * result reported a drip that reverted on chain as `ok: true` — the
+         * player is told their kit is on the way and nothing ever arrives.
+         */
+        if (confirmed?.value?.err) {
+          throw new Error(`drip failed on chain: ${JSON.stringify(confirmed.value.err).slice(0, 120)}`);
+        }
       }
 
       recordEvent(db, {

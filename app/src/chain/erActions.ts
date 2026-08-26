@@ -441,9 +441,20 @@ export async function readChestRail(
         randomness: Uint8Array.from(s.randomness),
       })),
       pendingSlot: Number(acc.pendingSlot),
-      // The entitlement counters. `request_chest` is refused with
-      // `NoChestEarned` unless `earned > opened`, so a caller that cannot see
-      // these cannot tell "not yet" from "never".
+      /*
+       * The entitlement counters, which are not two of a kind.
+       *
+       * `earned` is the balance `request_chest` spends — the program's actual
+       * test is `require!(c.earned > 0, NoChestEarned)`. `opened` is a
+       * lifetime tally the program keeps "purely for display and
+       * reconciliation" and never reads back.
+       *
+       * This comment used to say the program refused anything but
+       * `earned > opened`, and the caller was written to match it. It does
+       * not, and since `earned` is capped at MAX_UNSPENT_CHESTS while
+       * `opened` only grows, that gate shut for good after four chests and
+       * quietly took the oracle roll with it.
+       */
       earned: Number(acc.earned),
       opened: Number(acc.opened),
     };

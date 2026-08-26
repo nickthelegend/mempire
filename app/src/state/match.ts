@@ -175,12 +175,32 @@ async function rollChestOnchain(): Promise<void> {
      * Bounded, because a session that genuinely cannot be granted one must
      * still end up with its honestly-labelled local chest rather than hanging.
      */
+    /*
+     * Wait for an entitlement, not for a comparison that stops being true.
+     *
+     * The gate was `earned <= opened`, which reads like "have I been granted
+     * more than I have opened" but is comparing two different kinds of
+     * number. The program's own field docs say so: `opened` is "lifetime
+     * chests filled — purely for display and reconciliation" and only ever
+     * grows, while `earned` is "unspent chest entitlements", a balance that
+     * `end_log` adds one to and `request_chest` takes one from, capped at
+     * MAX_UNSPENT_CHESTS.
+     *
+     * So once lifetime opens pass that small cap, `earned > opened` can never
+     * be true again, and every subsequent win returned here silently. The
+     * oracle was never asked, the entitlement was never spent, and the chest
+     * the player got was the one their own client rolled — which is precisely
+     * the thing the entitlement was added to stop being a suggestion.
+     *
+     * The question this actually wants to ask is whether there is an unspent
+     * entitlement at all.
+     */
     let rail = await readChestRail(adapter);
-    for (let i = 0; i < 20 && rail && rail.earned <= rail.opened; i += 1) {
+    for (let i = 0; i < 20 && rail && rail.earned === 0; i += 1) {
       await new Promise((r) => setTimeout(r, 1500));
       rail = await readChestRail(adapter);
     }
-    if (!rail || rail.earned <= rail.opened) return;
+    if (!rail || rail.earned === 0) return;
 
     const slot = rail.slots.findIndex((s) => s.state === 0);
     if (slot < 0 || rail.pendingSlot !== 255) return; // rail full or busy
@@ -1115,6 +1135,24 @@ function beginBotFlow(
  * somebody calls `cancel_match`. Nobody else will. Any path that abandons a
  * match has to come through here.
  */
+/**
+ * Give up on this opponent without giving up the stake.
+ *
+ * Both ways an opponent's deck can be unusable — it fails `sanitiseDeck`, or
+ * it survives that and `createMatch` throws on it — have to end the same way:
+ * the money comes back, the socket closes, and the player gets a match against
+ * the bot instead of a dead screen. Written once because the two call sites
+ * drifted, and the one that drifted was the one that silently kept the stake.
+ */
+function bailToBot(tierIdx: number): void {
+  refundEscrow();
+  pvpClose();
+  useMatch.setState({ mode: 'bot', perspective: 0, opponentName: BOT_NAMES[tierIdx] });
+  const bot = buildDecks();
+  if (bot) beginBotFlow(false, tierIdx, bot.player, bot.bot);
+  else useMatch.setState({ status: 'idle' });
+}
+
 function refundEscrow(): void {
   if (humanEscrowSol > 0) {
     useWallet.getState().receive(humanEscrowSol);
@@ -1245,9 +1283,19 @@ function beginHumanBattle(
 
   const oppDeck = sanitiseDeck(m.opponent.deck);
   if (!oppDeck) {
-    // Not a desync and not our fault — refuse to start rather than run a
-    // simulation whose rules the opponent chose.
-    settleVoid('the opponent sent a deck the simulation cannot run');
+    /*
+     * Not a desync and not our fault — refuse to start rather than run a
+     * simulation whose rules the opponent chose.
+     *
+     * This called `settleVoid`, which does nothing here: its first line is
+     * `if (status !== 'battle' || !sim) return`, and the sim is not built
+     * until a few lines below. So the stake stayed escrowed, the socket
+     * stayed open, and the player sat at 'found' with their money gone until
+     * the deadline let somebody call `claim_timeout` — for a match that never
+     * started. The identical failure fifteen lines down, where `createMatch`
+     * throws, was already handled properly; this one just never reached it.
+     */
+    bailToBot(tierIdx);
     return;
   }
 
@@ -1261,12 +1309,7 @@ function beginHumanBattle(
   } catch {
     // A malformed opponent deck must not strand this player at 'found' with
     // their stake gone. Refund, drop the socket, and let the bot step in.
-    refundEscrow();
-    pvpClose();
-    useMatch.setState({ mode: 'bot', perspective: 0, opponentName: BOT_NAMES[tierIdx] });
-    const bot = buildDecks();
-    if (bot) beginBotFlow(false, tierIdx, bot.player, bot.bot);
-    else useMatch.setState({ status: 'idle' });
+    bailToBot(tierIdx);
     return;
   }
   pending = new Map();

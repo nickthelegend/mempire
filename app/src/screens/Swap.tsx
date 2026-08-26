@@ -31,9 +31,27 @@ const fmt = (raw: bigint, dp = 6): string => {
   return `${neg ? '-' : ''}${whole.toLocaleString()}${frac ? `.${frac}` : ''}`;
 };
 
+/**
+ * The same number, without the thousands separators.
+ *
+ * `fmt` is for reading and goes through `toLocaleString()`. Feeding its output
+ * back into the amount field was a silent dead end: "max" wrote `1,234.5678`,
+ * `parseAmount` refuses a comma and returned `0n`, and the quote, the button
+ * and the whole screen just stopped responding. Only above a thousand, which
+ * is why it survived — every test balance was smaller.
+ */
+const plain = (raw: bigint): string => {
+  const neg = raw < 0n;
+  const v = neg ? -raw : raw;
+  const frac = (v % UNIT).toString().padStart(6, '0').replace(/0+$/, '');
+  return `${neg ? '-' : ''}${v / UNIT}${frac ? `.${frac}` : ''}`;
+};
+
 /** Parses a typed amount into base units without going through a float. */
 function parseAmount(text: string): bigint {
-  const m = text.trim().match(/^(\d*)(?:\.(\d{0,6}))?$/);
+  // Grouping separators are stripped rather than rejected: a pasted amount
+  // from anywhere else in the app, or from a block explorer, carries them.
+  const m = text.trim().replace(/,/g, '').match(/^(\d*)(?:\.(\d{0,6}))?$/);
   if (!m) return 0n;
   const whole = m[1] ? BigInt(m[1]) : 0n;
   const frac = (m[2] ?? '').padEnd(6, '0');
@@ -253,7 +271,7 @@ export function SwapPanel({ compact = false }: { compact?: boolean }) {
           <span className="label">You pay</span>
           <button
             type="button"
-            onClick={() => setInput(fmt(held))}
+            onClick={() => setInput(plain(held))}
             className="fine"
             style={{
               background: 'none', border: 0, color: 'var(--dim)', cursor: 'pointer', padding: 0,
