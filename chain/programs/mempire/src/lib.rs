@@ -895,27 +895,6 @@ pub mod mempire {
             };
 
             /*
-             * A log we cannot read is not a log that says nothing.
-             *
-             * While delegated, the account is owned by the delegation program,
-             * so the read above yields `None` — the same value as "no log was
-             * ever created". The two were then treated identically and fell
-             * through to "genuine abandonment, either may claim". Under the
-             * `rollup` build that is *every* match where one seat stayed
-             * silent, because `end_match_log` only commits the log home once
-             * both seats have claimed. So the protection written directly
-             * above disabled itself in precisely the case it describes: the
-             * loser who never claims could call this at the deadline and take
-             * the pot.
-             *
-             * Existing but unreadable is therefore treated as a dispute —
-             * refund both, rake nothing. It cannot reward the stall, and it
-             * cannot rob a winner whose opponent genuinely vanished of more
-             * than the upside.
-             */
-            let unreadable = !readable && log_info.data_len() > 0;
-
-            /*
              * A seat that recorded a claim proved it was here.
              *
              * The first version of this only detected *disagreement*, and paid
@@ -933,9 +912,9 @@ pub mod mempire {
              *   both spoke, disagreed  → refund both, no rake (below)
              *   both spoke, agreed     → this is not a timeout; use settle
              *   exactly one spoke      → only that seat may claim
-             *   nobody spoke / no log  → genuine abandonment, either may claim
+             *   nobody spoke / no log  → no evidence; refund both, no rake
              */
-            let disputed = if unreadable { true } else { match claims {
+            let disputed = match claims {
                 Some([a, b]) if a != 3 && b != 3 && a != b => true,
                 Some([a, b]) if a != 3 && b != 3 => {
                     // An agreed, committed result is a settlement, not an
@@ -962,8 +941,33 @@ pub mod mempire {
                     }
                     false
                 }
-                None => false,
-            } };
+                /*
+                 * Nothing readable — and that is not evidence of abandonment.
+                 *
+                 * Two different states land here. A log still delegated to the
+                 * ephemeral rollup reads as owned by the delegation program,
+                 * which is every match under the `rollup` build where one seat
+                 * stayed silent, because `end_match_log` only sends the log
+                 * home once both seats have claimed. And a log that was never
+                 * created at all reads as an empty account.
+                 *
+                 * Both were treated as "genuine abandonment, either may
+                 * claim". The first case was closed by ownership; the second
+                 * was not, and it was the cheaper cheat of the two, because
+                 * creating the log is the caller's own job. A losing seat had
+                 * only to never create it, watch the deadline, and fire this
+                 * instruction first to take the whole pot — no lie to catch,
+                 * no disagreement to detect, just a stopwatch.
+                 *
+                 * So absence of evidence is a dispute: refund both, rake
+                 * nothing. It cannot reward a stall, and the seat that really
+                 * was abandoned still has a path to the full pot — create the
+                 * log, record a claim, and the "exactly one spoke" branch
+                 * above pays them. Silence now costs the pot's upside instead
+                 * of winning it.
+                 */
+                None => true,
+            };
 
             if disputed {
                 /*
@@ -1115,6 +1119,27 @@ pub mod mempire {
                 log.players.contains(ctx.accounts.payer.key),
                 MempireError::NotAPlayer
             );
+
+            /*
+             * A sealed log does not go back on the rollup.
+             *
+             * This checked only that the caller was a seat, never where the
+             * match had got to — so after both seats had agreed and the log had
+             * been committed home, the losing seat could simply delegate it
+             * again. Nothing brings it back: `end_match_log` is the only
+             * instruction that undelegates, and it refuses a seat that has
+             * already claimed, so the log stays on the rollup for good and
+             * `settle_from_log` — which loads it as a typed account — can never
+             * run.
+             *
+             * That was a race before; the "unreadable log means dispute" rule
+             * in `claim_timeout` made it deterministic. Stalling by
+             * re-delegation became strictly better than settling honestly for
+             * whoever was losing: both stakes come back, the winner is denied
+             * the pot they had already won on chain, and the house loses the
+             * rake. The lifecycle check is what that rule was missing.
+             */
+            require!(!log.ended, MempireError::BadMatchState);
         }
 
         // Seeds must match the account definition exactly or the delegation

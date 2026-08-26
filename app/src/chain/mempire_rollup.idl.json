@@ -1984,86 +1984,91 @@
   "errors": [
     {
       "code": 6000,
+      "name": "AlreadySealed",
+      "msg": "the log is already sealed"
+    },
+    {
+      "code": 6001,
       "name": "NotAPlayer",
       "msg": "signer is not a player in this match"
     },
     {
-      "code": 6001,
+      "code": 6002,
       "name": "AlreadyEnded",
       "msg": "match already ended"
     },
     {
-      "code": 6002,
+      "code": 6003,
       "name": "NoChestEarned",
       "msg": "no unopened chest earned; win a match first"
     },
     {
-      "code": 6003,
+      "code": 6004,
       "name": "NotEnded",
       "msg": "match has not ended yet"
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "BadSession",
       "msg": "session key is invalid, expired, or would collide with a seat"
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "WrongQueue",
       "msg": "oracle queue is not a delegated (ephemeral) queue"
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "BadSlot",
       "msg": "chest slot index out of range"
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "RequestInFlight",
       "msg": "a randomness request is already in flight"
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "NoRequestInFlight",
       "msg": "no randomness request is in flight"
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "RequestNotStale",
       "msg": "the in-flight request has not timed out yet"
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "SlotNotEmpty",
       "msg": "chest slot is not empty"
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "SlotNotFilled",
       "msg": "chest slot has nothing to claim"
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "PermissionAccountsMissing",
       "msg": "permission accounts must all be supplied together"
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "BadDeckIndex",
       "msg": "deck index out of range"
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "LogFull",
       "msg": "input log is full"
     },
     {
-      "code": 6015,
+      "code": 6016,
       "name": "StaleTick",
       "msg": "tick is older than the last recorded tick"
     },
     {
-      "code": 6016,
+      "code": 6017,
       "name": "BadWinner",
       "msg": "invalid winner value"
     }

@@ -269,6 +269,27 @@ pub mod mempire_rollup {
                 log.players.contains(ctx.accounts.payer.key),
                 RollupError::NotAPlayer
             );
+
+            /*
+             * A sealed log does not go back on the rollup.
+             *
+             * This checked only that the caller was a seat, never where the
+             * match had got to — so after both seats had agreed and the log had
+             * been committed home, the losing seat could simply delegate it
+             * again. Nothing brings it back: `end_match_log` is the only
+             * instruction that undelegates, and it refuses a seat that has
+             * already claimed, so the log stays on the rollup for good and
+             * `settle_from_log` — which loads it as a typed account — can never
+             * run.
+             *
+             * That was a race before; the "unreadable log means dispute" rule
+             * in `claim_timeout` made it deterministic. Stalling by
+             * re-delegation became strictly better than settling honestly for
+             * whoever was losing: both stakes come back, the winner is denied
+             * the pot they had already won on chain, and the house loses the
+             * rake. The lifecycle check is what that rule was missing.
+             */
+            require!(!log.ended, RollupError::AlreadySealed);
         }
 
         // Seeds must match the account definition exactly, or the delegation
@@ -537,7 +558,6 @@ pub mod mempire_rollup {
         let log = &mut ctx.accounts.log;
         require!(!log.ended, RollupError::AlreadyEnded);
         require!(deck_index < DECK_SIZE, RollupError::BadDeckIndex);
-        require!(log.plays.len() < MAX_PLAYS, RollupError::LogFull);
 
         // Delegation is routing, never authorization: the rollup enforces the
         // same seat check the base layer would.
@@ -556,6 +576,36 @@ pub mod mempire_rollup {
         // Monotonic ticks: a replayed or reordered play cannot rewrite history
         // both simulations have already run past.
         require!(tick >= log.last_tick, RollupError::StaleTick);
+
+        /*
+         * And bounded above, because this write moves the cursor.
+         *
+         * `tick` had a floor and no ceiling, so one play at `u32::MAX` pinned
+         * `last_tick` at the top of the range and every later play by *either*
+         * seat failed the check above for the rest of the match. A seat that
+         * was losing could therefore freeze the log at will: `end_log` needs
+         * both seats, `settle_from_log` needs the log, and the match falls
+         * through to a timeout — a payout path rather than a loss.
+         *
+         * The same pair of guards was written for `mempire::play_card` and
+         * never copied here, which is the half that matters: while a match is
+         * delegated, this is the program the plays actually reach.
+         */
+        require!(tick <= MAX_MATCH_TICK, RollupError::StaleTick);
+
+        /*
+         * Half the log each, rather than one shared pool.
+         *
+         * `MAX_PLAYS` was a single budget both seats drew from, so one seat
+         * could spend all 128 entries — at a single tick, since the monotonic
+         * guard is non-strict — and every input the opponent made afterwards
+         * was unrecordable. The two seats then necessarily disagreed at the
+         * end and the pot voided, which is strictly better for whoever was
+         * losing. Two half-budgets also keep the total inside `MAX_PLAYS`, so
+         * this replaces the shared check rather than adding to it.
+         */
+        let mine = log.plays.iter().filter(|p| p.player == seat).count();
+        require!(mine < MAX_PLAYS / 2, RollupError::LogFull);
 
         log.plays.push(PlayEntry {
             tick,
@@ -598,7 +648,17 @@ pub mod mempire_rollup {
          * checkpoints. The bound below just keeps a nonsense tick out.
          */
         require!(tick <= MAX_MATCH_TICK, RollupError::StaleTick);
-        log.last_tick = tick;
+        /*
+         * Record the hash, but do not advance `last_tick`.
+         *
+         * The paragraph above was copied here when `mempire::checkpoint` was
+         * decoupled from the play cursor; the assignment it describes removing
+         * was left behind, so the race it documents stayed live in the only
+         * copy that runs while a match is delegated. `play_card` gates on this
+         * same field, so a checkpoint landing ahead of a play refused that play
+         * as stale — the plays a busy match lost were the ones its own
+         * checkpoints stomped.
+         */
         log.last_hash = hash;
         log.checkpoints = log.checkpoints.saturating_add(1);
         Ok(())
@@ -1363,6 +1423,8 @@ pub struct CommitChests<'info> {
 
 #[error_code]
 pub enum RollupError {
+    #[msg("the log is already sealed")]
+    AlreadySealed,
     #[msg("signer is not a player in this match")]
     NotAPlayer,
     #[msg("match already ended")]

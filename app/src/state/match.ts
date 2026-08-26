@@ -16,6 +16,7 @@ import {
   FORMATS, HASH_EVERY_TICKS, INPUT_DELAY_TICKS,
   type InputEvent, type MatchCard, type SimState,
 } from '../sim/types';
+import bs58 from 'bs58';
 import { useClan } from './clan';
 import { useLadder } from './ladder';
 import { useCollection, FEES } from './collection';
@@ -239,7 +240,10 @@ async function verifyOpponentCommitment(matchId: number): Promise<void> {
     const seat = m.players.indexOf(claimed.address);
     if (seat === -1) return; // escrow opened against someone else entirely — other checks own this
     const committed = m.deckHashes[seat];
-    const relayed = deckHashBytes(claimed.deck);
+    const relayed = await deckCommitment(claimed.deck);
+    // A deck we cannot hash the program's way proves nothing either direction.
+    // Voiding on it would punish the honest player for our own blind spot.
+    if (!relayed) return;
     const same = committed.length === relayed.length
       && committed.every((b: number, i: number) => b === relayed[i]);
     if (!same) {
@@ -427,14 +431,31 @@ function pvpWaitMs(): number {
 function buildDecks(): { player: MatchCard[]; bot: MatchCard[] } | null {
   const { cards } = useCollection.getState();
   const { active } = useDeck.getState();
+  const chainCards = useChain.getState().cards;
   const player: MatchCard[] = [];
   for (const id of active) {
     const c = cards.find((x) => x.id === id);
     const coin = c && COINS.find((k) => k.mint === c.mint);
     if (!c || !coin) return null;
+    /*
+     * Play the level you actually own.
+     *
+     * `useCollection` is a local mirror that starts every card at level 1 and
+     * is never refreshed from chain, while levels are only created by
+     * `upgrade_card` — an onchain instruction. So the level a card was staked
+     * and committed at and the level it fought at were two unrelated numbers.
+     * Merging duplicates bought a level the sim never granted, and the deck
+     * commitment the program derives from `(coin_mint, level)` could not agree
+     * with the deck the relay carried even between two honest clients.
+     *
+     * The chain card is the authority whenever there is one; the local level
+     * survives only for play that never touches chain, where it is the only
+     * level there is.
+     */
+    const onchain = chainCards.find((k) => k.mint === c.mint && !k.inMatch);
     player.push({
       coinId: c.mint, name: coin.ticker, archetype: c.archetype,
-      trait: traitForMint(c.mint), level: c.level,
+      trait: traitForMint(c.mint), level: onchain ? onchain.level : c.level,
     });
   }
   if (player.length !== 8) return null;
@@ -474,17 +495,42 @@ function onchainDeckIds(): number[] | null {
   return ids.length === 8 ? ids : null;
 }
 
-/** FNV-1a over the deck's mints, in order — the commitment the program stores. */
-function deckHashBytes(deck: MatchCard[]): Uint8Array {
-  const out = new Uint8Array(32);
-  let h = 0x811c9dc5;
-  const text = deck.map((c) => c.coinId).join(',');
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
+/**
+ * The deck commitment the program actually stores, recomputed locally.
+ *
+ * This has to be byte-identical to `validate_and_lock_deck`, which hashes
+ * `(coin_mint, level)` for each card in the order the cards were passed:
+ * thirty-two mint bytes then one level byte, eight times, SHA-256 over the
+ * whole preimage.
+ *
+ * It was FNV-1a-32 over a comma-joined list of `coinId` strings, widened to
+ * thirty-two bytes with zeroes. That is a different function of different
+ * input, so it could never equal what the chain holds — and the one caller
+ * that compares the two voids the match when they differ. Every staked human
+ * match therefore voided, and the deck-swap attack the commitment exists to
+ * catch went unchecked the whole time, because the check never got as far as
+ * comparing decks.
+ *
+ * Returns null when the deck cannot be hashed the way the program hashes it —
+ * a `coinId` that is not a real mint, which is the devnet seeded-id case. The
+ * caller must treat that as "cannot tell", never as "does not match".
+ */
+async function deckCommitment(deck: MatchCard[]): Promise<Uint8Array | null> {
+  if (deck.length !== 8) return null;
+  const preimage = new Uint8Array(8 * 33);
+  for (let i = 0; i < 8; i += 1) {
+    let mint: Uint8Array;
+    try {
+      mint = bs58.decode(deck[i].coinId);
+    } catch {
+      return null;
+    }
+    if (mint.length !== 32) return null;
+    preimage.set(mint, i * 33);
+    preimage[i * 33 + 32] = deck[i].level & 0xff;
   }
-  new DataView(out.buffer).setUint32(0, h, true);
-  return out;
+  const digest = await crypto.subtle.digest('SHA-256', preimage);
+  return new Uint8Array(digest);
 }
 
 export const useMatch = create<MatchStore>((set, get) => ({
@@ -1170,7 +1216,11 @@ function beginHumanBattle(
     'mode', useChain.getState().mode, 'canSign', canSign(signer()),
     'canStake', canStake, 'chainDeck', chainDeck ? chainDeck.length : null);
   if (canStake && chainDeck) {
-    const hash = deckHashBytes(myDeck);
+    // The program derives the commitment itself inside `validate_and_lock_deck`
+    // and ignores this argument — it is `_deck_hash` there. Passing a locally
+    // computed hash invited exactly the bug above, where two different
+    // functions both claimed to be "the commitment". Send nothing meaningful.
+    const hash = new Uint8Array(32);
     if (m.role === 0) {
       void escrow.open(signer(), tierIdx, stakeSol, chainDeck, hash)
         .then(async (id) => {

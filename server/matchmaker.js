@@ -12,10 +12,11 @@
  *     told to void the match. A voided match returns stakes and rakes nothing
  *     — divergence is detected and neutralised, never silently ignored.
  *
- * The seed is derived from the match id and both deck commitments, so neither
- * player (nor this server picking who is player 0) can grind a favourable
- * opening hand.
+ * The seed mixes the match id, both deck commitments and a fresh server-side
+ * random word, so neither player — nor this server picking who is player 0 —
+ * can grind a favourable opening hand.
  */
+import { randomBytes } from 'node:crypto';
 import { wsVerified } from './auth.js';
 import { WebSocketServer } from 'ws';
 
@@ -65,7 +66,18 @@ function fnv(s) {
 let nextMatchId = 1;
 
 export function registerMatchmaker(server) {
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  /*
+   * Bound what one socket can make this process hold.
+   *
+   * `ws` defaults `maxPayload` to 100 MiB, and nothing here authenticates a
+   * socket before it may send — so any anonymous client could open a handful
+   * of connections and have the relay buffer hundreds of megabytes of frame
+   * it was always going to reject, which is a memory kill on a small dyno for
+   * the price of a few TCP handshakes. The largest legitimate message is a
+   * queue entry carrying an eight-card deck; 64 KiB is orders of magnitude of
+   * headroom over that, and anything past it is closed rather than buffered.
+   */
+  const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 64 * 1024 });
 
   /** tier → { ws, address, name, power, deck, deckHash } */
   const queues = new Map();
@@ -224,8 +236,27 @@ export function registerMatchmaker(server) {
             if (!list.length) queues.delete(key); else queues.set(key, list);
             const id = nextMatchId;
             nextMatchId += 1;
-            // Order-independent seed: neither player benefits from being first.
-            const seed = (fnv(`${id}`) ^ fnv(String(msg.deckHash ?? '')) ^ fnv(String(waiting.deckHash ?? ''))) >>> 0;
+            /*
+             * Order-independent, and not grindable by either side.
+             *
+             * Every input to this used to be chosen by the players: `deckHash`
+             * is a string the client sends and nothing here validates it
+             * against the deck it claims to describe, so a player could resend
+             * a queue message with a tweaked hash until the resulting seed
+             * dealt them an opening hand they liked. The seed drives both
+             * players' draw cycles, so that is a real edge bought with nothing
+             * but retries.
+             *
+             * Mixing in a word neither client can see or predict removes the
+             * grind entirely while keeping the property the two hashes were
+             * there for: neither seat benefits from being the one who waited.
+             */
+            const seed = (
+              fnv(`${id}`)
+              ^ fnv(String(msg.deckHash ?? ''))
+              ^ fnv(String(waiting.deckHash ?? ''))
+              ^ randomBytes(4).readUInt32LE(0)
+            ) >>> 0;
             // `startAt` is an instant on the *server's* clock, and each client
             // used to compare it against its own `Date.now()`. A wallet whose
             // machine is thirty seconds off then targets a tick six hundred

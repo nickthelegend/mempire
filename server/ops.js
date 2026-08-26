@@ -19,14 +19,23 @@
  * cheap next to what these routes already do, and a shared counter means the
  * limit is the limit however many instances are up.
  */
-export function rateLimiter(db, { capacity = 80, refillPerSec = 5 } = {}) {
+export function rateLimiter(db, { capacity = 80, refillPerSec = 5, includeReads = false } = {}) {
   const buckets = db.collection('rate_buckets');
   // Mongo drops these on its own once a bucket has been idle long enough to
   // have refilled completely, so the collection cannot grow without bound.
   buckets.createIndex({ at: 1 }, { expireAfterSeconds: 900 }).catch(() => {});
 
   return async function limit(req, res, next) {
-    if (req.method === 'GET' || req.method === 'OPTIONS') return next();
+    /*
+     * Reads are free by default, and must not be on a credentialed proxy.
+     *
+     * Exempting GET is right for our own cheap endpoints. It is wrong for a
+     * route that spends someone else's quota on every call: the Bags proxy
+     * carries this project's paid `x-api-key`, so an anonymous loop over
+     * `GET /api/market/quote` bills us and eventually takes the swap screen
+     * down for everyone. Those routes pass `includeReads`.
+     */
+    if (!includeReads && (req.method === 'GET' || req.method === 'OPTIONS')) return next();
     const key = req.ip ?? 'unknown';
     const now = new Date();
     try {

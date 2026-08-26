@@ -88,6 +88,7 @@ app.use((err, _req, res, next) => {
  */
 let credits = null;
 let limit = null;
+let bagsLimit = null;
 app.use((req, res, next) => (limit ? limit(req, res, next) : next()));
 
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/; // base58, Solana pubkey shape
@@ -209,7 +210,21 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
      * way — rating is the relay's to keep, money is not.
      */
     let verified = null;
-    if (escrowed && matchId !== null && matchId !== undefined) {
+    /*
+     * One match id, one spelling.
+     *
+     * The idempotency key below was built from the raw body value while
+     * `verifySettledMatch` canonicalised it with `Number(matchId)`. Those two
+     * disagree on everything JavaScript is happy to coerce: `90`, `"90"`,
+     * `" 90"`, `"90.0"`, `"9e1"` and `"0x5a"` are six different `_id` strings
+     * naming one settled match, so the "counted once" guard could be walked
+     * straight past six times — and the same pot credited six times — by a
+     * caller who only had to retype its own match id. Canonicalise once, here,
+     * and let both the claim and the chain read use that single value.
+     */
+    const mid = Number(matchId);
+    const validId = Number.isSafeInteger(mid) && mid >= 0;
+    if (escrowed && validId) {
       /*
        * Claim this match for this player before crediting anything. A unique
        * `_id` makes the second attempt a duplicate-key error rather than a
@@ -217,14 +232,14 @@ app.post('/api/match/:address', requireWallet('match.post'), async (req, res) =>
        * the credit loses a record rather than double-counting one.
        */
       try {
-        await credits.insertOne({ _id: `${matchId}:${address}`, at: new Date() });
+        await credits.insertOne({ _id: `${mid}:${address}`, at: new Date() });
       } catch (e) {
         if (e?.code === 11000) {
           return res.json({ ok: true, duplicate: true, note: 'already recorded' });
         }
         throw e;
       }
-      verified = await verifySettledMatch(matchId, address).catch(() => null);
+      verified = await verifySettledMatch(mid, address).catch(() => null);
     }
     const chainNetSol = verified ? verified.netSol : 0;
     await leaderboard.updateOne(
@@ -578,7 +593,20 @@ const server = await (async () => {
   // The $MEMPIRE market. Registers either way — the routes report
   // `configured: false` until BAGS_API_KEY and MEMPIRE_MINT are both set,
   // which is a state the swap screen already knows how to render honestly.
-  registerBagsRoutes(app, limit);
+  /*
+   * A late-binding shim, not the value.
+   *
+   * `limit` is still the `null` it was declared as at this point — it is
+   * assigned a dozen lines below — and JavaScript passes the value, so handing
+   * it over directly froze the Bags gate to its no-op fallback for the life of
+   * the process. Every `/api/market/*` route ran unlimited, and the three GET
+   * ones were exempt from the global limiter too, which left a paid API key
+   * spendable by anonymous traffic. The routes get their own tighter bucket
+   * that counts reads, because each one is an outbound call on our key.
+   */
+  registerBagsRoutes(app, (req, res, next) => (
+    bagsLimit ? bagsLimit(req, res, next) : next()
+  ));
   console.log(`bags market: ${bagsConfigured() ? 'configured' : 'not configured (no key or mint yet)'}`);
   registerTelemetryRoutes(app, db, requireWallet);
   // Value locked, read straight from chain — the one set of numbers on the
@@ -593,6 +621,8 @@ const server = await (async () => {
   // Now that there is a database, the shared limiter can take over from the
   // pass-through installed at module load.
   limit = rateLimiter(db);
+  // Tighter, and it counts GETs: every one of these is a call on our Bags key.
+  bagsLimit = rateLimiter(db, { capacity: 30, refillPerSec: 1, includeReads: true });
   setWalletLimiter(walletLimiter(db));
 
   // Replay protection: one row per seen signature, expiring shortly after the
