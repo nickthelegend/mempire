@@ -98,7 +98,7 @@ interface EscrowStore {
    * who had closed the tab, which is everyone who needs it. The caller reads
    * the stranded match from the chain and passes its id.
    */
-  recover: (adapter: Adapter | null, matchId?: number) => Promise<'paid' | 'too-early' | 'nothing'>;
+  recover: (adapter: Adapter | null, matchId?: number) => Promise<'paid' | 'too-early' | 'nothing' | 'failed'>;
 }
 
 export const useEscrow = create<EscrowStore>((set, get) => ({
@@ -164,10 +164,25 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
       }
 
       const { signature } = await joinMatchTx(adapter, matchId, deckCardIds, deckHash);
+      /*
+       * Seat 1 is this wallet, not whatever the pre-join read said it was.
+       *
+       * `m` was read a few lines above and the check right there requires
+       * `m.state === 0` — an *open* match, which by definition nobody has
+       * joined. So `m.players[1]` is always the default pubkey at that moment,
+       * and recording it stored seat 1 as `111…111`. Every later reader of
+       * `players` on this seat got a match with one real player and one
+       * placeholder; `beginRollupLog` passes exactly this array to `init_log`,
+       * which asserts it against the seats the chain has, and is refused.
+       *
+       * The joiner does not need to re-read the chain to learn its own
+       * address: it just signed the transaction that made it seat 1.
+       */
+      const me = (adapter?.publicKey ?? getProvider(adapter).wallet.publicKey)?.toBase58();
       set({
         phase: 'live', matchId, lastSignature: signature,
         stakeLamports: m.stakeLamports,
-        players: [m.players[0], m.players[1]] as [string, string],
+        players: [m.players[0], me ?? m.players[1]] as [string, string],
       });
       void useChain.getState().refresh();
       track('match.staked', { seat: 1, stakeSol: m.stakeLamports / 1e9 });
@@ -393,8 +408,19 @@ export const useEscrow = create<EscrowStore>((set, get) => ({
       void useChain.getState().refresh();
       return 'paid';
     } catch (e) {
-      set({ lastError: readableChainError(e) });
-      return 'nothing';
+      /*
+       * A refusal is not an absence.
+       *
+       * This returned 'nothing', the same value as "already settled", "not
+       * your match" and "no id" — so a claim transaction that actually failed
+       * was reported to the player as "Nothing to claim on this match". On the
+       * one screen whose entire job is recovering a stranded stake, the
+       * failure mode was telling someone their money is not there.
+       */
+      const reason = readableChainError(e);
+      set({ lastError: reason });
+      console.warn('[escrow] recovery failed:', reason);
+      return 'failed';
     }
   },
 

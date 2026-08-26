@@ -584,6 +584,19 @@ app.get('/api/leaderboard', async (_req, res) => {
   }
 });
 
+/*
+ * Boot, and say why if it does not.
+ *
+ * This is a top-level await, so anything thrown inside surfaces as a bare
+ * module-evaluation rejection: a raw stack trace, exit code 1, and nothing
+ * naming which of the several things this block does actually failed. The
+ * `uncaughtException` handlers installed further down are no help, because a
+ * top-level-await rejection is not routed through them. On Railway that is
+ * five silent restarts and a dead service.
+ *
+ * The most likely causes are ordinary and worth naming out loud: Mongo
+ * unreachable, or a data file the image did not ship.
+ */
 const server = await (async () => {
   await client.connect();
   db = client.db(MONGODB_DB);
@@ -679,7 +692,16 @@ const server = await (async () => {
   const httpServer = app.listen(PORT, () => console.log(`mempire api on :${PORT}`));
   registerMatchmaker(httpServer);
   return httpServer;
-})();
+})().catch((e) => {
+  console.error(`startup failed: ${e?.message ?? e}`);
+  if (String(e?.name ?? '').startsWith('Mongo')) {
+    console.error('  the database was unreachable — check MONGODB_URI and the Atlas IP allowlist');
+  }
+  if (e?.code === 'ENOENT') {
+    console.error(`  a file this build needs is not in the image: ${e.path ?? '(unknown)'}`);
+  }
+  process.exit(1);
+});
 
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {

@@ -83,17 +83,43 @@ export async function verifySettledMatch(matchId, address) {
   const stake = Number(stakeLamports) / 1e9;
   const pot = stake * 2;
 
+  /*
+   * Every value `winner` can hold, and no `else`.
+   *
+   * The program writes four: 0 or 1 for a seat, 2 for a tie or a disputed
+   * timeout, 3 for `cancel_match`, and `u8::MAX` at creation. This ended with
+   * a bare `else { netSol = -stake }`, so both of the last two landed there.
+   * A cancelled match — one nobody ever joined, whose stake `cancel_match`
+   * hands straight back — was published on the money leaderboard as a
+   * full-stake loss that never happened. It is the one column on that board
+   * claiming to be read from the chain, so inventing a number for it is worse
+   * than declining to.
+   */
   let netSol;
   let won = false;
   let draw = false;
-  if (winner === 2) {
+  if (winner === 3) {
+    // cancel_match: no opponent ever joined, the whole stake was refunded.
+    netSol = 0;
+  } else if (winner === 2) {
+    /*
+     * A tie and a disputed timeout both write 2, and they pay differently:
+     * `settle_from_log` takes `tie_rake_bps`, while `claim_timeout`'s dispute
+     * branch refunds in full and rakes nothing. The account does not record
+     * which happened, so this cannot tell them apart — it reports the tie,
+     * which is the common case and errs by at most half the tie rake.
+     */
     draw = true;
     netSol = (pot * (1 - tieRake / 10_000)) / 2 - stake;
   } else if (winner === seat) {
     won = true;
     netSol = pot * (1 - rake / 10_000) - stake;
-  } else {
+  } else if (winner === 0 || winner === 1) {
     netSol = -stake;
+  } else {
+    // Settled with an unset winner is a state the program should never leave
+    // behind. Report nothing rather than guess at it.
+    return null;
   }
   return { netSol, potSol: pot, won, draw, players };
 }

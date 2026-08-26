@@ -254,8 +254,9 @@ export function Empire() {
 function StakeRecovery() {
   const address = useWallet((s) => s.address);
   const recover = useEscrow((s) => s.recover);
+  const lastError = useEscrow((s) => s.lastError);
   const [stranded, setStranded] = useState<ChainMatch | null>(null);
-  const [state, setState] = useState<'idle' | 'busy' | 'too-early' | 'paid' | 'none'>('idle');
+  const [state, setState] = useState<'idle' | 'busy' | 'too-early' | 'paid' | 'none' | 'failed'>('idle');
 
   useEffect(() => {
     if (!address) { setStranded(null); return; }
@@ -282,7 +283,9 @@ function StakeRecovery() {
         onClick={() => {
           setState('busy');
           void recover(signer(), matchId).then((r) => setState(
-            r === 'paid' ? 'paid' : r === 'too-early' ? 'too-early' : 'none',
+            r === 'paid' ? 'paid'
+              : r === 'too-early' ? 'too-early'
+                : r === 'failed' ? 'failed' : 'none',
           ));
         }}
       >
@@ -296,6 +299,13 @@ function StakeRecovery() {
       {state === 'none' && (
         <span className="fine" style={{ color: 'var(--dim)' }}>
           Nothing to claim on this match.
+        </span>
+      )}
+      {state === 'failed' && (
+        <span className="fine" style={{ color: 'var(--warn, var(--dim))' }}>
+          {lastError
+            ? `The claim was refused: ${lastError}. Your stake is still there — try again.`
+            : 'The claim was refused. Your stake is still there — try again.'}
         </span>
       )}
     </section>

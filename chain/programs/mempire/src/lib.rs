@@ -1531,23 +1531,32 @@ pub mod mempire {
                  * Absent counter means no reward rather than an unbounded one:
                  * failing open here is what the whole finding was about.
                  */
-                let under_cap = match ctx.accounts.reward_count.as_mut() {
+                let under_cap = match ctx.accounts.reward_count.as_ref() {
                     Some(rc) => {
                         let (want, _) = Pubkey::find_program_address(
                             &[b"rewarded", expected.as_ref()],
                             &crate::ID,
                         );
                         require_keys_eq!(rc.key(), want, MempireError::NotAPlayer);
-                        if rc.wins < REWARDED_WINS_CAP {
-                            rc.wins = rc.wins.saturating_add(1);
-                            true
-                        } else {
-                            false
-                        }
+                        rc.wins < REWARDED_WINS_CAP
                     }
                     None => false,
                 };
 
+                /*
+                 * Spend a win from the cap only when one is actually paid.
+                 *
+                 * The counter used to be incremented while deciding
+                 * `under_cap`, which is before either of the two conditions
+                 * below is known. Both of them are reachable and neither is an
+                 * error: an empty vault makes `amount` zero, and a winner
+                 * whose token account is missing or wrong fails the address
+                 * check — each of which the comment above describes as a
+                 * skipped payout that settles the SOL as normal. The skip was
+                 * not free, though. It burned one of sixteen lifetime rewards
+                 * and paid nothing for it, and the only player who could ever
+                 * notice is the one who runs out early.
+                 */
                 let amount = if under_cap { WIN_REWARD.min(vault.amount) } else { 0 };
                 if amount > 0 && dest.owner == expected && dest.mint == MEMPIRE_MINT {
                     let bump = ctx.bumps.reward_authority;
@@ -1564,6 +1573,10 @@ pub mod mempire {
                         ),
                         amount,
                     )?;
+                    // Paid — now it counts.
+                    if let Some(rc) = ctx.accounts.reward_count.as_mut() {
+                        rc.wins = rc.wins.saturating_add(1);
+                    }
                     emit!(WinRewardPaid { to: expected, amount });
                 }
             }

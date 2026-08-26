@@ -348,7 +348,6 @@ ws.on('message', async (raw) => {
   const offset = typeof m.serverNow === 'number' ? m.serverNow - Date.now() : 0;
   announceTicks(m.startAt, offset);
   console.log('spar-full: announcing ticks (offset', offset, 'ms)');
-  if (m.role === 0) { console.log('spar-full: seat 0 — the browser must queue first'); return; }
   if (joined) return;
 
   /*
@@ -359,16 +358,55 @@ ws.on('message', async (raw) => {
    * its mint, which is why neither side has to send one for the two states to
    * agree.
    */
-  const seats = [m.opponent.address, kp.publicKey.toBase58()];
+  /*
+   * Seat 0 or seat 1, because the browser has to be able to be either.
+   *
+   * This bailed on role 0 outright, so every run put the browser in seat 0 and
+   * seat 1 was never exercised by a real client. That is not a neutral gap:
+   * seat 1 turned out never to start the rollup at all, and nothing could have
+   * caught it while only seat 0 was ever played. Taking role 0 here means
+   * queueing this client *first* puts the browser in seat 1.
+   */
+  const iAmSeat0 = m.role === 0;
+  const seats = iAmSeat0
+    ? [kp.publicKey.toBase58(), m.opponent.address]
+    : [m.opponent.address, kp.publicKey.toBase58()];
   feedInput = runSim({
     seed: m.seed,
     startAt: m.startAt,
     offset,
     format: m.format,
-    seat0Deck: m.opponent.deck,
-    seat1Deck: relayDeck,
+    seat0Deck: iAmSeat0 ? relayDeck : m.opponent.deck,
+    seat1Deck: iAmSeat0 ? m.opponent.deck : relayDeck,
     seats,
   });
+
+  if (iAmSeat0) {
+    // Seat 0 opens the escrow and tells the other seat which match to join —
+    // the same `stage: 'opened'` the browser client relays.
+    try {
+      const cfg = await program.account.config.fetch(configPda());
+      const id = cfg.nextMatchId.toNumber();
+      const sig = await program.methods
+        .createMatch(0, new anchor.BN(50_000_000), Array.from(IGNORED_DECK_HASH))
+        .accounts({
+          config: configPda(),
+          matchAccount: matchPda(id),
+          player: kp.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(deckIds.map((cid) => ({ pubkey: cardPda(cid), isWritable: true, isSigner: false })))
+        .rpc();
+      joined = true;
+      onchainMatchId = id;
+      console.log(`spar-full: CREATED match #${id} — ${sig}`);
+      ws.send(JSON.stringify({ t: 'chain', stage: 'opened', onchainMatchId: id }));
+    } catch (e) {
+      console.log('spar-full: create failed —', e.message?.slice(0, 160));
+      ws.send(JSON.stringify({ t: 'chain', stage: 'failed', reason: String(e.message).slice(0, 80) }));
+    }
+    return;
+  }
 
   for (let i = 0; i < 30; i += 1) {
     await new Promise((r) => setTimeout(r, 2000));

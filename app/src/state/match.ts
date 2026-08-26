@@ -731,7 +731,17 @@ export const useMatch = create<MatchStore>((set, get) => ({
           pendingJoin = null;
           void useEscrow.getState().join(
             signer(), msg.onchainMatchId, p.stakeSol, p.opponent, p.deck, p.hash,
-          ).then(() => verifyOpponentCommitment(msg.onchainMatchId!));
+          ).then((ok) => {
+            // Seat 1 needs the rollup too.
+            //
+            // Only the `joined` branch below started it, and that branch is
+            // seat 0's. So seat 1 never left `phase: 'off'`, `play` returns
+            // early unless the phase is live, and not one of seat 1's cards
+            // was ever written to the on-chain log — half of every human
+            // match, missing from the record that is supposed to be the
+            // whole point of keeping one.
+            if (ok) beginRollupLog(msg.onchainMatchId!);
+          }).then(() => verifyOpponentCommitment(msg.onchainMatchId!));
         }
         if (msg.stage === 'joined' && msg.onchainMatchId !== null) {
           // Seat 0 learns its stake was matched, and only now spends a

@@ -123,8 +123,39 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       logAddress: matchLogPda(matchId).toBase58(),
     });
     try {
-      await initLogTx(adapter, matchId, players);
-      await delegateLogTx(adapter, matchId, IS_LOCALNET);
+      /*
+       * Either seat may arrive here, and only one of them can create the log.
+       *
+       * This ran `initLogTx` then `delegateLogTx` unconditionally, which is
+       * correct for exactly one caller — so only seat 0 was ever wired to call
+       * it, and seat 1 never reached `phase: 'live'`. `play` returns early
+       * unless the phase is live, so every card seat 1 dropped was silently
+       * absent from the on-chain log. The log that exists to make the match
+       * "genuinely onchain rather than relayed by a server we happen to
+       * operate" held one side of every human match.
+       *
+       * Both seats call this now, so the work has to be idempotent. The state
+       * is the authority, not the error string: if the log is already on a
+       * rollup there is nothing to create, and losing the race to create it is
+       * the outcome we wanted anyway.
+       */
+      let placed = await resolveEr(matchLogPda(matchId)).catch(() => null);
+      if (!placed) {
+        try {
+          await initLogTx(adapter, matchId, players);
+        } catch (e) {
+          // Someone else created it in the meantime, or it already existed.
+          // Anything else is a real failure and belongs in the catch below.
+          const exists = await fetchLog(matchId).catch(() => null);
+          if (!exists) throw e;
+        }
+        try {
+          await delegateLogTx(adapter, matchId, IS_LOCALNET);
+        } catch (e) {
+          placed = await resolveEr(matchLogPda(matchId)).catch(() => null);
+          if (!placed) throw e;
+        }
+      }
 
       // Create and delegate this wallet's chest rail now rather than after the
       // win. `end_log` credits the entitlement on the rollup, where it can see
@@ -133,7 +164,7 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       // missed its moment. Non-fatal: settlement does not depend on it.
       void ensureChestRail(adapter).catch(() => { /* chest is granted next win */ });
       // Placement is the router's call — confirm it before claiming 'live'.
-      const er = await resolveEr(matchLogPda(matchId));
+      const er = placed ?? await resolveEr(matchLogPda(matchId));
       if (!er) throw new Error('router did not place the log on a rollup');
 
       // Seal the log to its two seats (PER) before the first card can be
@@ -157,6 +188,12 @@ export const useErMatch = create<ErMatchState>((set, get) => ({
       set({ phase: 'live', fqdn: er.fqdn, sealed, sessioned });
     } catch (e) {
       // The match is already playable; the rollup is the optional half.
+      //
+      // Say why, though. `playsLost` and `marksLost` both warn when a single
+      // write fails, but the rollup failing to start at all — which loses
+      // every write — only set a state field the badge does not render. A
+      // player and a developer both saw "ROLLUP DOWN" and no reason anywhere.
+      console.warn('[rollup] could not start:', e);
       set({ phase: 'degraded', lastError: readableChainError(e) });
     }
   },
